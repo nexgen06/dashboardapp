@@ -16,7 +16,7 @@ export default function CanliTabloPage() {
       <div className="container max-w-2xl py-16">
         <div className="rounded-lg border-2 border-amber-200 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30 p-8 text-center">
           <Shield className="h-12 w-12 mx-auto text-amber-600 dark:text-amber-400 mb-3" />
-          <p className="text-slate-800 dark:text-slate-200 font-medium">Canlı Tablo'ya erişim yetkiniz yok.</p>
+          <p className="text-slate-800 dark:text-slate-200 font-medium">Canlı Tablo&apos;ya erişim yetkiniz yok.</p>
           <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">Bu alan için yetki gerekir.</p>
           <Button variant="outline" asChild className="mt-4">
             <Link href="/">Dashboard&apos;a dön</Link>

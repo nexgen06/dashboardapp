@@ -79,7 +79,7 @@ export default function GirisPage() {
           <div className="mb-6 text-center">
             <h1 className="text-2xl font-semibold text-slate-800 dark:text-slate-100">Giriş yap</h1>
             <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-              Dashboard'a erişmek için giriş yapın
+              Dashboard&apos;a erişmek için giriş yapın
             </p>
           </div>
           <form onSubmit={handleSubmit} className="space-y-4">

@@ -164,8 +164,8 @@ export function GorevlerTablosu() {
 
   const pinColumn = useCallback((columnId: string, side: "left" | "right" | "unpin") => {
     setColumnPinning((prev) => {
-      const left = prev.left.filter((id) => id !== columnId);
-      const right = prev.right.filter((id) => id !== columnId);
+      const left = (prev.left ?? []).filter((id) => id !== columnId);
+      const right = (prev.right ?? []).filter((id) => id !== columnId);
       if (side === "left") return { left: [...left, columnId], right };
       if (side === "right") return { left, right: [...right, columnId] };
       return { left, right };
@@ -229,7 +229,7 @@ export function GorevlerTablosu() {
   }, [deleteConfirm, liveEnabled, deleteTask]);
 
   const columnHelper = createColumnHelper<GorevDemo>();
-  const columns = useMemo<ColumnDef<GorevDemo, unknown>[]>(() => [
+  const columns = useMemo(() => [
     columnHelper.display({
       id: "status",
       header: "Durum",
@@ -343,7 +343,7 @@ export function GorevlerTablosu() {
           }),
         ]
       : []),
-  ], [settings.dateFormat, firebaseEnabled, liveEnabled, openEditForm]);
+  ] as ColumnDef<GorevDemo, unknown>[], [settings.dateFormat, firebaseEnabled, liveEnabled, openEditForm]);
 
   const table = useReactTable({
     data,

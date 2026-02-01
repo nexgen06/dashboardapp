@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { AuthProvider } from "@/contexts/auth-context";
 import { AuthGuard } from "@/components/AuthGuard";
 import { AppLayout } from "@/components/AppLayout";
@@ -24,7 +25,9 @@ export default function RootLayout({
         />
         <AuthProvider>
         <AuthGuard>
-        <AppLayout>{children}</AppLayout>
+        <Suspense fallback={<div className="flex min-h-screen items-center justify-center text-slate-500">Yükleniyor…</div>}>
+          <AppLayout>{children}</AppLayout>
+        </Suspense>
         </AuthGuard>
         </AuthProvider>
       </body>

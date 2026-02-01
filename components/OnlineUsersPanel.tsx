@@ -53,7 +53,7 @@ function getEditingRowIdForUser(
   const norm = (s: string | undefined) => (s ?? "").trim().toLowerCase();
   const uEmail = norm(user.email);
   const uName = norm(user.name);
-  for (const [rowId, edit] of editingByUser.entries()) {
+  for (const [rowId, edit] of Array.from(editingByUser.entries())) {
     if (uEmail && norm(edit.email) === uEmail) return rowId;
     if (uName && norm(edit.name) === uName) return rowId;
   }

@@ -23,7 +23,7 @@ import type { Project } from "@/types/project";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
 import { useProjects } from "@/hooks/useProjects";
 import { usePresence } from "@/hooks/usePresence";
-import { useSettings } from "@/contexts/settings-context";
+import { useSettings, type DateFormat } from "@/contexts/settings-context";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -99,7 +99,7 @@ function getCellTextLength(columnId: string, task: Task): number {
   return 0;
 }
 
-function getExportValue(columnId: string, task: Task, dateFormat: string): string {
+function getExportValue(columnId: string, task: Task, dateFormat: DateFormat): string {
   const t = task as Record<string, unknown>;
   switch (columnId) {
     case "content":
@@ -132,7 +132,7 @@ const EXPORT_SKIP_IDS = new Set(["select", "actions", "presence"]);
 const EXPORT_DEFAULT_COLUMNS = ["status", "content", "assignee", "priority", "updated", "due_date"];
 
 /** CSV ve Excel için ortak: sütun listesi, başlıklar ve satır değerleri (string[][]) */
-function getExportData(rows: Task[], visibleColumnIds: string[], dateFormat: string) {
+function getExportData(rows: Task[], visibleColumnIds: string[], dateFormat: DateFormat) {
   let dataColumns = visibleColumnIds.filter(
     (id) => !EXPORT_SKIP_IDS.has(id) && (COLUMN_LABELS[id] != null || id.startsWith("extra:") || id === "due_date" || id === "updated" || id === "updated_at" || id === "assignee" || id === "priority" || id === "content" || id === "status" || id === "detay")
   );
@@ -150,7 +150,7 @@ function getExportData(rows: Task[], visibleColumnIds: string[], dateFormat: str
   return { headers, rowArrays };
 }
 
-function downloadCSV(rows: Task[], visibleColumnIds: string[], dateFormat: string, filename: string) {
+function downloadCSV(rows: Task[], visibleColumnIds: string[], dateFormat: DateFormat, filename: string) {
   const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat);
   const lines = [headers.map((h) => `"${String(h).replace(/"/g, '""')}"`).join(",")];
   for (const values of rowArrays) {
@@ -165,7 +165,7 @@ function downloadCSV(rows: Task[], visibleColumnIds: string[], dateFormat: strin
   URL.revokeObjectURL(a.href);
 }
 
-function downloadExcel(rows: Task[], visibleColumnIds: string[], dateFormat: string, filename: string) {
+function downloadExcel(rows: Task[], visibleColumnIds: string[], dateFormat: DateFormat, filename: string) {
   const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat);
   const sheetData: string[][] = [headers, ...rowArrays];
   const ws = XLSX.utils.aoa_to_sheet(sheetData);
@@ -881,8 +881,11 @@ export function TasksTable() {
   }, [projects, visibleProjectIds]);
 
   useEffect(() => {
-    if (assigneeFilter !== "Tümü" && assigneeFilterOptions.length > 0 && !assigneeFilterOptions.includes(assigneeFilter)) {
-      setAssigneeFilter("Tümü");
+    if (Array.isArray(assigneeFilter) && assigneeFilter.length > 0 && assigneeFilterOptions.length > 0) {
+      const valid = assigneeFilter.filter((a) => assigneeFilterOptions.includes(a));
+      if (valid.length !== assigneeFilter.length) {
+        setAssigneeFilter(valid);
+      }
     }
   }, [assigneeFilter, assigneeFilterOptions]);
 
@@ -1230,8 +1233,8 @@ export function TasksTable() {
   const handleDragEnd = useCallback(() => setDraggedColumnId(null), []);
   const pinColumn = useCallback((columnId: string, side: "left" | "right" | "unpin") => {
     setColumnPinning((prev) => {
-      const left = prev.left.filter((id) => id !== columnId);
-      const right = prev.right.filter((id) => id !== columnId);
+      const left = (prev.left ?? []).filter((id) => id !== columnId);
+      const right = (prev.right ?? []).filter((id) => id !== columnId);
       if (side === "left") return { left: [...left, columnId], right };
       if (side === "right") return { left, right: [...right, columnId] };
       return { left, right };
@@ -1555,7 +1558,7 @@ export function TasksTable() {
 
   const handleBulkDelete = useCallback(async () => {
     if (selectedIds.length === 0) return;
-    setDeletingIds((prev) => new Set([...prev, ...selectedIds]));
+    setDeletingIds((prev) => new Set([...Array.from(prev), ...selectedIds]));
     try {
       await deleteTasks(selectedIds);
       setRowSelection({});
