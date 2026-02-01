@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Supabase Realtime Test</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <h1>Supabase Realtime Presence Test</h1>
+  <div id="status">Testing...</div>
+  <div id="online">Online users: <span id="count">0</span></div>
+  <ul id="users"></ul>
+
+  <script>
+    const supabaseUrl = 'https://agzfwhtnevtzajxjsyha.supabase.co';
+    const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFnemZ3aHRuZXZ0emFqeGpzeWhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk3MTc3NDAsImV4cCI6MjA4NTI5Mzc0MH0.1Ysrs_ePM64Ycuz4f7X2e2KumKNL_MXRjpXzWJSJgUA';
+    
+    const { createClient } = supabase;
+    const client = createClient(supabaseUrl, supabaseKey);
+    
+    const clientId = 'test-' + Math.random().toString(36).slice(2, 9);
+    console.log('Client ID:', clientId);
+    
+    const channel = client.channel('test-presence', {
+      config: {
+        presence: {
+          key: clientId,
+          enabled: true
+        }
+      }
+    });
+    
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState();
+        console.log('Presence sync:', state);
+        const users = Object.keys(state);
+        document.getElementById('count').textContent = users.length;
+        document.getElementById('users').innerHTML = users.map(u => 
+          `<li>${u}: ${JSON.stringify(state[u][0])}</li>`
+        ).join('');
+      })
+      .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+        console.log('User joined:', key, newPresences);
+      })
+      .on('presence', { event: 'leave' }, ({ key }) => {
+        console.log('User left:', key);
+      })
+      .subscribe(async (status) => {
+        console.log('Channel status:', status);
+        document.getElementById('status').textContent = 'Status: ' + status;
+        
+        if (status === 'SUBSCRIBED') {
+          const result = await channel.track({
+            user: 'Test User ' + clientId.slice(-4),
+            online_at: new Date().toISOString()
+          });
+          console.log('Track result:', result);
+          document.getElementById('status').textContent = 'Status: SUBSCRIBED & TRACKED';
+        }
+      });
+  </script>
+</body>
+</html>

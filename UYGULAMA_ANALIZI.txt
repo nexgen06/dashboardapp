@@ -1,0 +1,269 @@
+================================================================================
+                    DASHBOARD UYGULAMASI - ÖZELLİK VE FONKSİYON ANALİZİ
+================================================================================
+Tarih: Ocak 2025
+Teknoloji: Next.js 14 (App Router), TypeScript, Tailwind CSS, Shadcn/ui, Supabase
+
+================================================================================
+1. GENEL YAPI
+================================================================================
+
+Uygulama, kurumsal bir görev ve proje yönetim paneli olarak tasarlanmıştır.
+Ana sayfa iki sekmeden oluşur: "Projeler" ve "Canlı Tablo".
+Sol tarafta daralabilir sidebar, üstte header, ortada sekmeye göre değişen içerik yer alır.
+
+- app/                    → Sayfalar ve layout (App Router)
+- app/page.tsx            → Ana sayfa (Projeler / Canlı Tablo sekmeleri)
+- app/ayarlar/page.tsx   → Ayarlar sayfası
+- app/projeler/[id]/page.tsx → Proje detay sayfası (görev listesi)
+- components/             → Bileşenler (layout, UI, iş mantığı)
+- contexts/               → Sidebar ve Ayarlar state yönetimi
+- hooks/                  → Veri çekme ve Realtime hook'ları
+- lib/                    → Supabase istemcisi, CSV/JSON parser, tarih/dil yardımcıları
+- types/                  → Task ve Project tipleri
+- scripts/                → Supabase tablo ve seed SQL dosyaları
+
+================================================================================
+2. LAYOUT VE NAVİGASYON
+================================================================================
+
+2.1 Sidebar (components/layout/Sidebar.tsx)
+---------------------------------------------
+- Daralabilir sol menü: geniş (250px) / dar (72px, sadece ikonlar)
+- Menü öğeleri: Dashboard, Projeler, Canlı Tablo, Ayarlar
+- Aktif sayfa/sekmeye göre vurgulama
+- Dar modda tooltip ile etiket gösterimi
+- Tema: açık/koyu uyumlu (slate tonları)
+
+2.2 Header (components/layout/Header.tsx)
+----------------------------------------
+- Sayfa başlığı (pathname ve tab'a göre: "Projeler / Aktif Görevler", "Canlı Tablo", "Ayarlar")
+- Genel arama kutusu (placeholder)
+- Bildirimler dropdown (badge ile okunmamış sayı)
+- Kullanıcı profili dropdown (Avatar, Ayarlar, Çıkış)
+
+2.3 Ana sayfa sekmeleri (app/page.tsx)
+--------------------------------------
+- Projeler: ProjectsSection bileşeni (proje kartları, arama, filtre, yeni proje)
+- Canlı Tablo: Görevler Tablosu (GorevlerTablosu) + Canlı Tablo (TasksTable, Supabase Realtime)
+- URL: ?tab=projeler | ?tab=canli-tablo ile sekme senkronu
+
+================================================================================
+3. PROJELER MODÜLÜ
+================================================================================
+
+3.1 Projeler listesi (components/ProjectsSection.tsx)
+-----------------------------------------------------
+- Proje kartları: ad, açıklama, durum (Aktif / Tamamlandı / Beklemede), görev sayısı, son güncelleme
+- Arama: proje adı ve açıklamada metin araması
+- Filtreler: durum (Tümü / Aktif / Tamamlandı / Beklemede), tarih aralığı (başlangıç–bitiş)
+- "Yeni proje" butonu → Yeni proje ekleme modalı
+- Her kartta menü (⋮): Düzenle, Proje detayı / görevler, Arşivle, Sil
+- Silme onay modalı
+- "X görev" badge'i proje detay sayfasına link
+
+3.2 Yeni proje / Proje düzenleme modalı
+--------------------------------------
+- Alanlar: Ad, Açıklama, Durum (Aktif / Tamamlandı / Beklemede)
+- Sadece yeni projede:
+  - CSV veya JSON dosyası ile görev aktarma (opsiyonel)
+  - "İşlemi yapacak kullanıcı (atanan)" metin alanı
+- Proje oluşturulduktan sonra dosya yüklendiyse: dosya parse edilir, her satır/nesne bir görev olarak oluşturulur; proje_id yeni projeye, atanan seçilen kullanıcıya atanır; orijinal sütun başlıkları extra_data ile saklanır ve Canlı Tablo'da dinamik sütun olarak görünür
+
+3.3 Proje detay sayfası (app/projeler/[id]/page.tsx)
+----------------------------------------------------
+- Proje bilgisi: ad, açıklama, durum
+- Bu projeye atanmış görevler listesi (mini tablo)
+- Filtreler: atanan kişi (Tümü / listeden), tarih (Tümü / Bu hafta / Bu ay / Gecikmiş)
+- Görev satırında: durum, içerik, atanan, öncelik, son tarih; gecikmiş görevler vurgulanır
+- "Yeni görev" ile projeye görev ekleme (project_id otomatik)
+- Satır menüsü: Durumu değiştir, Projeden çıkar, Sil
+- "Projelere dön" linki
+
+================================================================================
+4. CANLI TABLO MODÜLÜ (Supabase Realtime)
+================================================================================
+
+4.1 Görevler Tablosu (GorevlerTablosu)
+--------------------------------------
+- Basit görev listesi (Canlı Tablo'nun üstünde tanıtım/örnek amaçlı)
+
+4.2 Canlı Tablo (components/TasksTable.tsx)
+-------------------------------------------
+Supabase tasks tablosu ile senkronize, Google Tablolar benzeri gelişmiş tablo.
+
+Veri ve canlılık
+- Supabase'den tasks verisi çekilir; Realtime ile INSERT/UPDATE/DELETE anlık yansır
+- Bağlantı durumu göstergesi: "Canlı" (yeşil) / "Yeniden bağlanıyor" (sarı)
+- Başka kullanıcı tarafından düzenlenen satır "Başkası düzenliyor…" ile işaretlenir (presence)
+
+Varsayılan görünüm
+- Varsayılan filtre: "Sadece proje görevleri" (project_id dolu olanlar); "Tüm görevler" seçilerek projesiz görevler de listelenebilir
+
+Sütunlar
+- Seçim (checkbox), Durum, Atanan, Öncelik, Son güncelleme, Detay (CSV sütunları), İşlemler, Düzenleniyor (presence)
+- CSV/JSON import ile gelen ek sütunlar (extra_data) dinamik olarak tabloya eklenir; orijinal başlıklar korunur
+
+Arama ve filtreler
+- Genel arama: görev metni, atanan, extra_data değerlerinde arar
+- Durum: Tümü / Yapılacak / Devam ediyor / Tamamlandı
+- Atanan: Tümü / listeden kişi
+- Tarih aralığı: başlangıç–bitiş (son güncelleme)
+- Aktif filtre sayısı ve "Filtreleri temizle" butonu
+
+Tablo düzeni
+- Sütun sıralama: sürükle-bırak ile başlık sırası değiştirilebilir
+- Sütun genişliği: kenardan sürükleyerek ayarlanabilir
+- Sütun sabitleme: menüden sola/sağa sabitle veya kaldır
+- Sütun görünürlüğü: "Kolonları göster" ile hangi sütunların görüneceği seçilir
+- "İçeriğe göre ölçeklendir" butonu: sütun genişliklerini başlık ve hücre içeriğine göre otomatik hesaplar (min/max sınırları içinde)
+- "Tablo genişlet" / "Daralt": tam ekran modu
+
+Hücre düzenleme
+- Durum ve Atanan hücreleri tıklanabilir; dropdown veya inline düzenleme ile güncellenir; değişiklik Supabase'e kaydedilir
+- Öncelik badge olarak gösterilir (High/Medium/Low renkleri)
+
+Satır işlemleri
+- Satır menüsü: Düzenle, Kopyala, Durumu değiştir, Sil
+- "Yeni görev" butonu ile yeni satır ekleme (modal)
+- Görev düzenleme modalı: içerik, durum, atanan, öncelik
+
+Toplu işlemler
+- Checkbox ile satır seçimi
+- Seçilenlere toplu durum güncelleme
+- Seçilenleri toplu silme
+
+Sıralama ve sayfalama
+- Sütun başlığına tıklayarak sıralama (örn. Son güncelleme)
+- Sayfa boyutu: 10 / 25 / 50
+- Sayfa geçişi (ilk / önceki / sonraki / son)
+
+İçe aktarma (CSV)
+- "CSV içe aktar" ile dosya seçimi
+- İlk satır başlık; virgül veya noktalı virgül ayırıcı desteklenir
+- Sütun eşleme: İçerik (zorunlu), Durum, Atanan, Öncelik hangi CSV sütununa karşılık gelecekse seçilir
+- Tüm sütunlar extra_data olarak saklanır; tabloda "Detay" sütununda "CSV sütunları (N)" ile görüntülenir
+- Mevcut veriyi değiştir veya ekle seçeneği
+- Parçalı (chunk) insert ile büyük dosyalar desteklenir
+
+Dışa aktarma
+- CSV indir (mevcut görünüm / tüm veri)
+- Excel indir (CSV BOM ile .xls olarak)
+
+Detay ve ek veri
+- "Detay" sütununda "CSV sütunları (N)" butonu: o satırdaki extra_data anahtar–değer listesi modalda gösterilir
+- Dinamik sütunlar: extra_data anahtarları tabloya ek sütun olarak eklenir (öncelik ile son güncelleme arasında)
+
+Örnek veri
+- "Örnek kayıtları tekrar yükle" ile seed verisi eklenebilir / mevcut veri silinip seed ile doldurulabilir (Supabase'de örnek kayıtlar tanımlıysa)
+
+================================================================================
+5. AYARLAR MODÜLÜ
+================================================================================
+
+5.1 Ayarlar sayfası (app/ayarlar/page.tsx)
+------------------------------------------
+Sekmeler: Genel, Görünüm, Bildirimler, Güvenlik, Entegrasyonlar, Gelişmiş.
+Sayfa içi arama kutusu: ayar etiket ve açıklamalarında arama.
+
+5.2 Genel
+---------
+- Dil: Türkçe / English (arayüz dili)
+- Tarih formatı: GG.AA.YYYY / YYYY-AA-GG / AA/GG/YYYY
+
+5.3 Görünüm
+-----------
+- Tema: Açık / Koyu / Sisteme uy
+- Sidebar varsayılan: sayfa açılışında daraltılmış olsun (evet/hayır)
+
+5.4 Bildirimler
+---------------
+- E-posta bildirimleri (açık/kapalı)
+- Tarayıcı (push) bildirimleri (açık/kapalı)
+- Bildirim sesi (açık/kapalı)
+
+5.5 Güvenlik
+------------
+- Şifre değiştirme formu (mevcut şifre, yeni şifre, tekrar)
+- İki faktörlü doğrulama (açık/kapalı)
+- Oturumlar listesi (cihaz, konum, son aktivite); oturum kapatma
+- "Tüm veriyi sil" (onay modalı, checkbox ile teyit)
+- "Hesabı kapat" (onay modalı, checkbox ile teyit)
+
+5.6 Entegrasyonlar
+------------------
+- Entegrasyon listesi / bağlantı alanları (örnek yapı)
+
+5.7 Gelişmiş
+------------
+- Hata ayıklama modu (açık/kapalı)
+- Log düzeyi: error / warn / info / debug
+- Deneysel özellikler (açık/kapalı)
+- Bölüm bazlı "Varsayılana sıfırla" butonları
+- Tüm ayarları varsayılana sıfırlama
+
+Kaydetme
+- Değişiklikler debounce ile localStorage'a otomatik kaydedilir
+- "Kaydedildi" bildirimi (toast benzeri)
+- Kritik bölümlerde manuel "Kaydet" butonu
+
+================================================================================
+6. VERİ VE BACKEND ENTEGRASYONU
+================================================================================
+
+6.1 Supabase
+------------
+- İstemci: lib/supabaseClient.ts (NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY)
+- Tablolar: tasks, projects
+- tasks: id, content, status, assignee, last_updated_by, priority, updated_at, project_id, due_date, extra_data (jsonb)
+- projects: id, name, description, status, created_at, updated_at
+- Realtime: tasks tablosu için postgres_changes (INSERT, UPDATE, DELETE) aboneliği
+
+6.2 Hook'lar
+------------
+- useTasksWithRealtime: tasks listesi, fetchTasks, createTask, createTasksBulk, saveTask, deleteTask, deleteTasks, optimistic update, Realtime senkronu
+- useProjects: projects listesi, createProject (yeni proje id döner), updateProject, deleteProject, archiveProject
+- useTaskCountByProject: proje id'ye göre görev sayısı
+- usePresence: başka kullanıcıların hangi satırı düzenlediğini takip (TasksTable'da "Başkası düzenliyor…")
+
+6.3 Tipler
+----------
+- Task: id, content, status, assignee, last_updated_by, priority?, updated_at?, project_id?, due_date?, extra_data?
+- Project: id, name, description, status (Aktif/Tamamlandı/Beklemede), created_at, updated_at
+
+================================================================================
+7. YARDIMCI KÜTÜPHANELER VE CONTEXT
+================================================================================
+
+7.1 lib/
+--------
+- csvParser: CSV metin ayrıştırma (virgül/noktalı virgül otomatik), tırnak içi virgül destekli
+- jsonParser: JSON dosyasından nesne dizisi okuma (başlıklar + satırlar)
+- formatDate: Tarih formatlama (ayar formatına göre)
+- relativeTime: Göreli zaman ("5 dk önce", "2 gün önce")
+- supabaseClient: Supabase client singleton
+- utils: cn (classnames) vb.
+
+7.2 Context
+----------
+- SidebarProvider: sidebar açık/kapalı state, toggle
+- SettingsProvider: tema, dil, tarih formatı, sidebar varsayılanı, bildirimler, gelişmiş ayarlar; localStorage ile kalıcılık, debounced kaydetme
+- ApplySettings: tema ve dil değerlerini DOM ve document.documentElement'e uygular (layout içinde)
+
+================================================================================
+8. ÖZET – UYGULAMADA YAPILANLAR
+================================================================================
+
+- Next.js 14 App Router ile dashboard iskeleti; TypeScript, Tailwind, Shadcn/ui
+- Daralabilir sidebar, header (başlık, arama, bildirimler, profil)
+- Ana sayfa: Projeler ve Canlı Tablo sekmeleri
+- Projeler: CRUD, arama/filtre, kart görünümü, proje detay sayfası, projeye görev atama, CSV/JSON ile yeni projede toplu görev oluşturma (atanan + extra_data)
+- Canlı Tablo: Supabase Realtime, görev CRUD, CSV import (sütun eşleme, extra_data), dinamik sütunlar, varsayılan "sadece proje görevleri" filtresi, arama/filtre/sıralama/sayfalama, sütun sıralama/genişlik/görünürlük/sabitleme, içeriğe göre sütun ölçeklendirme, toplu işlem, dışa aktarma (CSV/Excel), presence (başkası düzenliyor)
+- Ayarlar: Genel (dil, tarih), Görünüm (tema, sidebar), Bildirimler, Güvenlik (şifre, 2FA, oturumlar, tehlikeli işlemler), Entegrasyonlar, Gelişmiş; arama, debounced kaydetme, bölüm sıfırlama
+- Tema: açık/koyu/sistem, localStorage ile kalıcı
+- Supabase: tasks + projects tabloları, Realtime, RLS olmadan anon key ile kullanım
+- SQL scriptleri: create-tasks, create-projects, add-project-id-to-tasks, seed, vb.
+
+================================================================================
+SON
+================================================================================
