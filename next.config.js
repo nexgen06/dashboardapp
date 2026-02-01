@@ -6,9 +6,8 @@ const nextConfig = {
   // Production optimizasyonları
   poweredByHeader: false,
 
-  // Vercel build: ESLint uyarıları (react-hooks/exhaustive-deps) build'i düşürmesin
   eslint: {
-    ignoreDuringBuilds: true,
+    ignoreDuringBuilds: false,
   },
 
   // Görsel optimizasyonları

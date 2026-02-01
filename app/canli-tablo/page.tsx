@@ -16,10 +16,10 @@ export default function CanliTabloPage() {
       <div className="container max-w-2xl py-16">
         <div className="rounded-lg border-2 border-amber-200 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30 p-8 text-center">
           <Shield className="h-12 w-12 mx-auto text-amber-600 dark:text-amber-400 mb-3" />
-          <p className="text-slate-800 dark:text-slate-200 font-medium">Canlı Tablo&apos;ya erişim yetkiniz yok.</p>
+          <p className="text-slate-800 dark:text-slate-200 font-medium">{`Canlı Tablo'ya erişim yetkiniz yok.`}</p>
           <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">Bu alan için yetki gerekir.</p>
           <Button variant="outline" asChild className="mt-4">
-            <Link href="/">Dashboard&apos;a dön</Link>
+            <Link href="/">{`Dashboard'a dön`}</Link>
           </Button>
         </div>
       </div>
@@ -36,11 +36,11 @@ export default function CanliTabloPage() {
           </p>
         </div>
         <Button variant="outline" size="sm" asChild>
-          <Link href="/">Dashboard&apos;a dön</Link>
+          <Link href="/">{`Dashboard'a dön`}</Link>
         </Button>
       </div>
       <div className="flex flex-col gap-4 min-h-0 flex-1">
-        {/* Görevler Tablosu — içeriğe göre yükseklik, en fazla ekranın ~%40'ı; Canlı Tablo yukarıda kalsın diye */}
+        {/* Görevler Tablosu — içeriğe göre yükseklik, en fazla ekranın yaklaşık %40; Canlı Tablo yukarıda kalsın diye */}
         <div className="flex flex-col shrink-0 max-h-[45vh] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm overflow-hidden transition-shadow hover:shadow-md">
           <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 shrink-0">
             <h2 className="text-lg font-medium text-slate-800 dark:text-slate-100">Görev özeti</h2>
