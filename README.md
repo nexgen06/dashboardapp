@@ -138,3 +138,4 @@ Projeler sekmesi şu an örnek 3 kart gösteriyor. Fonksiyonellik artırmak içi
 - Radix UI (Shadcn bileşenleri)
 - Lucide React (ikonlar)
 - Supabase (@supabase/supabase-js, Realtime)
+# dashboardapp
