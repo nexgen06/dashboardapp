@@ -27,6 +27,11 @@
     "tailwind-merge": "^2.5.4",
     "xlsx": "^0.18.5"
   },
+  "overrides": {
+    "next": "14.2.35",
+    "rimraf": "npm:rimraf@^5.0.0",
+    "glob": "npm:glob@^10.0.0"
+  },
   "devDependencies": {
     "@types/node": "^20",
     "@types/react": "^18",
