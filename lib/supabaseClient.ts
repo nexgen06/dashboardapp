@@ -5,8 +5,14 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
 function getSupabase(): SupabaseClient {
   if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error(
-      "[Supabase] NEXT_PUBLIC_SUPABASE_URL ve NEXT_PUBLIC_SUPABASE_ANON_KEY .env.local içinde tanımlı olmalı. Değişken isimleri tam olarak bu şekilde yazılmalı."
+    if (typeof window !== "undefined") {
+      console.error(
+        "[Supabase] NEXT_PUBLIC_SUPABASE_URL ve NEXT_PUBLIC_SUPABASE_ANON_KEY tanımlı olmalı. Vercel: Project Settings → Environment Variables."
+      );
+    }
+    return createClient(
+      supabaseUrl || "https://placeholder.supabase.co",
+      supabaseAnonKey || "placeholder-anon-key"
     );
   }
   return createClient(supabaseUrl, supabaseAnonKey);
