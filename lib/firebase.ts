@@ -57,9 +57,10 @@ export function getFirestoreDb(): Firestore | null {
   const firebaseApp = getFirebaseApp();
   if (!firebaseApp) return null;
   try {
-    // Bazı ağ/VPN/firewall ortamlarında WebChannel bloklanır; istemci yanlışlıkla "offline" kalır.
-    // https://firebase.google.com/docs/firestore/manage-data/enable-offline
+    // WebChannel sık sık bloklandığı ortamlarda (VPN, sıkı firewall, bazı CDN’ler)
+    // "client is offline" hatasını azaltır.
     db = initializeFirestore(firebaseApp, {
+      experimentalForceLongPolling: true,
       experimentalAutoDetectLongPolling: true,
     });
   } catch {
