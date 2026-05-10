@@ -1,28 +1,17 @@
 "use client";
 
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
+import type { Session } from "@supabase/supabase-js";
 import type { User, RoleId, Permission } from "@/types/permissions";
-import { ROLES } from "@/types/permissions";
 import { getEffectivePermissions, hasPermission as checkPermission, coerceRoleId } from "@/lib/permissions";
 import { getFirebaseAuth, getFirestoreDb, isFirebaseConfigured } from "@/lib/firebase";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { setUserProfileAndGetRole, updateRoleForUid } from "@/lib/firestoreUsers";
-
-/** Varsayılan tam yetkili (ek ortam listesi yoksa) */
-const DEFAULT_FULL_ADMIN_EMAIL = "ugurgrses@gmail.com";
-
-/** Tam yetkili e-postalar: varsayılan + NEXT_PUBLIC_ADMIN_EMAILS (virgülle, Railway’de tanımlanabilir) */
-function getFullAdminEmailSet(): Set<string> {
-  const set = new Set<string>();
-  set.add(DEFAULT_FULL_ADMIN_EMAIL.trim().toLowerCase());
-  const raw = process.env.NEXT_PUBLIC_ADMIN_EMAILS ?? "";
-  raw.split(",").forEach((part) => {
-    const e = part.trim().toLowerCase();
-    if (e) set.add(e);
-  });
-  return set;
-}
+import { getFullAdminEmailSet } from "@/lib/full-admin-emails";
+import { getAuthBackend, isAuthEnabled } from "@/lib/authConfig";
+import { supabase } from "@/lib/supabaseClient";
+import { adminSetRoleForUid, ensureSupabaseProfileAndRole } from "@/lib/supabaseProfiles";
 
 const FULL_ADMIN_EMAILS = getFullAdminEmailSet();
 
@@ -45,7 +34,9 @@ type AuthContextType = {
   hasPermission: (permission: Permission) => boolean;
   permissions: Permission[];
   isAdmin: boolean;
-  /** Firebase Auth kullanılıyor mu (giriş sayfası gösterimi için) */
+  /** Gerçek giriş kullanılıyor mu (/giris) */
+  isAuthEnabled: boolean;
+  /** @deprecated Yerine `isAuthEnabled` kullanın (Supabase ile aynı anlamda) */
   isFirebaseEnabled: boolean;
 };
 
@@ -54,87 +45,170 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUserState] = useState<User | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
-  const isFirebaseEnabled = isFirebaseConfigured();
+  const authEnabled = isAuthEnabled();
 
   useEffect(() => {
-    if (isFirebaseEnabled) {
-      const auth = getFirebaseAuth();
-      if (!auth) {
-        setIsLoaded(true);
-        return;
-      }
-      const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+    const backend = getAuthBackend();
+    let cancelled = false;
+
+    const markLoaded = () => {
+      if (!cancelled) setIsLoaded(true);
+    };
+
+    if (backend === "demo") {
+      setUserState(DEMO_USER);
+      setIsLoaded(true);
+      return;
+    }
+
+    if (backend === "supabase") {
+      const applySession = async (session: Session | null) => {
         try {
-          if (!fbUser) {
+          if (!session?.user) {
             setUserState(null);
             return;
           }
 
-          const email = (fbUser.email ?? "").toLowerCase();
-          const isFullAdmin = FULL_ADMIN_EMAILS.has(email);
+          const sbUser = session.user;
           let roleId: RoleId = "member";
-
-          if (isFullAdmin) {
-            roleId = "admin";
-            const db = getFirestoreDb();
-            if (db) {
-              setDoc(
-                doc(db, "users", fbUser.uid),
-                {
-                  email: fbUser.email ?? "",
-                  displayName: fbUser.displayName ?? fbUser.email ?? null,
-                  roleId: "admin",
-                  updatedAt: serverTimestamp(),
-                },
-                { merge: true }
-              ).catch(() => {});
-            }
-          } else {
-            try {
-              const fromFs = await setUserProfileAndGetRole(
-                fbUser.uid,
-                fbUser.email ?? "",
-                fbUser.displayName ?? fbUser.email ?? null
-              );
-              roleId = coerceRoleId(fromFs);
-            } catch (firestoreErr) {
-              console.warn(
-                "[Auth] Firestore profil güncellenemedi; oturum yine de açılacak (üye varsayılanı)",
-                firestoreErr
-              );
-              roleId = "member";
-            }
+          try {
+            roleId = await ensureSupabaseProfileAndRole(supabase, sbUser);
+          } catch (profErr) {
+            console.warn("[Auth] Supabase profil güncellenemedi; üye varsayılanı kullanılacak:", profErr);
+            const mail = (sbUser.email ?? "").toLowerCase();
+            roleId = FULL_ADMIN_EMAILS.has(mail) ? "admin" : "member";
           }
 
+          roleId = coerceRoleId(roleId);
+          const displayFromMeta =
+            typeof sbUser.user_metadata?.full_name === "string" ? sbUser.user_metadata.full_name : null;
+
           setUserState({
-            id: fbUser.uid,
-            email: fbUser.email ?? "",
-            displayName: fbUser.displayName ?? fbUser.email ?? null,
+            id: sbUser.id,
+            email: sbUser.email ?? "",
+            displayName: displayFromMeta ?? sbUser.email ?? null,
             roleId,
           });
         } catch (err) {
-          console.error("[Auth] onAuthStateChanged hatası:", err);
-          /* Oturumu tamamen sıfırlamak yerine, Firebase kullanıcısı varsa düşük yetki ile devam ettir—AuthGuard’a takılmasın */
-          if (fbUser) {
+          console.error("[Auth] Supabase oturum senkronu:", err);
+          const su = session?.user;
+          if (su) {
+            const mail = (su.email ?? "").toLowerCase();
             setUserState({
-              id: fbUser.uid,
-              email: fbUser.email ?? "",
-              displayName: fbUser.displayName ?? fbUser.email ?? null,
-              roleId: FULL_ADMIN_EMAILS.has((fbUser.email ?? "").toLowerCase()) ? "admin" : "member",
+              id: su.id,
+              email: su.email ?? "",
+              displayName: su.email ?? null,
+              roleId: FULL_ADMIN_EMAILS.has(mail) ? "admin" : "member",
             });
           } else {
             setUserState(null);
           }
         } finally {
-          setIsLoaded(true);
+          markLoaded();
         }
+      };
+
+      supabase.auth.getSession().then(({ data }) => {
+        if (cancelled) return;
+        void applySession(data.session);
       });
-      return () => unsubscribe();
-    } else {
-      setUserState(DEMO_USER);
-      setIsLoaded(true);
+
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange((_event, sess) => {
+        if (cancelled) return;
+        void applySession(sess);
+      });
+
+      return () => {
+        cancelled = true;
+        subscription.unsubscribe();
+      };
     }
-  }, [isFirebaseEnabled]);
+
+    /** Firebase Auth (yalnızca Supabase yoksa) */
+    if (!isFirebaseConfigured()) {
+      setIsLoaded(true);
+      return;
+    }
+
+    const auth = getFirebaseAuth();
+    if (!auth) {
+      setIsLoaded(true);
+      return;
+    }
+
+    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      if (cancelled) return;
+      try {
+        if (!fbUser) {
+          setUserState(null);
+          return;
+        }
+
+        const email = (fbUser.email ?? "").toLowerCase();
+        const isFullAdmin = FULL_ADMIN_EMAILS.has(email);
+        let roleId: RoleId = "member";
+
+        if (isFullAdmin) {
+          roleId = "admin";
+          const db = getFirestoreDb();
+          if (db) {
+            setDoc(
+              doc(db, "users", fbUser.uid),
+              {
+                email: fbUser.email ?? "",
+                displayName: fbUser.displayName ?? fbUser.email ?? null,
+                roleId: "admin",
+                updatedAt: serverTimestamp(),
+              },
+              { merge: true }
+            ).catch(() => {});
+          }
+        } else {
+          try {
+            const fromFs = await setUserProfileAndGetRole(
+              fbUser.uid,
+              fbUser.email ?? "",
+              fbUser.displayName ?? fbUser.email ?? null
+            );
+            roleId = coerceRoleId(fromFs);
+          } catch (firestoreErr) {
+            console.warn(
+              "[Auth] Firestore profil güncellenemedi; oturum yine de açılacak (üye varsayılanı)",
+              firestoreErr
+            );
+            roleId = "member";
+          }
+        }
+
+        setUserState({
+          id: fbUser.uid,
+          email: fbUser.email ?? "",
+          displayName: fbUser.displayName ?? fbUser.email ?? null,
+          roleId,
+        });
+      } catch (err) {
+        console.error("[Auth] onAuthStateChanged hatası:", err);
+        if (fbUser) {
+          setUserState({
+            id: fbUser.uid,
+            email: fbUser.email ?? "",
+            displayName: fbUser.displayName ?? fbUser.email ?? null,
+            roleId: FULL_ADMIN_EMAILS.has((fbUser.email ?? "").toLowerCase()) ? "admin" : "member",
+          });
+        } else {
+          setUserState(null);
+        }
+      } finally {
+        markLoaded();
+      }
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
 
   const setUser = useCallback((u: User | null) => {
     setUserState(u);
@@ -146,7 +220,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!uid) return;
       if (targetUid && user?.roleId !== "admin") return;
       try {
-        await updateRoleForUid(uid, roleId);
+        const b = getAuthBackend();
+        if (b === "supabase") {
+          await adminSetRoleForUid(supabase, uid, roleId);
+        } else if (b === "firebase") {
+          await updateRoleForUid(uid, roleId);
+        }
         if (uid === user?.id) {
           setUserState((prev) => (prev ? { ...prev, roleId } : null));
         }
@@ -154,16 +233,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.warn("[Auth] updateUserRole failed:", e);
       }
     },
-    [isFirebaseEnabled, user?.id, user?.roleId]
+    [user?.id, user?.roleId]
   );
 
-  const signOut = useCallback(() => {
-    if (isFirebaseEnabled) {
-      const auth = getFirebaseAuth();
-      if (auth) auth.signOut();
+  const signOut = useCallback(async () => {
+    const b = getAuthBackend();
+    if (b === "supabase") {
+      await supabase.auth.signOut();
+      setUserState(null);
+      return;
     }
-    setUserState(isFirebaseEnabled ? null : DEMO_USER);
-  }, [isFirebaseEnabled]);
+    if (b === "firebase") {
+      const auth = getFirebaseAuth();
+      if (auth) await auth.signOut();
+      setUserState(null);
+      return;
+    }
+    setUserState(DEMO_USER);
+  }, []);
 
   const permissions = React.useMemo(() => getEffectivePermissions(user), [user]);
   const hasPermission = useCallback(
@@ -181,7 +268,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     hasPermission,
     permissions,
     isAdmin,
-    isFirebaseEnabled,
+    isAuthEnabled: authEnabled,
+    isFirebaseEnabled: authEnabled,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

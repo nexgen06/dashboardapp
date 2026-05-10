@@ -49,7 +49,7 @@ Firebase kullanıldığında oturum yoksa bir giriş sayfası göstermek için:
 
 1. `app/giris/page.tsx` oluşturun.
 2. `signInWithEmailAndPassword(getFirebaseAuth()!, email, password)` ile giriş yapın.
-3. Layout veya middleware’de `useAuth().user === null && isFirebaseEnabled` ise `/giris`’e yönlendirin.
+3. Gerçek giriş kullanılıyorsa (`useAuth().isAuthEnabled`) kullanıcı yoksa `/giris`’e yönlendirin (çoğu projede bu `AuthGuard` içindedir).
 
 Giriş sayfası eklenmediyse, oturumu olmayan kullanıcılar `user === null` ile ana sayfada kalır; yetki gerektiren alanlar erişim engeli gösterebilir.
 

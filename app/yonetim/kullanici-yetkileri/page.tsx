@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/auth-context";
 import type { RoleId, Permission } from "@/types/permissions";
 import { ROLES, PERMISSION_GROUPS, PERMISSION_LABELS } from "@/types/permissions";
-import { listUsers, type FirestoreUserProfile } from "@/lib/firestoreUsers";
+import { listDirectoryUsers, type FirestoreUserProfile } from "@/lib/listDirectoryUsers";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -31,10 +31,10 @@ export default function KullaniciYetkileriPage() {
     if (!isAdmin) return;
     setUsersLoading(true);
     try {
-      const list = await listUsers();
+      const list = await listDirectoryUsers();
       setUsers(list);
     } catch (e) {
-      console.warn("[KullaniciYetkileri] listUsers failed:", e);
+      console.warn("[KullaniciYetkileri] listDirectoryUsers failed:", e);
     } finally {
       setUsersLoading(false);
     }
@@ -87,7 +87,9 @@ export default function KullaniciYetkileriPage() {
           Kullanıcı yetki yönetimi
         </h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          Hangi kullanıcının hangi bölümlere erişebileceği, proje oluşturma, atama ve Canlı Tablo işlemleri buradan yönetilir. Giriş yapan kullanıcılar Firestore&apos;da listelenir; yönetici rollerini buradan değiştirebilir.
+          Hangi kullanıcının hangi bölümlere erişebileceği, proje oluşturma, atama ve Canlı Tablo işlemleri buradan yönetilir.
+          Oturumu açmış kullanıcılar bu listede görünür (Supabase ise <code className="text-xs rounded bg-slate-100 px-1 dark:bg-slate-700">profiles</code>, Firebase ise Firestore{' '}
+          <code className="text-xs rounded bg-slate-100 px-1 dark:bg-slate-700">users</code>).
         </p>
       </div>
 
@@ -101,7 +103,7 @@ export default function KullaniciYetkileriPage() {
                 Tüm kullanıcılar
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Giriş yapmış kullanıcılar. Rolü değiştirmek için listeden seçin. Bir kullanıcı listede yoksa, o e-posta ile bir kez daha giriş yapılması gerekir (profil Firestore&apos;a ilk girişte yazılır).
+                Bir kullanıcı listede yoksa, önce dashboard&apos;a bir kez giriş yapmalıdır (Supabase/Veya Firebase profili ilk oturumda oluşur).
               </p>
             </div>
             <Button variant="outline" size="sm" onClick={fetchUsers} disabled={usersLoading} className="shrink-0">
@@ -117,7 +119,7 @@ export default function KullaniciYetkileriPage() {
               </div>
             ) : users.length === 0 ? (
               <p className="text-sm text-slate-500 dark:text-slate-400 py-4">
-                Henüz Firestore&apos;da kullanıcı kaydı yok. Kullanıcılar ilk giriş yaptığında burada listelenir.
+                Henüz profil kaydı yok. Kullanıcılar ilk giriş sonrasında burada listelenir (<code className="text-xs">scripts/supabase-auth-profiles.sql</code> ile Supabase tablosunun oluşturulduğundan emin olun).
               </p>
             ) : (
               <ul className="space-y-2">
@@ -173,7 +175,7 @@ export default function KullaniciYetkileriPage() {
             Oturum açan kullanıcı
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Firebase Auth ile giriş yapan kullanıcı ve rolü.
+            Oturum açılan hesap ve rolü (Supabase Auth veya Firebase Auth).
           </p>
         </div>
         <div className="p-4">
@@ -188,7 +190,7 @@ export default function KullaniciYetkileriPage() {
                 {canEdit ? (
                   <select
                     value={user.roleId}
-                    onChange={(e) => updateUserRole(e.target.value as RoleId, user.id)}
+                    onChange={(e) => updateUserRole(e.target.value as RoleId)}
                     className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
                   >
                     {ROLE_OPTIONS.map((id) => (
@@ -203,7 +205,9 @@ export default function KullaniciYetkileriPage() {
               </div>
             </div>
           ) : (
-            <p className="text-slate-500 dark:text-slate-400">Oturum açılmamış. (Firebase ile giriş sonrası kullanıcı burada listelenecek.)</p>
+            <p className="text-slate-500 dark:text-slate-400">
+              Oturum açılmamış veya yükleme sürüyor. Önce ana sayfadaki Giriş&apos;e gidin.
+            </p>
           )}
         </div>
       </div>
@@ -296,9 +300,11 @@ export default function KullaniciYetkileriPage() {
       <div className="mt-6 rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-4 flex gap-3">
         <Info className="h-5 w-5 shrink-0 text-blue-600 dark:text-blue-400 mt-0.5" />
         <div className="text-sm text-blue-900 dark:text-blue-100">
-          <p className="font-medium">Firebase entegrasyonu</p>
+          <p className="font-medium">Kimlik doğrulama ve roller</p>
           <p className="mt-1 text-blue-800 dark:text-blue-200">
-            Kimlik doğrulama Firebase ile eklendiğinde: kullanıcı listesi Firebase Auth / Firestore üzerinden gelecek, roller ve atamalar veritabanında saklanacak. Bu sayfa gerçek kullanıcıları listeliyor ve yalnızca <strong>userManagement.edit</strong> yetkisi olan yöneticiler rol atayabilecek.
+            Varsayılan giriş: Supabase yapılandırılmışsa Supabase Auth, aksi halde Firebase Auth kullanılır. Kullanıcı listesi ve rol güncelleme işlevi buna uygun olarak <strong>profiles</strong> tablosundan veya
+            Firestore <strong>users</strong> koleksiyonundan beslenir. Yalnızca <strong>userManagement.edit</strong> yetkisi olanlar başka kullanıcıların rolünü değiştirmelidir; admin rol başka kullanıcıya atanırken Postgres&apos;te{' '}
+            <code className="text-xs">admin_set_role</code> RPC&apos;si çalışır.
           </p>
         </div>
       </div>

@@ -34,7 +34,7 @@ export function Header() {
   const searchParams = useSearchParams();
   const tab = searchParams?.get("tab") ?? null;
   const pageTitle = getPageTitle(pathname, tab);
-  const { user, isFirebaseEnabled, signOut } = useAuth();
+  const { user, isAuthEnabled, signOut } = useAuth();
   const notificationSummary = useNotificationSummary(user?.email ?? null);
 
   const displayName = user?.displayName || user?.email || "Kullanıcı";
@@ -111,7 +111,7 @@ export function Header() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        ) : isFirebaseEnabled ? (
+        ) : isAuthEnabled ? (
           <Button asChild size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
             <Link href="/giris">
               <LogIn className="mr-2 h-4 w-4" />
