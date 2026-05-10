@@ -9,8 +9,22 @@ import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { onAuthStateChanged, type User as FirebaseAuthUser } from "firebase/auth";
 import { setUserProfileAndGetRole, updateRoleForUid } from "@/lib/firestoreUsers";
 
-/** Tam yetkili (admin) e-posta — bu kullanıcı her zaman admin sayılır */
-const ADMIN_EMAIL = "ugurgrses@gmail.com";
+/** Varsayılan tam yetkili (ek ortam listesi yoksa) */
+const DEFAULT_FULL_ADMIN_EMAIL = "ugurgrses@gmail.com";
+
+/** Tam yetkili e-postalar: varsayılan + NEXT_PUBLIC_ADMIN_EMAILS (virgülle, Railway’de tanımlanabilir) */
+function getFullAdminEmailSet(): Set<string> {
+  const set = new Set<string>();
+  set.add(DEFAULT_FULL_ADMIN_EMAIL.trim().toLowerCase());
+  const raw = process.env.NEXT_PUBLIC_ADMIN_EMAILS ?? "";
+  raw.split(",").forEach((part) => {
+    const e = part.trim().toLowerCase();
+    if (e) set.add(e);
+  });
+  return set;
+}
+
+const FULL_ADMIN_EMAILS = getFullAdminEmailSet();
 
 /** Firebase kapalıyken kullanılan sabit demo kullanıcı */
 const DEMO_USER: User = {
@@ -52,7 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
         if (fbUser) {
           const email = (fbUser.email ?? "").toLowerCase();
-          const isFullAdmin = email === ADMIN_EMAIL;
+          const isFullAdmin = FULL_ADMIN_EMAILS.has(email);
           let roleId: RoleId;
           if (isFullAdmin) {
             roleId = "admin";
