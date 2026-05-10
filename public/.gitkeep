@@ -1,0 +1,2 @@
+# Next.js static dosyaları (favicon, robots.txt vb.) buraya konur; klasörün repoda
+# kalması Docker COPY public/ adımının başarısız olmaması içindir.
