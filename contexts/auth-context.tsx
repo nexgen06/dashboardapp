@@ -3,10 +3,10 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
 import type { User, RoleId, Permission } from "@/types/permissions";
 import { ROLES } from "@/types/permissions";
-import { getEffectivePermissions, hasPermission as checkPermission } from "@/lib/permissions";
+import { getEffectivePermissions, hasPermission as checkPermission, coerceRoleId } from "@/lib/permissions";
 import { getFirebaseAuth, getFirestoreDb, isFirebaseConfigured } from "@/lib/firebase";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
-import { onAuthStateChanged, type User as FirebaseAuthUser } from "firebase/auth";
+import { onAuthStateChanged } from "firebase/auth";
 import { setUserProfileAndGetRole, updateRoleForUid } from "@/lib/firestoreUsers";
 
 /** Varsayılan tam yetkili (ek ortam listesi yoksa) */
@@ -64,10 +64,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-        if (fbUser) {
+        try {
+          if (!fbUser) {
+            setUserState(null);
+            return;
+          }
+
           const email = (fbUser.email ?? "").toLowerCase();
           const isFullAdmin = FULL_ADMIN_EMAILS.has(email);
-          let roleId: RoleId;
+          let roleId: RoleId = "member";
+
           if (isFullAdmin) {
             roleId = "admin";
             const db = getFirestoreDb();
@@ -84,22 +90,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               ).catch(() => {});
             }
           } else {
-            roleId = await setUserProfileAndGetRole(
-              fbUser.uid,
-              fbUser.email ?? "",
-              fbUser.displayName ?? fbUser.email ?? null
-            );
+            try {
+              const fromFs = await setUserProfileAndGetRole(
+                fbUser.uid,
+                fbUser.email ?? "",
+                fbUser.displayName ?? fbUser.email ?? null
+              );
+              roleId = coerceRoleId(fromFs);
+            } catch (firestoreErr) {
+              console.warn(
+                "[Auth] Firestore profil güncellenemedi; oturum yine de açılacak (üye varsayılanı)",
+                firestoreErr
+              );
+              roleId = "member";
+            }
           }
+
           setUserState({
             id: fbUser.uid,
             email: fbUser.email ?? "",
             displayName: fbUser.displayName ?? fbUser.email ?? null,
             roleId,
           });
-        } else {
-          setUserState(null);
+        } catch (err) {
+          console.error("[Auth] onAuthStateChanged hatası:", err);
+          /* Oturumu tamamen sıfırlamak yerine, Firebase kullanıcısı varsa düşük yetki ile devam ettir—AuthGuard’a takılmasın */
+          if (fbUser) {
+            setUserState({
+              id: fbUser.uid,
+              email: fbUser.email ?? "",
+              displayName: fbUser.displayName ?? fbUser.email ?? null,
+              roleId: FULL_ADMIN_EMAILS.has((fbUser.email ?? "").toLowerCase()) ? "admin" : "member",
+            });
+          } else {
+            setUserState(null);
+          }
+        } finally {
+          setIsLoaded(true);
         }
-        setIsLoaded(true);
       });
       return () => unsubscribe();
     } else {

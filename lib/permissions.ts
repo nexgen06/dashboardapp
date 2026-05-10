@@ -30,6 +30,13 @@ export function hasAllPermissions(user: User | null, permissions: Permission[]):
   return permissions.every((p) => hasPermission(user, p));
 }
 
+/** Firestore / dış kaynaktan gelen rol dizesini güvenli şekilde RoleId yapar */
+export function coerceRoleId(raw: unknown): RoleId {
+  if (typeof raw !== "string" || !raw.trim()) return "member";
+  const id = raw.trim() as RoleId;
+  return ROLES[id] ? id : "member";
+}
+
 export function isAdmin(user: User | null): boolean {
   return user?.roleId === "admin";
 }
