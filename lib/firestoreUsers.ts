@@ -19,6 +19,15 @@ import { ROLES } from "@/types/permissions";
 
 const COLLECTION = "users";
 
+function isFirestoreTransientError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /offline|unavailable|Failed to get document|network|timed out/i.test(msg);
+}
+
+async function pause(ms: number): Promise<void> {
+  await new Promise((r) => setTimeout(r, ms));
+}
+
 export type FirestoreUserProfile = {
   uid: string;
   email: string;
@@ -43,12 +52,20 @@ export async function getRoleForUid(uid: string): Promise<RoleId> {
   if (!isFirebaseConfigured()) return "member";
   const db = getFirestoreDb();
   if (!db) return "member";
-  try {
-    const snap = await getDoc(doc(db, COLLECTION, uid));
-    const data = snap.data();
-    if (data?.roleId && ROLES[data.roleId as RoleId]) return data.roleId as RoleId;
-  } catch (e) {
-    console.warn("[firestoreUsers] getRoleForUid failed:", e);
+  const ref = doc(db, COLLECTION, uid);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const snap = await getDoc(ref);
+      const data = snap.data();
+      if (data?.roleId && ROLES[data.roleId as RoleId]) return data.roleId as RoleId;
+      break;
+    } catch (e) {
+      if (!isFirestoreTransientError(e) || attempt === 2) {
+        console.warn("[firestoreUsers] getRoleForUid failed:", e);
+        break;
+      }
+      await pause(400 * (attempt + 1));
+    }
   }
   return "member";
 }
@@ -59,12 +76,19 @@ export async function setUserProfileAndGetRole(uid: string, email: string, displ
   if (!db) return "member";
   const ref = doc(db, COLLECTION, uid);
   let roleId: RoleId = "member";
-  try {
-    const snap = await getDoc(ref);
-    const existing = snap.data();
-    roleId = existing?.roleId && ROLES[existing.roleId as RoleId] ? (existing.roleId as RoleId) : "member";
-  } catch (e) {
-    console.warn("[firestoreUsers] setUserProfileAndGetRole getDoc failed:", e);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const snap = await getDoc(ref);
+      const existing = snap.data();
+      roleId = existing?.roleId && ROLES[existing.roleId as RoleId] ? (existing.roleId as RoleId) : "member";
+      break;
+    } catch (e) {
+      if (!isFirestoreTransientError(e) || attempt === 2) {
+        console.warn("[firestoreUsers] setUserProfileAndGetRole getDoc failed:", e);
+        break;
+      }
+      await pause(400 * (attempt + 1));
+    }
   }
   const payload = {
     email: email || "",

@@ -5,7 +5,7 @@
 
 import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
 import { getAuth, type Auth } from "firebase/auth";
-import { getFirestore, type Firestore } from "firebase/firestore";
+import { initializeFirestore, getFirestore, type Firestore } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -56,7 +56,15 @@ export function getFirestoreDb(): Firestore | null {
   if (db) return db;
   const firebaseApp = getFirebaseApp();
   if (!firebaseApp) return null;
-  db = getFirestore(firebaseApp);
+  try {
+    // Bazı ağ/VPN/firewall ortamlarında WebChannel bloklanır; istemci yanlışlıkla "offline" kalır.
+    // https://firebase.google.com/docs/firestore/manage-data/enable-offline
+    db = initializeFirestore(firebaseApp, {
+      experimentalAutoDetectLongPolling: true,
+    });
+  } catch {
+    db = getFirestore(firebaseApp);
+  }
   return db;
 }
 
