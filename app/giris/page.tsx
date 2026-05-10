@@ -61,7 +61,9 @@ export default function GirisPage() {
       console.error("[Giriş] Hata:", err);
       const msg = err instanceof Error ? err.message : "Giriş başarısız";
       if (msg.includes("invalid-credential") || msg.includes("user-not-found") || msg.includes("wrong-password")) {
-        setError("E-posta veya şifre hatalı.");
+        setError(
+          "Firebase bu e-posta/şifreyi kabul etmiyor. Hesap, Firebase Console → Authentication → Users listesinde oluşturulmuş olmalı (Add user); şifreyi büyük/küçük harfe dikkat ederek deneyin."
+        );
       } else if (msg.includes("too-many-requests")) {
         setError("Çok fazla deneme. Lütfen daha sonra tekrar deneyin.");
       } else {
@@ -133,9 +135,12 @@ export default function GirisPage() {
               )}
             </Button>
           </form>
-          <div className="mt-6 text-center">
+          <div className="mt-6 text-center space-y-2">
             <p className="text-xs text-slate-500 dark:text-slate-400">
               Firebase Authentication kullanılıyor
+            </p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 leading-relaxed max-w-sm mx-auto">
+              Bu sayfada kayıt yoktur. <strong>test@abc.com</strong> gibi hesaplar için yönetici, Firebase → Authentication → Users ekranından <strong>Add user</strong> ile e-posta ve şifre oluşturmalıdır.
             </p>
           </div>
         </div>
