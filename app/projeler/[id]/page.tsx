@@ -5,7 +5,7 @@ import { useCallback, useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useProjects } from "@/hooks/useProjects";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
-import { useSettings } from "@/contexts/settings-context";
+import { useSettings, getStatusOptions, getPriorityOptions } from "@/contexts/settings-context";
 import { useAuth } from "@/contexts/auth-context";
 import { formatDate } from "@/lib/formatDate";
 import { parseCSV } from "@/lib/csvParser";
@@ -20,16 +20,24 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { ArrowLeft, PlusCircle, Unlink, Loader2, ListTodo, User, Calendar, Upload, Users, ShieldCheck } from "lucide-react";
+import { ArrowLeft, PlusCircle, Unlink, Loader2, ListTodo, User, Calendar, Upload, Users, ShieldCheck, X, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useProjectPresence } from "@/hooks/useProjectPresence";
+import { useProjectChatRoom } from "@/hooks/useProjectChatRoom";
+import { useProjectChatUnread } from "@/contexts/project-chat-unread-context";
+import { OnlineUsersPanel } from "@/components/OnlineUsersPanel";
+import { ProjectChatPanel } from "@/components/ProjectChatPanel";
+import {
+  requestNotificationPermission,
+  notificationApiAvailable,
+} from "@/lib/browserNotifications";
+import { getTaskDisplayLabel } from "@/lib/taskDisplayLabel";
 
-const STATUS_OPTIONS = ["Yapılacak", "Devam ediyor", "Tamamlandı"];
 const STATUS_STYLES: Record<string, string> = {
   Yapılacak: "bg-slate-100 text-slate-700 dark:bg-slate-600 dark:text-slate-300",
   "Devam ediyor": "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
   Tamamlandı: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
 };
-const PRIORITY_OPTIONS = ["High", "Medium", "Low"] as const;
 const PRIORITY_STYLES: Record<string, string> = {
   High: "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-300",
   Medium: "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300",
@@ -70,25 +78,12 @@ function inDateRange(dueDate: string | null | undefined, kind: DateFilterKind): 
   return true;
 }
 
-/** CSV'den gelen görevlerde content boş olabilir; listede göstermek için extra_data'dan başlık/ilk değer alır. */
-function getTaskDisplayLabel(task: { content?: string | null; extra_data?: Record<string, string> | null }): string {
-  const c = (task.content ?? "").trim();
-  if (c) return c;
-  const ed = task.extra_data;
-  if (!ed || typeof ed !== "object") return "—";
-  const preferKeys = ["Başlık", "Görev", "Ad", "İsim", "Title", "Name", "Açıklama", "Description"];
-  for (const k of preferKeys) {
-    const v = ed[k] ?? ed[k.toLowerCase()];
-    if (v != null && String(v).trim() !== "") return String(v).trim();
-  }
-  const first = Object.values(ed).find((v) => v != null && String(v).trim() !== "");
-  return first != null ? String(first).trim() : "—";
-}
-
 export default function ProjeDetayPage() {
   const params = useParams();
   const id = typeof params?.id === "string" ? params.id : "";
   const { settings } = useSettings();
+  const statusOptions = getStatusOptions(settings);
+  const priorityOptions = getPriorityOptions(settings);
   const { user, hasPermission, isAdmin } = useAuth();
   const canAddTask = hasPermission("projectDetail.addTask");
   const canEditTaskInProject = hasPermission("projectDetail.editTask");
@@ -106,6 +101,44 @@ export default function ProjeDetayPage() {
   } = useTasksWithRealtime();
 
   const project = projects.find((p) => p.id === id);
+  const assignedEmails = project?.assigned_emails ?? [];
+  const currentUserEmail = (user?.email ?? "").trim().toLowerCase();
+  const isAssigned =
+    !!currentUserEmail &&
+    assignedEmails.some((e) => String(e).trim().toLowerCase() === currentUserEmail);
+  const canPresenceSubscribe =
+    !!id && !!project && (isAdmin || (assignedEmails.length > 0 && isAssigned));
+
+  const { refresh: refreshChatUnread } = useProjectChatUnread();
+
+  const {
+    onlineUsers,
+    viewerNotice,
+    dismissViewerNotice,
+  } = useProjectPresence({
+    projectId: id,
+    enabled: canPresenceSubscribe,
+    userEmail: user?.email,
+    userName: user?.displayName ?? user?.email,
+    userId: user?.id,
+    soundEnabled: settings.notificationsSound,
+    browserPushEnabled: settings.notificationsPush,
+    projectTitle: project?.name?.trim() || "Proje",
+  });
+
+  const { chatMessages, sendChatMessage, chatReady } = useProjectChatRoom({
+    projectId: id,
+    enabled: canPresenceSubscribe,
+    userEmail: user?.email,
+    userName: user?.displayName ?? user?.email,
+    onAfterMarkRead: refreshChatUnread,
+  });
+
+  const [browserNotifPerm, setBrowserNotifPerm] = useState<NotificationPermission | null>(null);
+  useEffect(() => {
+    if (notificationApiAvailable()) setBrowserNotifPerm(Notification.permission);
+  }, [user?.id]);
+
   const rawProjectTasks = id ? tasks.filter((t) => t.project_id === id) : [];
   const uniqueAssignees = useMemo(() => {
     const set = new Set<string>();
@@ -140,12 +173,12 @@ export default function ProjeDetayPage() {
     if (addTaskOpen) {
       setAddTaskError(null);
       setNewContent("");
-      setNewStatus("Yapılacak");
+      setNewStatus(settings.defaultTaskStatus);
       setNewAssignee("");
       setNewDueDate("");
-      setNewPriority(project?.priority ?? "Medium");
+      setNewPriority(project?.priority ?? settings.defaultTaskPriority);
     }
-  }, [addTaskOpen, project?.priority]);
+  }, [addTaskOpen, project?.priority, settings.defaultTaskStatus, settings.defaultTaskPriority]);
 
   const handleAddTask = useCallback(
     async (e: React.FormEvent) => {
@@ -220,10 +253,9 @@ export default function ProjeDetayPage() {
             });
             const hasAnyData = Object.values(extra_data).some((v) => String(v ?? "").trim() !== "");
             if (hasAnyData) {
-              const firstValue = Object.values(extra_data).find((v) => v != null && String(v).trim() !== "");
-              const content = firstValue != null ? String(firstValue).trim() : "";
+              // content boş bırakılır; Canlı Tablo'da Açıklama "ek not" için ayrıldı. Liste etiketi getTaskDisplayLabel ile extra_data'dan gelir.
               tasksToInsert.push({
-                content,
+                content: "",
                 status: "Yapılacak",
                 assignee: null,
                 project_id: id,
@@ -244,11 +276,9 @@ export default function ProjeDetayPage() {
             });
             const hasAnyData = Object.values(extra_data).some((v) => String(v ?? "").trim() !== "");
             if (hasAnyData) {
-              // Liste satırında anlamlı görünsün: ilk sütun (veya ilk dolu değer) content olarak kullanılır
-              const firstValue = Object.values(extra_data).find((v) => v != null && String(v).trim() !== "");
-              const content = firstValue != null ? String(firstValue).trim() : "";
+              // content boş bırakılır; Canlı Tablo'da Açıklama "ek not" için ayrıldı. Liste etiketi getTaskDisplayLabel ile extra_data'dan gelir.
               tasksToInsert.push({
-                content,
+                content: "",
                 status: "Yapılacak",
                 assignee: null,
                 project_id: id,
@@ -314,11 +344,6 @@ export default function ProjeDetayPage() {
     );
   }
 
-  const assignedEmails = project.assigned_emails ?? [];
-  const currentUserEmail = (user?.email ?? "").trim().toLowerCase();
-  const isAssigned =
-    currentUserEmail &&
-    assignedEmails.some((e) => String(e).trim().toLowerCase() === currentUserEmail);
   /** Atama yoksa sadece admin; atama varsa admin veya atanan kullanıcılar. */
   const canAccessProject = isAdmin || (assignedEmails.length > 0 && isAssigned);
 
@@ -354,6 +379,32 @@ export default function ProjeDetayPage() {
 
       <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm overflow-hidden">
         <div className="border-b border-slate-200 dark:border-slate-700 px-4 py-4">
+          {settings.notificationsPush && browserNotifPerm === "default" && (
+            <div
+              className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+              role="region"
+              aria-label="Tarayıcı bildirim izni"
+            >
+              <span>Projede katılım bildirimleri için tarayıcıdan izin verin.</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="shrink-0 border-amber-300 bg-white hover:bg-amber-100 dark:bg-slate-800 dark:hover:bg-amber-900/50"
+                onClick={async () => {
+                  await requestNotificationPermission();
+                  if (notificationApiAvailable()) setBrowserNotifPerm(Notification.permission);
+                }}
+              >
+                İzin ver
+              </Button>
+            </div>
+          )}
+          {settings.notificationsPush && browserNotifPerm === "denied" && (
+            <p className="mb-4 text-xs text-amber-800 dark:text-amber-200/90">
+              Tarayıcı bildirimleri engellenmiş. Adres çubuğundaki kilit / site ayarlarından bildirimlere izin verin.
+            </p>
+          )}
           <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">{project.name || "İsimsiz proje"}</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{project.description || "—"}</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -391,6 +442,44 @@ export default function ProjeDetayPage() {
               ))}
             </div>
           )}
+          {viewerNotice && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="mt-3 flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100"
+            >
+              <Eye className="h-4 w-4 shrink-0 mt-0.5" aria-hidden />
+              <span className="flex-1">{viewerNotice.message}</span>
+              <button
+                type="button"
+                onClick={dismissViewerNotice}
+                className="rounded p-1 text-sky-700 hover:bg-sky-100 dark:text-sky-300 dark:hover:bg-sky-900/50"
+                aria-label="Kapat"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+          {onlineUsers.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs text-slate-500 dark:text-slate-400 inline-flex items-center gap-1">
+                <Users className="h-3.5 w-3.5 shrink-0" />
+                Şu an bu projede çevrimiçi:
+              </span>
+              <OnlineUsersPanel
+                onlineUsers={onlineUsers}
+                editorsByRowId={new Map()}
+                currentUserEmail={currentUserEmail}
+                tasks={[]}
+              />
+            </div>
+          )}
+          <ProjectChatPanel
+            messages={chatMessages}
+            onSend={sendChatMessage}
+            currentUserEmail={currentUserEmail}
+            chatReady={chatReady}
+          />
         </div>
 
         <div className="p-4">
@@ -499,7 +588,7 @@ export default function ProjeDetayPage() {
                         STATUS_STYLES[task.status] ?? ""
                       )}
                     >
-                      {STATUS_OPTIONS.map((s) => (
+                      {statusOptions.map((s) => (
                         <option key={s} value={s}>{s}</option>
                       ))}
                     </select>
@@ -601,11 +690,11 @@ export default function ProjeDetayPage() {
               </label>
               <select
                 id="proje-task-status"
-                value={newStatus}
+                value={statusOptions.includes(newStatus) ? newStatus : statusOptions[0]}
                 onChange={(e) => setNewStatus(e.target.value)}
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
               >
-                {STATUS_OPTIONS.map((s) => (
+                {statusOptions.map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
@@ -655,11 +744,11 @@ export default function ProjeDetayPage() {
               </label>
               <select
                 id="proje-task-priority"
-                value={newPriority}
+                value={priorityOptions.includes(newPriority) ? newPriority : priorityOptions[0]}
                 onChange={(e) => setNewPriority(e.target.value)}
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
               >
-                {PRIORITY_OPTIONS.map((p) => (
+                {priorityOptions.map((p) => (
                   <option key={p} value={p}>{p}</option>
                 ))}
               </select>

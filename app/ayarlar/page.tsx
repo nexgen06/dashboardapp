@@ -10,11 +10,16 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { useSettings } from "@/contexts/settings-context";
+import { useSettings, getStatusOptions, getPriorityOptions } from "@/contexts/settings-context";
 import type { Theme, Language, DateFormat, LogLevel, SettingsSection } from "@/contexts/settings-context";
-import { Settings2, Globe, Palette, Bell, RotateCcw, Check, Shield, Key, Zap, LogOut, Monitor, Smartphone, Search, AlertTriangle, Trash2, Loader2, Database } from "lucide-react";
+import { useAuth } from "@/contexts/auth-context";
+import { Settings2, Globe, Palette, Bell, RotateCcw, Check, Shield, Key, Zap, LogOut, Monitor, Smartphone, Search, AlertTriangle, Trash2, Loader2, Database, ListTodo } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  requestNotificationPermission,
+  notificationApiAvailable,
+} from "@/lib/browserNotifications";
 
 function matchesSearch(query: string, label: string, description?: string): boolean {
   const q = query.trim().toLowerCase();
@@ -42,7 +47,7 @@ function SettingRow({
   );
 }
 
-function GenelAyarlar({ searchQuery, resetSection }: { searchQuery: string; resetSection: (s: SettingsSection) => void }) {
+function GenelAyarlar({ searchQuery, resetSection, canResetSettings }: { searchQuery: string; resetSection: (s: SettingsSection) => void; canResetSettings?: boolean }) {
   const { settings, updateSetting } = useSettings();
 
   return (
@@ -81,17 +86,99 @@ function GenelAyarlar({ searchQuery, resetSection }: { searchQuery: string; rese
       {searchQuery.trim() && !matchesSearch(searchQuery, "Dil", "Arayüz dilini seçin.") && !matchesSearch(searchQuery, "Tarih formatı", "Tarihlerin gösterim şekli.") && (
         <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Arama kriterine uyan ayar yok.</p>
       )}
+      {canResetSettings && (
       <div className="pt-4">
         <Button type="button" variant="outline" size="sm" onClick={() => resetSection("genel")} className="text-slate-600 dark:text-slate-400">
           <RotateCcw className="mr-2 h-3.5 w-3.5" />
           Bu bölümü varsayılana sıfırla
         </Button>
       </div>
+      )}
     </div>
   );
 }
 
-function GorusAyarlar({ searchQuery, resetSection }: { searchQuery: string; resetSection: (s: SettingsSection) => void }) {
+function GorevlerAyarlar({ searchQuery, resetSection, canResetSettings }: { searchQuery: string; resetSection: (s: SettingsSection) => void; canResetSettings?: boolean }) {
+  const { settings, updateSetting } = useSettings();
+  const statusOptions = getStatusOptions(settings);
+  const priorityOptions = getPriorityOptions(settings);
+
+  const statusMatch = matchesSearch(searchQuery, "Durum listesi", "Görev durumları. Virgül veya satırla ayırın.");
+  const priorityMatch = matchesSearch(searchQuery, "Öncelik listesi", "Görev öncelikleri. Virgül veya satırla ayırın.");
+  const defaultStatusMatch = matchesSearch(searchQuery, "Varsayılan durum", "Yeni görevde seçili gelecek durum.");
+  const defaultPriorityMatch = matchesSearch(searchQuery, "Varsayılan öncelik", "Yeni görevde seçili gelecek öncelik.");
+  const noneMatch = searchQuery.trim() && !statusMatch && !priorityMatch && !defaultStatusMatch && !defaultPriorityMatch;
+
+  return (
+    <div className="space-y-2">
+      {statusMatch && (
+        <SettingRow
+          label="Durum listesi"
+          description="Görev durumları. Virgül veya satırla ayırın. Boş bırakırsanız varsayılan (Yapılacak, Devam, Tamamlandı) kullanılır."
+        >
+          <textarea
+            value={settings.customStatusList}
+            onChange={(e) => updateSetting("customStatusList", e.target.value)}
+            placeholder="Yapılacak, Devam, Tamamlandı"
+            rows={2}
+            className="w-full max-w-md rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+          />
+        </SettingRow>
+      )}
+      {priorityMatch && (
+        <SettingRow
+          label="Öncelik listesi"
+          description="Görev öncelikleri. Virgül veya satırla ayırın. Boş bırakırsanız varsayılan (High, Medium, Low) kullanılır."
+        >
+          <textarea
+            value={settings.customPriorityList}
+            onChange={(e) => updateSetting("customPriorityList", e.target.value)}
+            placeholder="High, Medium, Low"
+            rows={2}
+            className="w-full max-w-md rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+          />
+        </SettingRow>
+      )}
+      {defaultStatusMatch && (
+        <SettingRow label="Varsayılan durum" description="Yeni görev eklerken formda seçili gelecek durum.">
+          <select
+            value={statusOptions.includes(settings.defaultTaskStatus) ? settings.defaultTaskStatus : statusOptions[0] ?? "Yapılacak"}
+            onChange={(e) => updateSetting("defaultTaskStatus", e.target.value)}
+            className="w-full max-w-xs rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+          >
+            {statusOptions.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </SettingRow>
+      )}
+      {defaultPriorityMatch && (
+        <SettingRow label="Varsayılan öncelik" description="Yeni görev eklerken formda seçili gelecek öncelik.">
+          <select
+            value={priorityOptions.includes(settings.defaultTaskPriority) ? settings.defaultTaskPriority : priorityOptions[0] ?? "Medium"}
+            onChange={(e) => updateSetting("defaultTaskPriority", e.target.value)}
+            className="w-full max-w-xs rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+          >
+            {priorityOptions.map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+        </SettingRow>
+      )}
+      {noneMatch && <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Arama kriterine uyan ayar yok.</p>}
+      {canResetSettings && (
+      <div className="pt-4">
+        <Button type="button" variant="outline" size="sm" onClick={() => resetSection("gorevler")} className="text-slate-600 dark:text-slate-400">
+          <RotateCcw className="mr-2 h-3.5 w-3.5" />
+          Bu bölümü varsayılana sıfırla
+        </Button>
+      </div>
+      )}
+    </div>
+  );
+}
+
+function GorusAyarlar({ searchQuery, resetSection, canResetSettings }: { searchQuery: string; resetSection: (s: SettingsSection) => void; canResetSettings?: boolean }) {
   const { settings, updateSetting } = useSettings();
 
   const themeMatch = matchesSearch(searchQuery, "Tema", "Açık, koyu veya sistem ayarına göre.");
@@ -133,17 +220,19 @@ function GorusAyarlar({ searchQuery, resetSection }: { searchQuery: string; rese
       </SettingRow>
       )}
       {noneMatch && <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Arama kriterine uyan ayar yok.</p>}
+      {canResetSettings && (
       <div className="pt-4">
         <Button type="button" variant="outline" size="sm" onClick={() => resetSection("gorunum")} className="text-slate-600 dark:text-slate-400">
           <RotateCcw className="mr-2 h-3.5 w-3.5" />
           Bu bölümü varsayılana sıfırla
         </Button>
       </div>
+      )}
     </div>
   );
 }
 
-function BildirimAyarlar({ searchQuery, resetSection }: { searchQuery: string; resetSection: (s: SettingsSection) => void }) {
+function BildirimAyarlar({ searchQuery, resetSection, canResetSettings }: { searchQuery: string; resetSection: (s: SettingsSection) => void; canResetSettings?: boolean }) {
   const { settings, updateSetting } = useSettings();
 
   const emailMatch = matchesSearch(searchQuery, "E-posta bildirimleri", "Önemli olaylarda e-posta alın.");
@@ -172,17 +261,32 @@ function BildirimAyarlar({ searchQuery, resetSection }: { searchQuery: string; r
       {pushMatch && (
       <SettingRow
         label="Tarayıcı bildirimleri"
-        description="Push bildirimleri (tarayıcı izni gerekir)."
+        description="Proje görüntüleme uyarıları için tarayıcı bildirimi (Notification API). İlk açışta siteden izin istenir; Reddettiyseniz tarayıcı ayarlarından siteye izin vermeniz gerekir."
       >
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={settings.notificationsPush}
-            onChange={(e) => updateSetting("notificationsPush", e.target.checked)}
-            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-          />
-          <span className="text-sm text-slate-700 dark:text-slate-300">Push bildirimlerini aç</span>
-        </label>
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={settings.notificationsPush}
+              onChange={async (e) => {
+                const checked = e.target.checked;
+                updateSetting("notificationsPush", checked);
+                if (checked && notificationApiAvailable()) {
+                  await requestNotificationPermission();
+                }
+              }}
+              className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm text-slate-700 dark:text-slate-300">Tarayıcı bildirimlerini aç</span>
+          </label>
+          {settings.notificationsPush &&
+            notificationApiAvailable() &&
+            Notification.permission === "denied" && (
+              <p className="text-xs text-amber-700 dark:text-amber-300">
+                Bildirimler engellenmiş. Tarayıcıda site ayarlarından bu site için bildirime izin verin.
+              </p>
+            )}
+        </div>
       </SettingRow>
       )}
       {soundMatch && (
@@ -202,12 +306,14 @@ function BildirimAyarlar({ searchQuery, resetSection }: { searchQuery: string; r
       </SettingRow>
       )}
       {noneMatch && <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Arama kriterine uyan ayar yok.</p>}
+      {canResetSettings && (
       <div className="pt-4">
         <Button type="button" variant="outline" size="sm" onClick={() => resetSection("bildirimler")} className="text-slate-600 dark:text-slate-400">
           <RotateCcw className="mr-2 h-3.5 w-3.5" />
           Bu bölümü varsayılana sıfırla
         </Button>
       </div>
+      )}
     </div>
   );
 }
@@ -550,7 +656,7 @@ function EntegrasyonlarAyarlar({ searchQuery }: { searchQuery: string }) {
   );
 }
 
-function GelismisAyarlar({ searchQuery, resetSection, resetToDefaults }: { searchQuery: string; resetSection: (s: SettingsSection) => void; resetToDefaults: () => void }) {
+function GelismisAyarlar({ searchQuery, resetSection, resetToDefaults, canResetSettings }: { searchQuery: string; resetSection: (s: SettingsSection) => void; resetToDefaults: () => void; canResetSettings?: boolean }) {
   const { settings, updateSetting } = useSettings();
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState("");
@@ -667,8 +773,8 @@ function GelismisAyarlar({ searchQuery, resetSection, resetToDefaults }: { searc
       </SettingRow>
       )}
 
-      {/* Veritabanı Sıfırlama */}
-      {resetMatch && (
+      {/* Veritabanı Sıfırlama — sadece admin */}
+      {canResetSettings && resetMatch && (
       <SettingRow
         label="Veritabanı sıfırla"
         description="Tüm projeleri, görevleri ve ayarları kalıcı olarak siler."
@@ -701,12 +807,14 @@ function GelismisAyarlar({ searchQuery, resetSection, resetToDefaults }: { searc
       )}
 
       {noneMatch && <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Arama kriterine uyan ayar yok.</p>}
+      {canResetSettings && (
       <div className="pt-4">
         <Button type="button" variant="outline" size="sm" onClick={() => resetSection("gelismis")} className="text-slate-600 dark:text-slate-400">
           <RotateCcw className="mr-2 h-3.5 w-3.5" />
           Bu bölümü varsayılana sıfırla
         </Button>
       </div>
+      )}
 
       {/* Sıfırlama Onay Modalı */}
       <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
@@ -804,6 +912,7 @@ function GelismisAyarlar({ searchQuery, resetSection, resetToDefaults }: { searc
 
 export default function AyarlarPage() {
   const { isDirty, save, resetToDefaults, resetSection, lastSavedAt } = useSettings();
+  const { isAdmin } = useAuth();
   const [showToast, setShowToast] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -854,6 +963,10 @@ export default function AyarlarPage() {
             <Bell className="mr-2 h-4 w-4" />
             Bildirimler
           </TabsTrigger>
+          <TabsTrigger value="gorevler" className="data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm">
+            <ListTodo className="mr-2 h-4 w-4" />
+            Görevler
+          </TabsTrigger>
           <TabsTrigger value="guvenlik" className="data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm">
             <Shield className="mr-2 h-4 w-4" />
             Güvenlik
@@ -870,17 +983,22 @@ export default function AyarlarPage() {
 
         <TabsContent value="genel" className="mt-6">
           <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <GenelAyarlar searchQuery={searchQuery} resetSection={resetSection} />
+            <GenelAyarlar searchQuery={searchQuery} resetSection={resetSection} canResetSettings={isAdmin} />
           </div>
         </TabsContent>
         <TabsContent value="gorunum" className="mt-6">
           <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <GorusAyarlar searchQuery={searchQuery} resetSection={resetSection} />
+            <GorusAyarlar searchQuery={searchQuery} resetSection={resetSection} canResetSettings={isAdmin} />
           </div>
         </TabsContent>
         <TabsContent value="bildirimler" className="mt-6">
           <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <BildirimAyarlar searchQuery={searchQuery} resetSection={resetSection} />
+            <BildirimAyarlar searchQuery={searchQuery} resetSection={resetSection} canResetSettings={isAdmin} />
+          </div>
+        </TabsContent>
+        <TabsContent value="gorevler" className="mt-6">
+          <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <GorevlerAyarlar searchQuery={searchQuery} resetSection={resetSection} canResetSettings={isAdmin} />
           </div>
         </TabsContent>
         <TabsContent value="guvenlik" className="mt-6">
@@ -895,7 +1013,7 @@ export default function AyarlarPage() {
         </TabsContent>
         <TabsContent value="gelismis" className="mt-6">
           <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <GelismisAyarlar searchQuery={searchQuery} resetSection={resetSection} resetToDefaults={resetToDefaults} />
+            <GelismisAyarlar searchQuery={searchQuery} resetSection={resetSection} resetToDefaults={resetToDefaults} canResetSettings={isAdmin} />
           </div>
         </TabsContent>
       </Tabs>
@@ -911,6 +1029,7 @@ export default function AyarlarPage() {
           <Settings2 className="mr-2 h-4 w-4" />
           Şimdi kaydet
         </Button>
+        {isAdmin && (
         <Button
           variant="outline"
           onClick={resetToDefaults}
@@ -919,6 +1038,7 @@ export default function AyarlarPage() {
           <RotateCcw className="mr-2 h-4 w-4" />
           Tüm ayarları varsayılana sıfırla
         </Button>
+        )}
         {isDirty && (
           <span className="text-sm text-slate-500 dark:text-slate-400">Kaydedilmemiş değişiklikler var (otomatik kayıt ~1 sn).</span>
         )}

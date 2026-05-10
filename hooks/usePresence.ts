@@ -3,15 +3,16 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import {
+  createBrowserClientId,
+  onlineUsersFromPresenceState,
+  type OnlineUser,
+} from "@/lib/supabasePresenceHelpers";
+
+export type { OnlineUser };
 
 const PRESENCE_CHANNEL = "tasks-presence";
 const PRESENCE_EVENT = "editing";
-
-export type OnlineUser = {
-  key: string;
-  email?: string;
-  name?: string;
-};
 
 export type EditingUser = {
   email?: string;
@@ -25,16 +26,6 @@ type PresencePayload = {
   name?: string;
 };
 
-/**
- * Sekme/pencerede benzersiz ID. sessionStorage kullanmıyoruz; sekme kopyalandığında
- * aynı ID iki sekmede de olur ve presence'ta tek kullanıcı görünür. Her mount'ta
- * yeni rastgele ID = her sekme ayrı sayılır.
- */
-function createClientId(): string {
-  if (typeof window === "undefined") return "server";
-  return `client-${Math.random().toString(36).slice(2, 11)}-${Date.now().toString(36)}`;
-}
-
 export type UsePresenceOptions = {
   userEmail?: string | null;
   userName?: string | null;
@@ -46,21 +37,20 @@ export type UsePresenceOptions = {
  */
 export function usePresence(options: UsePresenceOptions = {}) {
   const { userEmail, userName, userId } = options;
-  const [editingByOthers, setEditingByOthers] = useState<Set<string>>(new Set());
-  const [editingByUser, setEditingByUser] = useState<Map<string, EditingUser>>(new Map());
+  /** Başka oturumların o an düzenlediği görev satırları (kendi oturumunuz dahil değil). */
+  const [editorsByRowId, setEditorsByRowId] = useState<Map<string, EditingUser[]>>(new Map());
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
-  const clientIdRef = useRef<string>(createClientId());
+  const clientIdRef = useRef<string | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const clientToRowRef = useRef<Map<string, { rowId: string | null; email?: string; name?: string }>>(new Map());
-
-  const clientId = clientIdRef.current;
 
   const setEditingRow = useCallback(
     (rowId: string | null) => {
       const ch = channelRef.current;
-      if (!ch) return;
+      const cid = clientIdRef.current;
+      if (!ch || !cid) return;
       const payload: PresencePayload = {
-        clientId: clientIdRef.current,
+        clientId: cid,
         rowId,
         email: userEmail ?? undefined,
         name: userName ?? undefined,
@@ -75,24 +65,18 @@ export function usePresence(options: UsePresenceOptions = {}) {
   );
 
   const updateOnlineFromState = useCallback((ch: RealtimeChannel) => {
-    const state = ch.presenceState<{ email?: string; name?: string; clientId?: string }>();
-    const list: OnlineUser[] = [];
-    Object.entries(state).forEach(([key, presences]) => {
-      const meta = Array.isArray(presences) ? presences[0] : (presences as { metas?: { email?: string; name?: string }[] })?.metas?.[0];
-      if (meta && key) {
-        const email = typeof meta === "object" && meta && "email" in meta ? meta.email : undefined;
-        const name = typeof meta === "object" && meta && "name" in meta ? meta.name : undefined;
-        list.push({ key, email, name });
-      }
-    });
+    const list = onlineUsersFromPresenceState(ch);
     setOnlineUsers((prev) => (list.length > 0 ? list : prev));
   }, []);
 
   useEffect(() => {
+    const myClientId = createBrowserClientId();
+    clientIdRef.current = myClientId;
+
     const channel = supabase.channel(PRESENCE_CHANNEL, {
       config: {
         presence: {
-          key: clientIdRef.current,
+          key: myClientId,
           enabled: true,
         },
       },
@@ -104,37 +88,58 @@ export function usePresence(options: UsePresenceOptions = {}) {
         { event: PRESENCE_EVENT },
         ({ payload }: { payload: PresencePayload }) => {
           const { clientId: otherId, rowId, email, name } = payload;
-          if (otherId === clientIdRef.current) return;
+          if (otherId === myClientId) return;
 
           clientToRowRef.current.set(otherId, { rowId, email, name });
-          const rowIds = new Set<string>();
-          const rowToUser = new Map<string, EditingUser>();
+
+          const rowToEditors = new Map<string, EditingUser[]>();
           clientToRowRef.current.forEach((v) => {
-            if (v.rowId) {
-              rowIds.add(v.rowId);
-              rowToUser.set(v.rowId, { email: v.email, name: v.name });
-            }
+            if (!v.rowId) return;
+            const list = rowToEditors.get(v.rowId) ?? [];
+            list.push({ email: v.email, name: v.name });
+            rowToEditors.set(v.rowId, list);
           });
-          setEditingByOthers(rowIds);
-          setEditingByUser(rowToUser);
+
+          // Aynı satırda iki kişi: Map tek değer tutmasın diye dizi; aynı e-posta (iki sekme) tekilleştirilir.
+          rowToEditors.forEach((list, rid) => {
+            const seen = new Set<string>();
+            const deduped: EditingUser[] = [];
+            for (const e of list) {
+              const k = (e.email ?? e.name ?? "").trim().toLowerCase();
+              if (!k || seen.has(k)) continue;
+              seen.add(k);
+              deduped.push(e);
+            }
+            rowToEditors.set(rid, deduped);
+          });
+
+          setEditorsByRowId(rowToEditors);
         }
       )
       .on("presence", { event: "sync" }, () => updateOnlineFromState(channel))
-      .on("presence", { event: "join" }, () => updateOnlineFromState(channel))
-      .on("presence", { event: "leave" }, () => updateOnlineFromState(channel))
+      .on("presence", { event: "join" }, () => {
+        updateOnlineFromState(channel);
+        setTimeout(() => updateOnlineFromState(channel), 120);
+      })
+      .on("presence", { event: "leave" }, () => {
+        updateOnlineFromState(channel);
+        setTimeout(() => updateOnlineFromState(channel), 120);
+      })
       .subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
           channelRef.current = channel;
-          await channel.track({
-            clientId: clientIdRef.current,
-            email: userEmail ?? undefined,
-            name: userName ?? undefined,
-            user_id: userId ?? undefined,
-          }).catch(() => null);
+          await channel
+            .track({
+              clientId: myClientId,
+              email: userEmail ?? undefined,
+              name: userName ?? undefined,
+              user_id: userId ?? undefined,
+            })
+            .catch(() => null);
 
           setOnlineUsers((prev) => {
             const me: OnlineUser = {
-              key: clientIdRef.current,
+              key: myClientId,
               email: userEmail ?? undefined,
               name: userName ?? undefined,
             };
@@ -146,19 +151,26 @@ export function usePresence(options: UsePresenceOptions = {}) {
         }
       });
 
+    const intervalMs = 3000;
+    const intervalId = setInterval(() => {
+      if (channelRef.current) updateOnlineFromState(channelRef.current);
+    }, intervalMs);
+
     return () => {
+      clearInterval(intervalId);
       channelRef.current = null;
+      clientIdRef.current = null;
       channel.untrack().finally(() => {
         supabase.removeChannel(channel);
       });
     };
-  }, [clientId, userEmail, userName, userId, updateOnlineFromState]);
+  }, [userEmail, userName, userId, updateOnlineFromState]);
 
   return {
-    editingByOthers,
-    editingByUser,
+    /** rowId -> başka oturumların düzenleyicileri (aynı satırda birden fazla kişi olabilir) */
+    editorsByRowId,
     onlineUsers,
     setEditingRow,
-    clientId,
+    clientId: clientIdRef.current ?? "",
   };
 }

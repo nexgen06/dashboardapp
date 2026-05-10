@@ -1,0 +1,253 @@
+"use client";
+
+import { useEffect, useState, useRef, useCallback } from "react";
+import { supabase } from "@/lib/supabaseClient";
+import type { RealtimeChannel } from "@supabase/supabase-js";
+import {
+  createBrowserClientId,
+  onlineUsersFromPresenceState,
+  type OnlineUser,
+} from "@/lib/supabasePresenceHelpers";
+
+export type { OnlineUser };
+
+const VIEWER_BROADCAST = "project_viewer_active";
+
+export type ProjectViewerNotice = {
+  id: string;
+  message: string;
+  name?: string;
+  email?: string;
+};
+
+type ViewerPayload = {
+  sessionId: string;
+  projectId: string;
+  email?: string;
+  name?: string;
+  at: number;
+};
+
+export type UseProjectPresenceOptions = {
+  projectId: string;
+  enabled?: boolean;
+  userEmail?: string | null;
+  userName?: string | null;
+  userId?: string | null;
+  soundEnabled?: boolean;
+  browserPushEnabled?: boolean;
+  projectTitle?: string;
+};
+
+function playSoftBeep() {
+  try {
+    const Ctx =
+      typeof window !== "undefined"
+        ? window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+        : null;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.connect(g);
+    g.connect(ctx.destination);
+    g.gain.value = 0.04;
+    o.frequency.value = 740;
+    o.start();
+    setTimeout(() => {
+      o.stop();
+      ctx.close().catch(() => {});
+    }, 90);
+  } catch {
+    /* sessiz */
+  }
+}
+
+function channelNameForProject(projectId: string): string {
+  const safe = projectId.replace(/[^a-zA-Z0-9_-]/g, "_");
+  return `proj-${safe}-presence`;
+}
+
+/**
+ * Proje detay: çevrimiçi kullanıcılar + “projeyi görüntülüyor” broadcast.
+ * Sohbet mesajları `useProjectChatRoom` + `project_chat_messages` tablosunda.
+ */
+export function useProjectPresence(options: UseProjectPresenceOptions) {
+  const {
+    projectId,
+    enabled = true,
+    userEmail,
+    userName,
+    userId,
+    soundEnabled = false,
+    browserPushEnabled = false,
+    projectTitle = "Proje",
+  } = options;
+
+  const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
+  const [viewerNotice, setViewerNotice] = useState<ProjectViewerNotice | null>(null);
+  const [presenceReady, setPresenceReady] = useState(false);
+
+  const clientIdRef = useRef<string | null>(null);
+  const channelRef = useRef<RealtimeChannel | null>(null);
+  const lastEmailNoticeAtRef = useRef<Map<string, number>>(new Map());
+  const projectTitleRef = useRef(projectTitle);
+  projectTitleRef.current = projectTitle;
+
+  const dismissViewerNotice = useCallback(() => setViewerNotice(null), []);
+
+  const updateOnlineFromState = useCallback((ch: RealtimeChannel) => {
+    const list = onlineUsersFromPresenceState(ch);
+    setOnlineUsers((prev) => (list.length > 0 ? list : prev));
+  }, []);
+
+  useEffect(() => {
+    if (!enabled || !projectId.trim()) {
+      setPresenceReady(false);
+      return;
+    }
+
+    setPresenceReady(false);
+
+    const myClientId = createBrowserClientId();
+    clientIdRef.current = myClientId;
+    const topic = channelNameForProject(projectId);
+
+    const channel = supabase.channel(topic, {
+      config: {
+        presence: {
+          key: myClientId,
+          enabled: true,
+        },
+        broadcast: { self: false },
+      },
+    });
+
+    const notifyOthers = (payload: ViewerPayload) => {
+      channel.send({
+        type: "broadcast",
+        event: VIEWER_BROADCAST,
+        payload,
+      });
+    };
+
+    const maybeBrowserNotify = (label: string, body: string, uniqueTag: string) => {
+      if (!browserPushEnabled || typeof window === "undefined" || typeof Notification === "undefined") return;
+      if (Notification.permission !== "granted") return;
+      try {
+        new Notification(label, {
+          body,
+          tag: `pv-${projectId}-${uniqueTag}`.slice(0, 120),
+          requireInteraction: false,
+          silent: false,
+        });
+      } catch {
+        /* yok say */
+      }
+    };
+
+    channel
+      .on("broadcast", { event: VIEWER_BROADCAST }, ({ payload }: { payload: ViewerPayload }) => {
+        const p = payload;
+        if (!p || p.sessionId === myClientId || p.projectId !== projectId) return;
+
+        const emailNorm = (p.email ?? "").trim().toLowerCase();
+        const now = Date.now();
+        if (emailNorm) {
+          const last = lastEmailNoticeAtRef.current.get(emailNorm) ?? 0;
+          if (now - last < 4000) return;
+          lastEmailNoticeAtRef.current.set(emailNorm, now);
+        }
+
+        const who = (p.name && p.name.trim()) || (p.email && p.email.trim()) || "Bir kullanıcı";
+        const message = `${who} bu projeyi görüntülüyor.`;
+
+        setViewerNotice({
+          id: `${p.sessionId}-${p.at}`,
+          message,
+          name: p.name,
+          email: p.email,
+        });
+
+        if (soundEnabled) playSoftBeep();
+        maybeBrowserNotify(projectTitleRef.current, message, `${p.sessionId}-${p.at}`);
+      })
+      .on("presence", { event: "sync" }, () => updateOnlineFromState(channel))
+      .on("presence", { event: "join" }, () => {
+        updateOnlineFromState(channel);
+        setTimeout(() => updateOnlineFromState(channel), 120);
+      })
+      .on("presence", { event: "leave" }, () => {
+        updateOnlineFromState(channel);
+        setTimeout(() => updateOnlineFromState(channel), 120);
+      })
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          channelRef.current = channel;
+          setPresenceReady(true);
+
+          await channel
+            .track({
+              sessionId: myClientId,
+              project_id: projectId,
+              email: userEmail ?? undefined,
+              name: userName ?? undefined,
+              user_id: userId ?? undefined,
+            })
+            .catch(() => null);
+
+          const at = Date.now();
+          notifyOthers({
+            sessionId: myClientId,
+            projectId,
+            email: userEmail ?? undefined,
+            name: userName ?? undefined,
+            at,
+          });
+
+          setOnlineUsers((prev) => {
+            const me: OnlineUser = {
+              key: myClientId,
+              email: userEmail ?? undefined,
+              name: userName ?? undefined,
+            };
+            if (prev.some((u) => u.key === me.key)) return prev;
+            return [me, ...prev];
+          });
+          setTimeout(() => updateOnlineFromState(channel), 80);
+          setTimeout(() => updateOnlineFromState(channel), 350);
+        }
+      });
+
+    const intervalId = setInterval(() => {
+      if (channelRef.current) updateOnlineFromState(channelRef.current);
+    }, 4000);
+
+    return () => {
+      clearInterval(intervalId);
+      channelRef.current = null;
+      clientIdRef.current = null;
+      setPresenceReady(false);
+      channel.untrack().finally(() => {
+        supabase.removeChannel(channel);
+      });
+    };
+  }, [
+    enabled,
+    projectId,
+    userEmail,
+    userName,
+    userId,
+    soundEnabled,
+    browserPushEnabled,
+    updateOnlineFromState,
+  ]);
+
+  return {
+    onlineUsers,
+    viewerNotice,
+    dismissViewerNotice,
+    sessionId: clientIdRef.current ?? "",
+    presenceReady,
+  };
+}

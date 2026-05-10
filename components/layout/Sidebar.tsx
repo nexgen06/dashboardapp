@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/contexts/sidebar-context";
 import { useAuth } from "@/contexts/auth-context";
+import { useProjectChatUnread } from "@/contexts/project-chat-unread-context";
 import {
   Tooltip,
   TooltipContent,
@@ -26,6 +27,7 @@ import { Separator } from "@/components/ui/separator";
 export function Sidebar() {
   const { isCollapsed, toggleSidebar } = useSidebar();
   const { hasPermission } = useAuth();
+  const { totalUnread } = useProjectChatUnread();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const tab = searchParams?.get("tab") ?? "";
@@ -70,6 +72,7 @@ export function Sidebar() {
                         ? pathname === "/canli-tablo"
                         : false;
 
+            const chatUnread = item.href === "/projeler" && totalUnread > 0;
             const linkContent = (
               <Link
                 href={item.href}
@@ -81,8 +84,24 @@ export function Sidebar() {
                   isCollapsed && "justify-center px-2"
                 )}
               >
-                <Icon className="h-5 w-5 shrink-0" />
-                {!isCollapsed && <span>{item.label}</span>}
+                <span className="relative inline-flex shrink-0">
+                  <Icon className="h-5 w-5" />
+                  {chatUnread && isCollapsed && (
+                    <span className="absolute -right-1 -top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-blue-600 px-0.5 text-[10px] font-bold leading-none text-white">
+                      {totalUnread > 99 ? "99+" : totalUnread}
+                    </span>
+                  )}
+                </span>
+                {!isCollapsed && (
+                  <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                    <span>{item.label}</span>
+                    {chatUnread && (
+                      <span className="inline-flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[11px] font-bold leading-none text-white">
+                        {totalUnread > 99 ? "99+" : totalUnread}
+                      </span>
+                    )}
+                  </span>
+                )}
               </Link>
             );
 

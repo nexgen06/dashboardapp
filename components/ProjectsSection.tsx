@@ -7,6 +7,7 @@ import { useTaskCountByProject } from "@/hooks/useTaskCountByProject";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
 import { useSettings } from "@/contexts/settings-context";
 import { useAuth } from "@/contexts/auth-context";
+import { useProjectChatUnread } from "@/contexts/project-chat-unread-context";
 import { formatDate } from "@/lib/formatDate";
 import { parseCSV } from "@/lib/csvParser";
 import { parseJSON } from "@/lib/jsonParser";
@@ -411,6 +412,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
   } = useProjects();
   const { createTasksBulk } = useTasksWithRealtime();
   const taskCountByProject = useTaskCountByProject();
+  const { unreadByProjectId } = useProjectChatUnread();
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("Tümü");
@@ -497,10 +499,9 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
               });
               const hasAnyData = Object.values(extra_data).some((v) => String(v ?? "").trim() !== "");
               if (hasAnyData) {
-                const firstValue = Object.values(extra_data).find((v) => v != null && String(v).trim() !== "");
-                const content = firstValue != null ? String(firstValue).trim() : "";
+                // content boş bırakılır; Canlı Tablo'da Açıklama "ek not" için ayrıldı. Liste etiketi extra_data'dan türetilir.
                 tasksToInsert.push({
-                  content,
+                  content: "",
                   status: "Yapılacak",
                   assignee,
                   project_id: projectId,
@@ -521,10 +522,8 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
               });
               const hasAnyData = Object.values(extra_data).some((v) => String(v ?? "").trim() !== "");
               if (hasAnyData) {
-                const firstValue = Object.values(extra_data).find((v) => v != null && String(v).trim() !== "");
-                const content = firstValue != null ? String(firstValue).trim() : "";
                 tasksToInsert.push({
-                  content,
+                  content: "",
                   status: "Yapılacak",
                   assignee,
                   project_id: projectId,
@@ -686,6 +685,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {filteredProjects.map((project) => {
               const taskCount = taskCountByProject[project.id] ?? 0;
+              const chatUnread = unreadByProjectId[project.id] ?? 0;
               return (
                 <div
                   key={project.id}
@@ -702,13 +702,21 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
                       <Link
                         href={`/projeler/${project.id}`}
                         className={cn(
-                          "truncate block focus:outline-none focus:ring-0",
+                          "flex min-w-0 items-center gap-1.5 focus:outline-none focus:ring-0",
                           isPageVariant
                             ? "font-semibold text-slate-800 dark:text-slate-100 hover:text-slate-600 dark:hover:text-slate-200"
                             : "font-medium text-slate-800 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400"
                         )}
                       >
-                        {project.name || "İsimsiz proje"}
+                        <span className="truncate">{project.name || "İsimsiz proje"}</span>
+                        {chatUnread > 0 && (
+                          <span
+                            className="inline-flex h-5 shrink-0 min-w-[20px] items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-bold leading-none text-white"
+                            title="Okunmamış sohbet"
+                          >
+                            {chatUnread > 99 ? "99+" : chatUnread}
+                          </span>
+                        )}
                       </Link>
                       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 line-clamp-2">{project.description || "—"}</p>
                     </div>

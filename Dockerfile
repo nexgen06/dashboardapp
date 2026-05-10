@@ -7,7 +7,8 @@ WORKDIR /app
 
 # Copy package files
 COPY package.json package-lock.json* ./
-RUN npm ci --only=production
+# next build için TypeScript, Tailwind vb. devDependencies gerekir
+RUN npm ci
 
 # Builder stage
 FROM base AS builder

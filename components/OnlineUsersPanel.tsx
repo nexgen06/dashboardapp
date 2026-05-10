@@ -17,8 +17,8 @@ import type { Task } from "@/types/tasks";
 export type OnlineUsersPanelProps = {
   /** Şu an bu kanalda olan kullanıcılar (presence) */
   onlineUsers: OnlineUser[];
-  /** rowId -> kim düzenliyor */
-  editingByUser: Map<string, EditingUser>;
+  /** Hangi görev satırını başkaları düzenliyor: görev id -> düzenleyenler (aynı satırda birden fazla kişi olabilir) */
+  editorsByRowId: Map<string, EditingUser[]>;
   /** Giriş yapan kullanıcının email'i (Sen etiketi için) */
   currentUserEmail?: string | null;
   /** Satır id → görev (düzenlenen satırın kısa metni için) */
@@ -45,17 +45,19 @@ function getDisplayLabel(user: OnlineUser): string {
   return user.key.slice(0, 12) + "…";
 }
 
-/** Bu kullanıcının düzenlediği rowId (varsa). editingByUser: rowId -> EditingUser. */
+/** Bu kullanıcının düzenlediği rowId (varsa). editorsByRowId: rowId -> EditingUser[] */
 function getEditingRowIdForUser(
   user: OnlineUser,
-  editingByUser: Map<string, EditingUser>
+  editorsByRowId: Map<string, EditingUser[]>
 ): string | null {
   const norm = (s: string | undefined) => (s ?? "").trim().toLowerCase();
   const uEmail = norm(user.email);
   const uName = norm(user.name);
-  for (const [rowId, edit] of Array.from(editingByUser.entries())) {
-    if (uEmail && norm(edit.email) === uEmail) return rowId;
-    if (uName && norm(edit.name) === uName) return rowId;
+  for (const [rowId, editors] of Array.from(editorsByRowId.entries())) {
+    for (const edit of editors) {
+      if (uEmail && norm(edit.email) === uEmail) return rowId;
+      if (uName && norm(edit.name) === uName) return rowId;
+    }
   }
   return null;
 }
@@ -66,7 +68,7 @@ function getEditingRowIdForUser(
  */
 export function OnlineUsersPanel({
   onlineUsers,
-  editingByUser,
+  editorsByRowId,
   currentUserEmail = null,
   tasks = [],
   compact = false,
@@ -115,7 +117,7 @@ export function OnlineUsersPanel({
         <div className="max-h-[280px] overflow-y-auto py-1">
           {onlineUsers.map((u) => {
             const isMe = (u.email ?? "").trim().toLowerCase() === currentEmailNorm;
-            const editingRowId = getEditingRowIdForUser(u, editingByUser);
+            const editingRowId = getEditingRowIdForUser(u, editorsByRowId);
             const task = editingRowId ? taskById.get(editingRowId) : undefined;
             const editingSnippet = task?.content
               ? (task.content.slice(0, 36) + (task.content.length > 36 ? "…" : ""))

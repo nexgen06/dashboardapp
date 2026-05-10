@@ -76,7 +76,16 @@ export function useTasksWithRealtime() {
   useEffect(() => {
     let channel: RealtimeChannel;
     let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    let syncTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
+
+    const scheduleSync = () => {
+      if (syncTimer) clearTimeout(syncTimer);
+      syncTimer = setTimeout(() => {
+        if (!cancelled) fetchTasks();
+        syncTimer = null;
+      }, 400);
+    };
 
     channel = supabase
       .channel("tasks-realtime-sync")
@@ -103,8 +112,9 @@ export function useTasksWithRealtime() {
                   return prev;
                 case "UPDATE":
                   if (newRecord && typeof newRecord === "object" && newId) {
+                    const updated = mapRowToTask(newRecord as Record<string, unknown>);
                     return prev.map((t) =>
-                      String(t.id) === newId ? mapRowToTask(newRecord as Record<string, unknown>) : t
+                      String(t.id) === newId ? { ...t, ...updated } : t
                     );
                   }
                   return prev;
@@ -115,6 +125,9 @@ export function useTasksWithRealtime() {
                   return prev;
               }
             });
+            // Gösterge alanları (Toplam, Tamamlandı, Devam vb.) senkron kalsın diye
+            // Realtime olayı sonrası kısa gecikmeyle bir kez tam liste çekilir (debounced).
+            scheduleSync();
           } catch (e) {
             console.warn("[Tasks] Realtime payload error:", e);
             fetchTasks();
@@ -154,6 +167,7 @@ export function useTasksWithRealtime() {
     return () => {
       cancelled = true;
       if (fallbackTimer) clearTimeout(fallbackTimer);
+      if (syncTimer) clearTimeout(syncTimer);
       setIsRealtimeConnected(false);
       supabase.removeChannel(channel);
     };
@@ -175,13 +189,13 @@ export function useTasksWithRealtime() {
 
   const saveTask = useCallback(
     async (taskId: string, patch: Partial<Pick<Task, "content" | "status" | "assignee" | "last_updated_by" | "priority" | "project_id" | "due_date" | "extra_data">>) => {
-      const { priority: _omit, ...patchWithoutPriority } = patch ?? {};
       const payload: Record<string, unknown> = {
-        ...patchWithoutPriority,
+        ...(patch ?? {}),
         last_updated_by: patch?.last_updated_by ?? "anon",
       };
       if ("project_id" in (patch ?? {})) payload.project_id = patch?.project_id ?? null;
       if ("due_date" in (patch ?? {})) payload.due_date = patch?.due_date ?? null;
+      if ("priority" in (patch ?? {})) payload.priority = patch?.priority ?? null;
       if ("extra_data" in (patch ?? {})) payload.extra_data = patch?.extra_data ?? null;
       const { error: updateError } = await supabase
         .from("tasks")

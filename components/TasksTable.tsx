@@ -23,7 +23,7 @@ import type { Project } from "@/types/project";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
 import { useProjects } from "@/hooks/useProjects";
 import { usePresence } from "@/hooks/usePresence";
-import { useSettings, type DateFormat } from "@/contexts/settings-context";
+import { useSettings, getStatusOptions, getPriorityOptions, type DateFormat } from "@/contexts/settings-context";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -49,8 +49,9 @@ import { OnlineUsersPanel } from "@/components/OnlineUsersPanel";
 import { getRelativeTime } from "@/lib/relativeTime";
 import { formatDate } from "@/lib/formatDate";
 import { parseCSV } from "@/lib/csvParser";
+import { parseJSON } from "@/lib/jsonParser";
 import * as XLSX from "xlsx";
-import { Pencil, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal } from "lucide-react";
+import { Pencil, Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
 const STATUS_FILTER_OPTIONS = ["Tümü", "Yapılacak", "Devam ediyor", "Devam", "Tamamlandı"] as const;
@@ -260,7 +261,23 @@ function EditableCell({ value, taskId, field, onSave, onFocus, onBlur }: Editabl
   );
 }
 
-type TaskFormData = { content: string; status: string; assignee: string };
+type TaskFormData = { content: string; status: string; assignee: string; priority?: string | null; extra_data?: Record<string, string> | null };
+
+const EXTRA_DATA_LINK_KEY = "link";
+
+function toExtraDataRows(extra_data: Record<string, string> | null | undefined, excludeKeys: string[] = []): Array<{ key: string; value: string }> {
+  if (!extra_data || Object.keys(extra_data).length === 0) return [{ key: "", value: "" }];
+  const set = new Set(excludeKeys);
+  const entries = Object.entries(extra_data).filter(([k]) => !set.has(k)).map(([key, value]) => ({ key, value: String(value ?? "") }));
+  return entries.length > 0 ? entries : [{ key: "", value: "" }];
+}
+
+function isSafeUrl(s: string): boolean {
+  const t = s.trim().toLowerCase();
+  return t.startsWith("http://") || t.startsWith("https://");
+}
+
+const DEFAULT_PRIORITY_OPTIONS = ["High", "Medium", "Low"];
 
 function TaskFormDialog({
   open,
@@ -269,6 +286,10 @@ function TaskFormDialog({
   onSubmit,
   submitLabel,
   title,
+  statusOptions = STATUS_OPTIONS.slice(),
+  priorityOptions = DEFAULT_PRIORITY_OPTIONS,
+  defaultStatus = "Yapılacak",
+  defaultPriority = "Medium",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -276,23 +297,49 @@ function TaskFormDialog({
   onSubmit: (data: TaskFormData) => void | Promise<void>;
   submitLabel: string;
   title: string;
+  statusOptions?: string[];
+  priorityOptions?: string[];
+  defaultStatus?: string;
+  defaultPriority?: string;
 }) {
   const [content, setContent] = useState(initialTask?.content ?? "");
-  const [status, setStatus] = useState(initialTask?.status ?? "Yapılacak");
+  const [status, setStatus] = useState(initialTask?.status ?? defaultStatus);
   const [assignee, setAssignee] = useState(initialTask?.assignee ?? "");
+  const [priority, setPriority] = useState(initialTask?.priority ?? defaultPriority);
+  const [linkUrl, setLinkUrl] = useState(initialTask?.extra_data?.[EXTRA_DATA_LINK_KEY] ?? "");
+  const [customFields, setCustomFields] = useState<Array<{ key: string; value: string }>>(() => toExtraDataRows(initialTask?.extra_data ?? undefined, [EXTRA_DATA_LINK_KEY]));
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setContent(initialTask?.content ?? "");
-    setStatus(initialTask?.status ?? "Yapılacak");
+    setStatus(initialTask?.status ?? defaultStatus);
     setAssignee(initialTask?.assignee ?? "");
-  }, [initialTask, open]);
+    setPriority(initialTask?.priority ?? defaultPriority);
+    setLinkUrl(initialTask?.extra_data?.[EXTRA_DATA_LINK_KEY] ?? "");
+    setCustomFields(toExtraDataRows(initialTask?.extra_data ?? undefined, [EXTRA_DATA_LINK_KEY]));
+  }, [initialTask, open, defaultStatus, defaultPriority]);
+
+  const addCustomField = () => setCustomFields((prev) => [...prev, { key: "", value: "" }]);
+  const removeCustomField = (index: number) =>
+    setCustomFields((prev) => (prev.length <= 1 ? [{ key: "", value: "" }] : prev.filter((_, i) => i !== index)));
+  const updateCustomField = (index: number, field: "key" | "value", value: string) =>
+    setCustomFields((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const extra_data = customFields
+      .filter((r) => r.key.trim() !== "")
+      .reduce((acc, { key, value }) => ({ ...acc, [key.trim()]: value.trim() }), {} as Record<string, string>);
+    if (linkUrl.trim() !== "") extra_data[EXTRA_DATA_LINK_KEY] = linkUrl.trim();
     setSaving(true);
     try {
-      await onSubmit({ content: content.trim(), status: status || "Yapılacak", assignee: assignee.trim() || "" });
+      await onSubmit({
+        content: content.trim(),
+        status: status || defaultStatus,
+        assignee: assignee.trim() || "",
+        priority: priority && priorityOptions.includes(priority) ? priority : defaultPriority,
+        extra_data: Object.keys(extra_data).length > 0 ? extra_data : null,
+      });
       onOpenChange(false);
     } finally {
       setSaving(false);
@@ -301,7 +348,7 @@ function TaskFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
@@ -310,12 +357,25 @@ function TaskFormDialog({
             <label htmlFor="task-content" className="text-sm font-medium text-slate-700 dark:text-slate-300">
               İçerik
             </label>
-            <input
+            <textarea
               id="task-content"
-              type="text"
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              placeholder="Görev açıklaması"
+              placeholder="Görev açıklaması (çok satır yazabilirsiniz)"
+              rows={3}
+              className="w-full min-h-[4.5rem] resize-y rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+            />
+          </div>
+          <div className="grid gap-2">
+            <label htmlFor="task-link" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+              Link (URL, opsiyonel)
+            </label>
+            <input
+              id="task-link"
+              type="url"
+              value={linkUrl}
+              onChange={(e) => setLinkUrl(e.target.value)}
+              placeholder="https://..."
               className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             />
           </div>
@@ -325,13 +385,30 @@ function TaskFormDialog({
             </label>
             <select
               id="task-status"
-              value={status}
+              value={statusOptions.includes(status) ? status : statusOptions[0]}
               onChange={(e) => setStatus(e.target.value)}
               className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             >
-              {STATUS_OPTIONS.map((s) => (
+              {statusOptions.map((s) => (
                 <option key={s} value={s}>
                   {s}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid gap-2">
+            <label htmlFor="task-priority" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+              Öncelik
+            </label>
+            <select
+              id="task-priority"
+              value={priorityOptions.includes(priority) ? priority : priorityOptions[0]}
+              onChange={(e) => setPriority(e.target.value)}
+              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+            >
+              {priorityOptions.map((p) => (
+                <option key={p} value={p}>
+                  {p}
                 </option>
               ))}
             </select>
@@ -348,6 +425,46 @@ function TaskFormDialog({
               placeholder="İsim (opsiyonel)"
               className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             />
+          </div>
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Özel alanlar (opsiyonel)</label>
+              <Button type="button" variant="ghost" size="sm" onClick={addCustomField} className="h-8 gap-1 text-xs">
+                <Plus className="h-3.5 w-3.5" />
+                Alan ekle
+              </Button>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Referans no, müşteri adı, etiket vb. Alan adı + değer olarak saklanır.</p>
+            <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50/50 p-2 dark:border-slate-600 dark:bg-slate-800/50">
+              {customFields.map((row, index) => (
+                <div key={index} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={row.key}
+                    onChange={(e) => updateCustomField(index, "key", e.target.value)}
+                    placeholder="Alan adı"
+                    className="flex-1 min-w-0 rounded border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  />
+                  <input
+                    type="text"
+                    value={row.value}
+                    onChange={(e) => updateCustomField(index, "value", e.target.value)}
+                    placeholder="Değer"
+                    className="flex-1 min-w-0 rounded border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0 text-slate-500 hover:text-red-600"
+                    onClick={() => removeCustomField(index)}
+                    aria-label="Alanı kaldır"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
@@ -375,12 +492,18 @@ function CSVImportDialog({
   open,
   onOpenChange,
   onImport,
+  defaultStatus = "Yapılacak",
+  defaultPriority = "Medium",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onImport: (tasks: Array<{ content: string; status: string; assignee: string | null; priority?: string | null; extra_data?: Record<string, string> | null }>, replaceExisting: boolean) => Promise<void>;
+  defaultStatus?: string;
+  defaultPriority?: string;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importMode, setImportMode] = useState<"file" | "paste">("file");
+  const [pasteText, setPasteText] = useState("");
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<string[][]>([]);
   const [columnMap, setColumnMap] = useState<Record<ColumnMapKey, number | null>>({
@@ -392,6 +515,7 @@ function CSVImportDialog({
   const [replaceExisting, setReplaceExisting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   const reset = useCallback(() => {
     setHeaders([]);
@@ -399,6 +523,7 @@ function CSVImportDialog({
     setColumnMap({ content: null, status: null, assignee: null, priority: null });
     setReplaceExisting(false);
     setError(null);
+    setPasteText("");
   }, []);
 
   useEffect(() => {
@@ -418,16 +543,22 @@ function CSVImportDialog({
     setColumnMap(map);
   }, []);
 
-  const handleFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      e.target.value = "";
-      if (!file) return;
+  const processFileContent = useCallback(
+    (text: string, fileName: string) => {
       setError(null);
-      const reader = new FileReader();
-      reader.onload = () => {
-        try {
-          const text = String(reader.result ?? "");
+      const lower = (fileName ?? "").toLowerCase();
+      try {
+        if (lower.endsWith(".json")) {
+          const { headers: h, rows: jsonRows } = parseJSON(text);
+          if (h.length === 0) {
+            setError("JSON dosyası boş veya geçersiz (nesne dizisi beklenir).");
+            return;
+          }
+          const r = jsonRows.map((row) => h.map((key) => row[key] ?? ""));
+          setHeaders(h);
+          setRows(r);
+          autoMapHeaders(h);
+        } else {
           const { headers: h, rows: r } = parseCSV(text);
           if (h.length === 0) {
             setError("CSV dosyası boş veya geçersiz.");
@@ -436,14 +567,55 @@ function CSVImportDialog({
           setHeaders(h);
           setRows(r);
           autoMapHeaders(h);
-        } catch (err) {
-          setError(err instanceof Error ? err.message : "CSV okunamadı.");
         }
-      };
-      reader.readAsText(file, "UTF-8");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Dosya okunamadı.");
+      }
     },
     [autoMapHeaders]
   );
+
+  const handleFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => processFileContent(String(reader.result ?? ""), file.name);
+      reader.readAsText(file, "UTF-8");
+    },
+    [processFileContent]
+  );
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setIsDragOver(false);
+      const file = e.dataTransfer.files?.[0];
+      if (!file) return;
+      const name = (file.name ?? "").toLowerCase();
+      if (!name.endsWith(".csv") && !name.endsWith(".json")) {
+        setError("Sadece CSV veya JSON dosyası bırakın.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => processFileContent(String(reader.result ?? ""), file.name);
+      reader.readAsText(file, "UTF-8");
+    },
+    [processFileContent]
+  );
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  }, []);
 
   const buildTasks = useCallback(() => {
     if (rows.length === 0) return [];
@@ -471,10 +643,26 @@ function CSVImportDialog({
     }).filter((t): t is NonNullable<typeof t> => t !== null);
   }, [rows, headers, columnMap]);
 
+  const pasteLines = useMemo(() => {
+    if (!pasteText.trim()) return [];
+    return pasteText.split(/\n/).map((s) => s.trim()).filter(Boolean);
+  }, [pasteText]);
+
+  const buildTasksFromPaste = useCallback(() => {
+    // Açıklama (content) boş bırakılır; yapıştırılan metin extra_data.Görev ile saklanır
+    return pasteLines.map((line) => ({
+      content: "",
+      status: defaultStatus,
+      assignee: null as string | null,
+      priority: defaultPriority as string | null,
+      extra_data: line ? { Görev: line } : null,
+    }));
+  }, [pasteLines, defaultStatus, defaultPriority]);
+
   const handleImport = useCallback(async () => {
-    const tasks = buildTasks();
+    const tasks = importMode === "paste" ? buildTasksFromPaste() : buildTasks();
     if (tasks.length === 0) {
-      setError("Dosyada geçerli veri bulunamadı (en az bir satırda veri olmalı).");
+      setError(importMode === "paste" ? "En az bir satır metin girin (boş satırlar yok sayılır)." : "Dosyada geçerli veri bulunamadı (en az bir satırda veri olmalı).");
       return;
     }
     setImporting(true);
@@ -493,32 +681,113 @@ function CSVImportDialog({
     } finally {
       setImporting(false);
     }
-  }, [buildTasks, replaceExisting, onImport, onOpenChange]);
+  }, [importMode, buildTasksFromPaste, buildTasks, replaceExisting, onImport, onOpenChange]);
 
-  const canImport = rows.length > 0;
+  const canImport = importMode === "paste" ? pasteLines.length > 0 : rows.length > 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto max-w-2xl">
         <DialogHeader>
-          <DialogTitle>CSV içe aktar</DialogTitle>
+          <DialogTitle>Toplu görev ekle</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
+          <div className="flex gap-2 border-b border-slate-200 dark:border-slate-700 pb-2">
+            <button
+              type="button"
+              onClick={() => setImportMode("file")}
+              className={cn(
+                "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                importMode === "file"
+                  ? "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300"
+                  : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
+              )}
+            >
+              <FileUp className="h-4 w-4" />
+              Dosya (CSV/JSON)
+            </button>
+            <button
+              type="button"
+              onClick={() => setImportMode("paste")}
+              className={cn(
+                "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                importMode === "paste"
+                  ? "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300"
+                  : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
+              )}
+            >
+              <ClipboardList className="h-4 w-4" />
+              Metin yapıştır
+            </button>
+          </div>
+          {importMode === "paste" ? (
+            <>
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                Her satır bir görev olacak şekilde metin yapıştırın. Boş satırlar yok sayılır. Tüm görevlere varsayılan durum ve öncelik uygulanır.
+              </p>
+              <textarea
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+                placeholder={"Her satır bir görev\nGörev 1\nGörev 2\nGörev 3"}
+                rows={8}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 font-mono"
+              />
+              {pasteLines.length > 0 && (
+                <div className="rounded border border-emerald-200 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/20 p-3">
+                  <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
+                    {pasteLines.length} görev eklenecek
+                  </p>
+                  <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-1">
+                    Durum: {defaultStatus} · Öncelik: {defaultPriority}
+                  </p>
+                  <div className="mt-2 max-h-32 overflow-y-auto rounded border border-slate-200 bg-white/80 dark:border-slate-600 dark:bg-slate-800/80 p-2 text-xs text-slate-700 dark:text-slate-300">
+                    {pasteLines.slice(0, 15).map((line, i) => (
+                      <div key={i} className="truncate py-0.5" title={line}>{i + 1}. {line}</div>
+                    ))}
+                    {pasteLines.length > 15 && <div className="py-0.5 text-slate-500">… +{pasteLines.length - 15} satır daha</div>}
+                  </div>
+                </div>
+              )}
+              <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+                <input
+                  type="checkbox"
+                  checked={replaceExisting}
+                  onChange={(e) => setReplaceExisting(e.target.checked)}
+                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                />
+                Mevcut veriyi sil ve yeni görevlerle değiştir
+              </label>
+            </>
+          ) : (
+            <>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            CSV dosyası yükleyin. İlk satır başlık kabul edilir. <strong>Tüm sütunlar olduğu gibi tabloya yansır.</strong> Tablodaki <strong>Açıklama</strong> sütunu kaynak dosyadan hiç doldurulmaz; tablo üzerinde çalışırken ek not girmek için ayrılmıştır. Her hücre düzenlenebilir; değişiklikler Realtime ile tüm kullanıcılara yansır.
+            CSV veya JSON dosyası yükleyin veya bu alana sürükleyip bırakın. CSV’de ilk satır başlık kabul edilir. <strong>Tüm sütunlar olduğu gibi tabloya yansır.</strong> Tablodaki <strong>Açıklama</strong> sütunu kaynak dosyadan hiç doldurulmaz; tablo üzerinde çalışırken ek not girmek için ayrılmıştır.
           </p>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".csv,text/csv"
-            onChange={handleFileChange}
-            className="hidden"
-            aria-hidden
-          />
-          <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-            <Upload className="mr-2 h-4 w-4" />
-            Dosya seç
-          </Button>
+          <div
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className={cn(
+              "rounded-lg border-2 border-dashed p-4 transition-colors",
+              isDragOver
+                ? "border-blue-500 bg-blue-50/50 dark:border-blue-400 dark:bg-blue-900/20"
+                : "border-slate-200 bg-slate-50/30 dark:border-slate-600 dark:bg-slate-800/30"
+            )}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,.json,text/csv,application/json"
+              onChange={handleFileChange}
+              className="hidden"
+              aria-hidden
+            />
+            <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+              <Upload className="mr-2 h-4 w-4" />
+              Dosya seç veya sürükleyip bırak
+            </Button>
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">CSV veya JSON</p>
+          </div>
           {headers.length > 0 && (
             <>
               <div className="rounded border border-emerald-200 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/20 p-3 mb-3">
@@ -569,6 +838,8 @@ function CSVImportDialog({
               </label>
             </>
           )}
+            </>
+          )}
           {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
         </div>
         <DialogFooter>
@@ -576,7 +847,7 @@ function CSVImportDialog({
             İptal
           </Button>
           <Button type="button" onClick={handleImport} disabled={!canImport || importing}>
-            {importing ? "Aktarılıyor…" : `${rows.length} satır içe aktar`}
+            {importing ? "Aktarılıyor…" : importMode === "paste" ? `${pasteLines.length} görev ekle` : `${rows.length} satır içe aktar`}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -657,19 +928,22 @@ function StatusCell({
   onSave,
   onFocus,
   onBlur,
+  statusOptions = STATUS_OPTIONS.slice(),
 }: {
   value: string;
   taskId: string;
   onSave: (taskId: string, patch: Partial<Task>) => void;
   onFocus: () => void;
   onBlur: () => void;
+  statusOptions?: string[];
 }) {
   const display = getStatusDisplay(value);
   const badgeStyle = STATUS_BADGE_STYLES[display] ?? STATUS_BADGE_STYLES.Yapılacak;
   const dotClass = STATUS_DOT_CLASS[display] ?? STATUS_DOT_CLASS.Yapılacak;
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
-  const isCompleted = display === "Tamamlandı";
+  const completedLabel = statusOptions.find((s) => /tamamlandı|tamamlandi|done|completed/i.test(s)) ?? "Tamamlandı";
+  const isCompleted = statusOptions.some((s) => s === display) && /tamamlandı|tamamlandi|done|completed/i.test(display);
 
   const handleBadgeClick = useCallback(
     (e: React.MouseEvent) => {
@@ -683,9 +957,9 @@ function StatusCell({
         setDropdownOpen(true);
         return;
       }
-      onSave(taskId, { status: "Tamamlandı", last_updated_by: "anon" });
+      onSave(taskId, { status: completedLabel, last_updated_by: "anon" });
     },
-    [taskId, isCompleted, onSave]
+    [taskId, isCompleted, onSave, completedLabel]
   );
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -723,7 +997,7 @@ function StatusCell({
         </DropdownMenuTrigger>
       </div>
       <DropdownMenuContent align="start">
-        {STATUS_OPTIONS.map((s) => (
+        {statusOptions.map((s) => (
           <DropdownMenuItem
             key={s}
             onClick={() => onSave(taskId, { status: s, last_updated_by: "anon" })}
@@ -792,12 +1066,14 @@ export function TasksTable() {
   } = useTasksWithRealtime();
   const { projects } = useProjects();
   const { user, hasPermission, isAdmin } = useAuth();
-  const { editingByOthers, editingByUser, onlineUsers, setEditingRow } = usePresence({
+  const { editorsByRowId, onlineUsers, setEditingRow } = usePresence({
     userEmail: user?.email ?? undefined,
     userName: user?.displayName ?? user?.email ?? undefined,
     userId: user?.id ?? undefined,
   });
   const { settings } = useSettings();
+  const statusOptions = getStatusOptions(settings);
+  const priorityOptions = getPriorityOptions(settings);
   const currentUserEmail = (user?.email ?? "").trim().toLowerCase();
   const canCreateTask = hasPermission("liveTable.createTask");
   const canEditTask = hasPermission("liveTable.editTask");
@@ -998,6 +1274,18 @@ export function TasksTable() {
     }
     return result;
   }, [tasksVisibleByProject, projectLinkedFilter, globalSearch, statusFilter, assigneeFilter, dateFrom, dateTo, columnFilters]);
+
+  /** Satır güncellemesi `data` referansını değiştirir; TanStack varsayılanında sayfa 0'a sıçrar — kapatıyoruz. */
+  const maxPageIndex = useMemo(
+    () => Math.max(0, Math.ceil(filteredData.length / pagination.pageSize) - 1),
+    [filteredData.length, pagination.pageSize]
+  );
+
+  useEffect(() => {
+    if (pagination.pageIndex > maxPageIndex) {
+      setPagination((prev) => ({ ...prev, pageIndex: maxPageIndex }));
+    }
+  }, [maxPageIndex, pagination.pageIndex]);
 
   /** Kullanıcının açıkça seçtiği filtre sayısı (varsayılan "projeye bağlı göster" sayılmaz) */
   const activeFilterCount = useMemo(() => {
@@ -1272,7 +1560,13 @@ export function TasksTable() {
 
   const handleNewTask = useCallback(
     async (data: TaskFormData) => {
-      await createTask({ content: data.content, status: data.status, assignee: data.assignee || null });
+      await createTask({
+        content: data.content,
+        status: data.status,
+        assignee: data.assignee || null,
+        priority: data.priority ?? null,
+        extra_data: data.extra_data ?? null,
+      });
     },
     [createTask]
   );
@@ -1293,7 +1587,13 @@ export function TasksTable() {
   const handleEditSubmit = useCallback(
     async (data: TaskFormData) => {
       if (!editTask) return;
-      const patch = { content: data.content, status: data.status, assignee: data.assignee || null };
+      const patch = {
+        content: data.content,
+        status: data.status,
+        assignee: data.assignee || null,
+        priority: data.priority ?? null,
+        extra_data: data.extra_data ?? null,
+      };
       handleSave(editTask.id, patch);
       await saveTask(editTask.id, patch);
       setEditTask(null);
@@ -1375,6 +1675,7 @@ export function TasksTable() {
           onSave={handleSave}
           onFocus={() => setEditingRow(row.original.id)}
           onBlur={() => setEditingRow(null)}
+          statusOptions={statusOptions}
         />
       ),
       size: 140,
@@ -1388,18 +1689,34 @@ export function TasksTable() {
       cell: ({ row }) => {
         const task = row.original;
         const value = task.content ?? "";
+        const link = task.extra_data?.[EXTRA_DATA_LINK_KEY];
+        const showLink = link && isSafeUrl(link);
         return (
-          <div className="min-w-0" title={value || undefined}>
-            <EditableCell
-              value={value}
-              taskId={task.id}
-              field="content"
-              onSave={(id, patch) => {
-                if ("content" in patch) handleSave(id, patch);
-              }}
-              onFocus={() => setEditingRow(task.id)}
-              onBlur={() => setEditingRow(null)}
-            />
+          <div className="min-w-0 flex items-center gap-1.5" title={value || undefined}>
+            <span className="min-w-0 flex-1">
+              <EditableCell
+                value={value}
+                taskId={task.id}
+                field="content"
+                onSave={(id, patch) => {
+                  if ("content" in patch) handleSave(id, patch);
+                }}
+                onFocus={() => setEditingRow(task.id)}
+                onBlur={() => setEditingRow(null)}
+              />
+            </span>
+            {showLink && (
+              <a
+                href={link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0 rounded p-0.5 text-slate-500 hover:bg-slate-100 hover:text-blue-600 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-blue-400"
+                title={link}
+                aria-label="Linki aç"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            )}
           </div>
         );
       },
@@ -1532,6 +1849,7 @@ export function TasksTable() {
     enableColumnResizing: true,
     enablePinning: true,
     enableSorting: true,
+    autoResetPageIndex: false,
     manualPagination: false,
     pageCount: Math.ceil(filteredData.length / pagination.pageSize),
   });
@@ -1647,6 +1965,10 @@ export function TasksTable() {
           onSubmit={handleNewTask}
           submitLabel="Oluştur"
           title="Yeni görev"
+          statusOptions={statusOptions}
+          priorityOptions={priorityOptions}
+          defaultStatus={settings.defaultTaskStatus}
+          defaultPriority={settings.defaultTaskPriority}
         />
       )}
       {canEditTask && (
@@ -1657,10 +1979,20 @@ export function TasksTable() {
           onSubmit={handleEditSubmit}
           submitLabel="Kaydet"
           title="Görevi düzenle"
+          statusOptions={statusOptions}
+          priorityOptions={priorityOptions}
+          defaultStatus={settings.defaultTaskStatus}
+          defaultPriority={settings.defaultTaskPriority}
         />
       )}
       {canImportCsv && (
-        <CSVImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={handleCSVImport} />
+        <CSVImportDialog
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          onImport={handleCSVImport}
+          defaultStatus={settings.defaultTaskStatus}
+          defaultPriority={settings.defaultTaskPriority}
+        />
       )}
       <Dialog open={!!detailTask} onOpenChange={(open) => !open && setDetailTask(null)}>
         <DialogContent className="max-h-[85vh] overflow-y-auto max-w-2xl">
@@ -1677,12 +2009,24 @@ export function TasksTable() {
                   </tr>
                 </thead>
                 <tbody>
-                  {Object.entries(detailTask.extra_data).map(([key, value]) => (
-                    <tr key={key} className="border-b border-slate-100 dark:border-slate-700">
-                      <td className="px-3 py-2 font-medium text-slate-700 dark:text-slate-300 align-top">{key}</td>
-                      <td className="px-3 py-2 text-slate-600 dark:text-slate-400 break-words">{value || "—"}</td>
-                    </tr>
-                  ))}
+                  {Object.entries(detailTask.extra_data).map(([key, value]) => {
+                    const val = value || "—";
+                    const isLink = key === EXTRA_DATA_LINK_KEY && typeof value === "string" && isSafeUrl(value);
+                    return (
+                      <tr key={key} className="border-b border-slate-100 dark:border-slate-700">
+                        <td className="px-3 py-2 font-medium text-slate-700 dark:text-slate-300 align-top">{key}</td>
+                        <td className="px-3 py-2 text-slate-600 dark:text-slate-400 break-words">
+                          {isLink ? (
+                            <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">
+                              {value}
+                            </a>
+                          ) : (
+                            val
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1862,7 +2206,7 @@ export function TasksTable() {
                       </button>
                     )}
                   </div>
-                  {["Yapılacak", "Devam ediyor", "Tamamlandı"].map((status) => (
+                  {statusOptions.map((status) => (
                     <label
                       key={status}
                       className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-slate-50 dark:hover:bg-slate-700"
@@ -1882,13 +2226,13 @@ export function TasksTable() {
                       />
                       <span className={cn(
                         "flex items-center gap-1.5",
-                        status === "Yapılacak" && "text-slate-600 dark:text-slate-300",
-                        status === "Devam ediyor" && "text-blue-600 dark:text-blue-400",
-                        status === "Tamamlandı" && "text-emerald-600 dark:text-emerald-400"
+                        /yapılacak|yapilacak|todo/i.test(status) && "text-slate-600 dark:text-slate-300",
+                        /devam|sürüyor|progress/i.test(status) && "text-blue-600 dark:text-blue-400",
+                        /tamamlandı|tamamlandi|done|completed/i.test(status) && "text-emerald-600 dark:text-emerald-400"
                       )}>
-                        {status === "Yapılacak" && <Circle className="h-3.5 w-3.5" />}
-                        {status === "Devam ediyor" && <Loader2 className="h-3.5 w-3.5" />}
-                        {status === "Tamamlandı" && <CheckCircle2 className="h-3.5 w-3.5" />}
+                        {/yapılacak|yapilacak|todo/i.test(status) && <Circle className="h-3.5 w-3.5" />}
+                        {/devam|sürüyor|progress/i.test(status) && <Loader2 className="h-3.5 w-3.5" />}
+                        {/tamamlandı|tamamlandi|done|completed/i.test(status) && <CheckCircle2 className="h-3.5 w-3.5" />}
                         {status}
                       </span>
                     </label>
@@ -2222,7 +2566,7 @@ export function TasksTable() {
           {onlineUsers.length > 0 && (
             <OnlineUsersPanel
               onlineUsers={onlineUsers}
-              editingByUser={editingByUser}
+              editorsByRowId={editorsByRowId}
               currentUserEmail={currentUserEmail}
               tasks={tasksVisibleByProject}
             />
@@ -2307,7 +2651,7 @@ export function TasksTable() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
-              {STATUS_OPTIONS.map((s) => (
+              {statusOptions.map((s) => (
                 <DropdownMenuItem key={s} onClick={() => handleBulkStatusUpdate(s)}>
                   {s}
                 </DropdownMenuItem>
@@ -2533,14 +2877,20 @@ export function TasksTable() {
           </thead>
           <tbody>
             {table.getRowModel().rows.map((row) => {
-              const isEditedByOthers = editingByOthers.has(row.original.id);
-              const editingUser = editingByUser.get(row.original.id);
+              const rowEditors = editorsByRowId.get(row.original.id) ?? [];
+              const isEditedByOthers = rowEditors.length > 0;
               const isSelected = row.getIsSelected();
               const isCompleted = isTaskCompleted(row.original);
               const visibleCells = row.getVisibleCells();
               const totalSize = visibleCells.reduce((sum, c) => sum + Math.max(c.column.getSize(), 40), 0) || 1;
-              const rowTitle = isEditedByOthers && editingUser
-                ? `${editingUser.name || editingUser.email || "Bir kullanıcı"} düzenliyor`
+              const rowTitle = isEditedByOthers
+                ? rowEditors.length === 1
+                  ? `${rowEditors[0].name || rowEditors[0].email || "Bir kullanıcı"} düzenliyor`
+                  : `${rowEditors
+                      .map((e) => e.name?.trim() || e.email?.trim() || "")
+                      .filter(Boolean)
+                      .slice(0, 3)
+                      .join(", ")}${rowEditors.length > 3 ? ` +${rowEditors.length - 3}` : ""} düzenliyor`
                 : isCompleted
                   ? "Bu görev tamamlandı olarak işaretlendi"
                   : undefined;

@@ -6,6 +6,7 @@ import { useProjects } from "@/hooks/useProjects";
 import { useAuth } from "@/contexts/auth-context";
 import { cn } from "@/lib/utils";
 import { getRelativeTime } from "@/lib/relativeTime";
+import { getTaskDisplayLabel } from "@/lib/taskDisplayLabel";
 import type { Task } from "@/types/tasks";
 import type { Project } from "@/types/project";
 import { Loader2, CheckCircle2, Clock, Circle, AlertCircle, AlertTriangle, Flame, User, Users, TrendingUp, X } from "lucide-react";
@@ -365,8 +366,8 @@ export function GorevOzeti() {
                   ) : (
                     <AlertCircle className="h-4 w-4 shrink-0 text-purple-600 dark:text-purple-400" />
                   )}
-                  <span className="min-w-0 flex-1 truncate font-medium" title={task.content}>
-                    {task.content || "—"}
+                  <span className="min-w-0 flex-1 truncate font-medium" title={getTaskDisplayLabel(task)}>
+                    {getTaskDisplayLabel(task)}
                   </span>
                   {task.due_date && (
                     <span
@@ -477,8 +478,8 @@ export function GorevOzeti() {
                     )}
                     aria-hidden
                   />
-                  <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-200" title={task.content}>
-                    {task.content || "—"}
+                  <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-200" title={getTaskDisplayLabel(task)}>
+                    {getTaskDisplayLabel(task)}
                   </span>
                   <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">
                     {task.updated_at ? getRelativeTime(new Date(task.updated_at), now) : "—"}

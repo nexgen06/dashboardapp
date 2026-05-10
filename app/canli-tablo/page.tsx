@@ -3,13 +3,22 @@
 import { useAuth } from "@/contexts/auth-context";
 import { TasksTable } from "@/components/TasksTable";
 import { GorevOzeti } from "@/components/GorevOzeti";
-import { Shield } from "lucide-react";
+import { Shield, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 
 export default function CanliTabloPage() {
-  const { hasPermission } = useAuth();
+  const { hasPermission, isLoaded } = useAuth();
   const canLiveTable = hasPermission("area.liveTable");
+
+  if (!isLoaded) {
+    return (
+      <div className="container max-w-2xl py-16 flex flex-col items-center justify-center gap-4">
+        <Loader2 className="h-10 w-10 animate-spin text-slate-400" aria-hidden />
+        <p className="text-sm text-slate-500 dark:text-slate-400">Yükleniyor…</p>
+      </div>
+    );
+  }
 
   if (!canLiveTable) {
     return (

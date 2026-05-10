@@ -10,6 +10,9 @@ export type Language = "tr" | "en";
 export type DateFormat = "DD.MM.YYYY" | "YYYY-MM-DD" | "MM/DD/YYYY";
 export type LogLevel = "error" | "warn" | "info" | "debug";
 
+const DEFAULT_STATUS_LIST = "Yapılacak, Devam, Tamamlandı";
+const DEFAULT_PRIORITY_LIST = "High, Medium, Low";
+
 export type Settings = {
   theme: Theme;
   language: Language;
@@ -21,6 +24,14 @@ export type Settings = {
   debugMode: boolean;
   logLevel: LogLevel;
   experimentalFeatures: boolean;
+  /** Virgül veya satırla ayrılmış durum listesi. Boşsa varsayılan kullanılır. */
+  customStatusList: string;
+  /** Virgül veya satırla ayrılmış öncelik listesi. Boşsa varsayılan kullanılır. */
+  customPriorityList: string;
+  /** Yeni görevde varsayılan durum (listede olmalı). */
+  defaultTaskStatus: string;
+  /** Yeni görevde varsayılan öncelik (listede olmalı). */
+  defaultTaskPriority: string;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -34,6 +45,10 @@ const DEFAULT_SETTINGS: Settings = {
   debugMode: false,
   logLevel: "info",
   experimentalFeatures: false,
+  customStatusList: "",
+  customPriorityList: "",
+  defaultTaskStatus: "Yapılacak",
+  defaultTaskPriority: "Medium",
 };
 
 function loadSettings(): Settings {
@@ -57,7 +72,30 @@ function saveSettings(settings: Settings) {
   }
 }
 
-export type SettingsSection = "genel" | "gorunum" | "bildirimler" | "gelismis";
+export type SettingsSection = "genel" | "gorunum" | "bildirimler" | "gorevler" | "gelismis";
+
+/** Virgül veya satırla ayrılmış metni trim'lenmiş diziye çevirir. */
+export function parseListOptionString(value: string | undefined): string[] {
+  if (!value || !String(value).trim()) return [];
+  return String(value)
+    .split(/[\n,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** Ayarlardan görev durum listesini döner. Boşsa varsayılan listeyi kullanır. */
+export function getStatusOptions(settings: Settings): string[] {
+  const custom = parseListOptionString(settings.customStatusList);
+  if (custom.length > 0) return custom;
+  return DEFAULT_STATUS_LIST.split(",").map((s) => s.trim());
+}
+
+/** Ayarlardan görev öncelik listesini döner. Boşsa varsayılan listeyi kullanır. */
+export function getPriorityOptions(settings: Settings): string[] {
+  const custom = parseListOptionString(settings.customPriorityList);
+  if (custom.length > 0) return custom;
+  return DEFAULT_PRIORITY_LIST.split(",").map((s) => s.trim());
+}
 
 type SettingsContextType = {
   settings: Settings;
@@ -76,6 +114,7 @@ const SECTION_KEYS: Record<SettingsSection, (keyof Settings)[]> = {
   genel: ["language", "dateFormat"],
   gorunum: ["theme", "sidebarCollapsedByDefault"],
   bildirimler: ["notificationsEmail", "notificationsPush", "notificationsSound"],
+  gorevler: ["customStatusList", "customPriorityList", "defaultTaskStatus", "defaultTaskPriority"],
   gelismis: ["debugMode", "logLevel", "experimentalFeatures"],
 };
 
