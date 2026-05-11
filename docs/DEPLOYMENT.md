@@ -92,17 +92,11 @@ nano .env.local
 
 ### 3.2 Değişkenleri Doldur
 ```env
-# Supabase (Zorunlu)
+# Supabase (kılavuz için gerekli)
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
 
-# Firebase Auth (Opsiyonel - Kullanmıyorsanız boş bırakın)
-NEXT_PUBLIC_FIREBASE_API_KEY=your-api-key
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
-NEXT_PUBLIC_FIREBASE_PROJECT_ID=your-project-id
-NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
-NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
-NEXT_PUBLIC_FIREBASE_APP_ID=your-app-id
+# Opsiyonel: scripts/supabase-auth-profiles.sql ile profiles şeması
 ```
 
 > **Not:** Supabase bilgilerinizi [Supabase Dashboard](https://supabase.com/dashboard) > Project Settings > API bölümünden alabilirsiniz.

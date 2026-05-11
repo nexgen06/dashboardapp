@@ -22,18 +22,34 @@ CREATE TABLE IF NOT EXISTS public.project_chat_reads (
 
 CREATE INDEX IF NOT EXISTS idx_pcr_reader ON public.project_chat_reads(reader_email);
 
+-- RLS ve politikalar: scripts/supabase-rls-policies.sql (proje erişimine göre kısıtlı).
+-- Aşağıdaki publication'dan önce veya sonra o betiği çalıştırın; aksi halde sohbet tabloları açık kalır.
 ALTER TABLE public.project_chat_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.project_chat_reads ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "pcm_allow_all" ON public.project_chat_messages;
-DROP POLICY IF EXISTS "pcr_allow_all" ON public.project_chat_reads;
+-- Realtime: zaten publication'da ise atla (42710 already member hatasını önler)
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where
+      pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'project_chat_messages'
+  ) then
+    alter publication supabase_realtime add table public.project_chat_messages;
+  end if;
 
-CREATE POLICY "pcm_allow_all" ON public.project_chat_messages
-  FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-
-CREATE POLICY "pcr_allow_all" ON public.project_chat_reads
-  FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-
--- Realtime (hata: "already member" ise yok sayın)
-ALTER PUBLICATION supabase_realtime ADD TABLE public.project_chat_messages;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.project_chat_reads;
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where
+      pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'project_chat_reads'
+  ) then
+    alter publication supabase_realtime add table public.project_chat_reads;
+  end if;
+end
+$$;

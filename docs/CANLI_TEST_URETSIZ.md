@@ -24,7 +24,7 @@ Next.js’i yapan firma; kurulum en kolay ve ücretsiz tier cömert.
 3. **Environment Variables** ekleyin:
    - `NEXT_PUBLIC_SUPABASE_URL` = Supabase proje URL’iniz  
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = Supabase anon key  
-   (Firebase kullanıyorsanız ilgili `NEXT_PUBLIC_FIREBASE_*` değişkenlerini de ekleyin.)
+   (Profil rolleri için `scripts/supabase-auth-profiles.sql` ile `profiles` tablosunu oluşturduğunuzdan emin olun.)
 4. **Deploy** → Birkaç dakika sonra `https://dashboardapp-xxx.vercel.app` gibi bir link alırsınız. Bu linki arkadaşlarınıza gönderin.
 
 ### GitHub’da repo yoksa: Vercel CLI ile deploy
@@ -48,7 +48,7 @@ Next.js destekler; ücretsiz tier var.
 - “Add new site” → “Import an existing project” → GitHub repo bağlayın.  
 - Build command: `npm run build`  
 - Publish directory: `.next` değil; Netlify Next.js’i otomatik tanır (Netlify’ın Next.js runtime’ı kullanılır).  
-- Env: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (ve gerekirse Firebase) ekleyin.  
+- Env: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` ekleyin.  
 - Ücretsiz planda `*.netlify.app` adresi verilir; linki arkadaşlarınızla paylaşırsınız.
 
 ---

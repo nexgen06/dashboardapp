@@ -1,7 +1,7 @@
 -- Dashboard: Supabase Auth + profil / roller tablosu
 -- Supabase SQL Editor veya migrations ile çalıştırın.
--- Varsayılan RLS gevşektir (tüm authenticated kullanıcılar profilleri okuyabilir);
--- sıkılaştırma için SELECT politikalarını daraltın.
+-- Profil SELECT sıkılaştırması ve projects/tasks RLS için bu dosyadan sonra
+-- scripts/supabase-rls-policies.sql betiğini çalıştırın.
 
 create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,

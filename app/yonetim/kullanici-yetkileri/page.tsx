@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/auth-context";
 import type { RoleId, Permission } from "@/types/permissions";
 import { ROLES, PERMISSION_GROUPS, PERMISSION_LABELS } from "@/types/permissions";
-import { listDirectoryUsers, type FirestoreUserProfile } from "@/lib/listDirectoryUsers";
+import { listDirectoryUsers, type DirectoryUserProfile } from "@/lib/listDirectoryUsers";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -23,7 +23,7 @@ const ROLE_OPTIONS: RoleId[] = ["admin", "project_manager", "member", "viewer"];
 export default function KullaniciYetkileriPage() {
   const { user, isLoaded, hasPermission, updateUserRole, isAdmin } = useAuth();
   const canEdit = hasPermission("userManagement.edit");
-  const [users, setUsers] = useState<FirestoreUserProfile[]>([]);
+  const [users, setUsers] = useState<DirectoryUserProfile[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [updatingUid, setUpdatingUid] = useState<string | null>(null);
 
@@ -88,8 +88,8 @@ export default function KullaniciYetkileriPage() {
         </h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           Hangi kullanıcının hangi bölümlere erişebileceği, proje oluşturma, atama ve Canlı Tablo işlemleri buradan yönetilir.
-          Oturumu açmış kullanıcılar bu listede görünür (Supabase ise <code className="text-xs rounded bg-slate-100 px-1 dark:bg-slate-700">profiles</code>, Firebase ise Firestore{' '}
-          <code className="text-xs rounded bg-slate-100 px-1 dark:bg-slate-700">users</code>).
+          Oturumu açmış kullanıcılar Supabase{' '}
+          <code className="text-xs rounded bg-slate-100 px-1 dark:bg-slate-700">profiles</code> tablosunda listelenir.
         </p>
       </div>
 
@@ -103,7 +103,7 @@ export default function KullaniciYetkileriPage() {
                 Tüm kullanıcılar
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Bir kullanıcı listede yoksa, önce dashboard&apos;a bir kez giriş yapmalıdır (Supabase/Veya Firebase profili ilk oturumda oluşur).
+                Listedeki kayıtlar ilk giriş sonrasında oluşturulan profillerdir; kullanıcı yoksa önce /giris ile oturum açılmalıdır.
               </p>
             </div>
             <Button variant="outline" size="sm" onClick={fetchUsers} disabled={usersLoading} className="shrink-0">
@@ -175,7 +175,7 @@ export default function KullaniciYetkileriPage() {
             Oturum açan kullanıcı
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Oturum açılan hesap ve rolü (Supabase Auth veya Firebase Auth).
+            Oturumu açılan hesap ve rolü (Supabase Auth ve <code className="text-xs">profiles</code>).
           </p>
         </div>
         <div className="p-4">
@@ -302,9 +302,8 @@ export default function KullaniciYetkileriPage() {
         <div className="text-sm text-blue-900 dark:text-blue-100">
           <p className="font-medium">Kimlik doğrulama ve roller</p>
           <p className="mt-1 text-blue-800 dark:text-blue-200">
-            Varsayılan giriş: Supabase yapılandırılmışsa Supabase Auth, aksi halde Firebase Auth kullanılır. Kullanıcı listesi ve rol güncelleme işlevi buna uygun olarak <strong>profiles</strong> tablosundan veya
-            Firestore <strong>users</strong> koleksiyonundan beslenir. Yalnızca <strong>userManagement.edit</strong> yetkisi olanlar başka kullanıcıların rolünü değiştirmelidir; admin rol başka kullanıcıya atanırken Postgres&apos;te{' '}
-            <code className="text-xs">admin_set_role</code> RPC&apos;si çalışır.
+            Oturum <strong>Supabase Auth</strong> ile açılır; roller ve kullanıcı listesi <strong>profiles</strong> üzerinden yönetilir. Başka kullanıcıya rol atanırken <code className="text-xs">admin_set_role</code> RPC
+            kullanılır. Yönetici dışında kimse <strong>userManagement.edit</strong> gerektiren değişiklikleri yapmamalıdır.
           </p>
         </div>
       </div>

@@ -119,7 +119,7 @@ NEXT_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGc...
 ```
 
-Firebase kullanıyorsanız ilgili `NEXT_PUBLIC_FIREBASE_*` satırlarını da ekleyin.  
+`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` için Railway/Vercel değişkenlerini kullanın (`scripts/supabase-auth-profiles.sql` ile uyum için bu ortam bilgisi yeterlidir).  
 Kaydet: `Ctrl+O`, Enter, `Ctrl+X`.
 
 ---
@@ -244,7 +244,7 @@ Böylece giriş sonrası yönlendirme doğru domain’e gider.
 - [ ] VPS / Node destekli hosting hazır
 - [ ] DNS: `ugurgurses.com.tr` ve `www` → sunucu IP’ye yönlendirildi
 - [ ] Proje sunucuda `/var/www/dashboardapp` (veya seçtiğiniz dizin)
-- [ ] `.env.local` içinde Supabase (ve gerekirse Firebase) değişkenleri tanımlı
+- [ ] `.env.local` içinde Supabase ortam değişkenleri tanımlı
 - [ ] `npm run build` hatasız bitti
 - [ ] PM2 ile `dashboardapp` çalışıyor (`pm2 status`)
 - [ ] Nginx config’te `server_name ugurgurses.com.tr www.ugurgurses.com.tr`

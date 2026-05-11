@@ -1,6 +1,5 @@
 /**
- * Kullanıcı yetki ve rol tanımları.
- * İleride Firebase Auth ile kullanıcı eşleştirilecek.
+ * Kullanıcı yetki ve rol tanımları (Supabase Auth + profiles.role_id ile uyumlu).
  */
 
 /** Tüm yetki anahtarları — uygulama genelinde yönetilebilir alanlar */

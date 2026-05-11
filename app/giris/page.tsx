@@ -3,10 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
-import { getFirebaseAuth } from "@/lib/firebase";
-import { getAuthBackend } from "@/lib/authConfig";
 import { supabase } from "@/lib/supabaseClient";
-import { signInWithEmailAndPassword } from "firebase/auth";
 import { Button } from "@/components/ui/button";
 import { Shield, Loader2 } from "lucide-react";
 import Link from "next/link";
@@ -38,16 +35,14 @@ export default function GirisPage() {
       <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-900 p-4">
         <div className="w-full max-w-md rounded-lg border-2 border-amber-200 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30 p-8 text-center">
           <Shield className="h-12 w-12 mx-auto text-amber-600 dark:text-amber-400 mb-3" />
-          <p className="text-slate-800 dark:text-slate-200 font-medium">Giriş yapılandırılmamış</p>
+          <p className="text-slate-800 dark:text-slate-200 font-medium">Supabase yapılandırılmamış</p>
           <p className="text-sm text-slate-600 dark:text-slate-400 mt-2">
-            İki seçenek: <strong>Supabase</strong> (önerilir) için{" "}
-            <code className="text-xs bg-amber-100 dark:bg-amber-900/50 px-1 rounded">NEXT_PUBLIC_SUPABASE_URL</code>{" "}
-            ve{" "}
+            Gerçek giriş için{" "}
+            <code className="text-xs bg-amber-100 dark:bg-amber-900/50 px-1 rounded">NEXT_PUBLIC_SUPABASE_URL</code> ve{" "}
             <code className="text-xs bg-amber-100 dark:bg-amber-900/50 px-1 rounded">NEXT_PUBLIC_SUPABASE_ANON_KEY</code>{" "}
-            veya yalnızca Firebase kullanacaksanız{" "}
-            <code className="text-xs bg-amber-100 dark:bg-amber-900/50 px-1 rounded">NEXT_PUBLIC_FIREBASE_*</code>{" "}
-            değişkenlerini <code className="text-xs bg-amber-100 dark:bg-amber-900/50 px-1 rounded">.env.local</code>
-            içinde tanımlayın.
+            değerlerini <code className="text-xs bg-amber-100 dark:bg-amber-900/50 px-1 rounded">.env.local</code>
+            içine ekleyin. Profil rolleri için <code className="text-xs">scripts/supabase-auth-profiles.sql</code> şemasını
+            çalıştırın.
           </p>
           <Button variant="outline" asChild className="mt-4">
             <Link href="/">Ana sayfaya dön</Link>
@@ -57,8 +52,6 @@ export default function GirisPage() {
     );
   }
 
-  const backend = getAuthBackend();
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -66,14 +59,8 @@ export default function GirisPage() {
     try {
       const mail = email.trim();
       const pass = password;
-      if (backend === "supabase") {
-        const { error: sbErr } = await supabase.auth.signInWithPassword({ email: mail, password: pass });
-        if (sbErr) throw sbErr;
-      } else {
-        const auth = getFirebaseAuth();
-        if (!auth) throw new Error("Firebase Auth başlatılamadı");
-        await signInWithEmailAndPassword(auth, mail, pass);
-      }
+      const { error: sbErr } = await supabase.auth.signInWithPassword({ email: mail, password: pass });
+      if (sbErr) throw sbErr;
     } catch (err: unknown) {
       console.error("[Giriş] Hata:", err);
       const raw =
@@ -86,23 +73,16 @@ export default function GirisPage() {
             ? String((err as { message: string }).message)
             : "";
       const lc = raw.toLowerCase();
-      const supabaseInvalid =
-        backend === "supabase" &&
-        (/invalid\s+login\s+credentials/i.test(raw) ||
-          lc.includes("invalid_credentials") ||
-          lc.includes("invalid login"));
-      if (supabaseInvalid) {
-        setError(
-          "Bu e-posta veya şifre kabul edilmedi. Hesabınızın Supabase Dashboard → Authentication → Users içinde oluşturulmuş olması ve Email provider’ın açık olması gerekir."
-        );
-      } else if (
+      if (
+        /invalid\s+login\s+credentials/i.test(raw) ||
+        lc.includes("invalid_credentials") ||
+        lc.includes("invalid login") ||
         raw.includes("invalid-credential") ||
-        raw.includes("user-not-found") ||
         raw.includes("wrong-password") ||
         raw.includes("Invalid login credentials")
       ) {
         setError(
-          "Bu kimlik doğrulanamıyor. Hesap oluşturulmuş olmalı ve şifre doğru girilmeli: Supabase ise Authentication → Users; Firebase ise aynı ekrandan Add user."
+          "Bu e-posta veya şifre kabul edilmedi. Hesabınızın Supabase → Authentication → Users içinde oluşturulmuş olması ve Email sağlayıcısının açık olması gerekir."
         );
       } else if (raw.includes("too-many-requests") || raw.includes("Too many requests")) {
         setError("Çok fazla deneme. Lütfen daha sonra tekrar deneyin.");
@@ -170,12 +150,10 @@ export default function GirisPage() {
             </Button>
           </form>
           <div className="mt-6 space-y-2 text-center">
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Oturum: {backend === "supabase" ? "Supabase Auth" : "Firebase Auth"}
-            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Supabase Auth</p>
             <p className="text-xs text-slate-400 dark:text-slate-500 leading-relaxed max-w-sm mx-auto">
-              Bu sayfa genelde kayıt açmaz. Yeni kullanıcılar için yöneticiniz Dashboard → Authentication → Users ekranından
-              hesap eklemeli (veya politikaya göre e-posta daveti açılmalı).
+              Bu sayfa genelde kayıt açmaz. Yeni kullanıcılar için yönetici, Supabase Dashboard → Authentication → Users
+              üzerinden hesap oluşturur.
             </p>
           </div>
         </div>
