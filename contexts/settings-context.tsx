@@ -1,6 +1,13 @@
 "use client";
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
+import { useAuth } from "@/contexts/auth-context";
+import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
+import {
+  fetchLiveTableDensityFromServer,
+  persistLiveTableDensityToServer,
+  LIVE_TABLE_DENSITY_APP_SETTINGS_KEY,
+} from "@/lib/appSettingsSupabase";
 
 const STORAGE_KEY = "dashboard-settings";
 const SAVE_DEBOUNCE_MS = 800;
@@ -152,12 +159,16 @@ const SECTION_KEYS: Record<SettingsSection, (keyof Settings)[]> = {
 };
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
+  const { user, isLoaded: authLoaded } = useAuth();
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [initialSettings, setInitialSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [mounted, setMounted] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userHasChangedRef = useRef(false);
+  /** İlk sunucu çekiminden önce kullanıcı yoğunluğu elle değiştirdiyse sunucu yanıtı ezmesin. */
+  const liveTableDensityEditedLocallyRef = useRef(false);
+  const densityPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const loaded = loadSettings();
@@ -165,6 +176,51 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     setInitialSettings(loaded);
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!mounted || !authLoaded) return;
+    const skipServer =
+      !isSupabaseConfigured() || !user || user.id === "demo";
+    if (skipServer) return;
+
+    let cancelled = false;
+
+    void (async () => {
+      const d = await fetchLiveTableDensityFromServer();
+      if (cancelled || !d) return;
+      if (!liveTableDensityEditedLocallyRef.current) {
+        setSettings((prev) => ({ ...prev, liveTableDensity: d }));
+      }
+    })();
+
+    const filterKey = LIVE_TABLE_DENSITY_APP_SETTINGS_KEY;
+    const channel = supabase
+      .channel(`app_settings_${filterKey}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "app_settings",
+          filter: `key=eq.${filterKey}`,
+        },
+        (payload) => {
+          const row = payload.new as { value?: string } | null;
+          const v = row?.value;
+          if (!v) return;
+          setSettings((prev) => ({
+            ...prev,
+            liveTableDensity: coerceLiveTableDensity(v),
+          }));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(channel);
+    };
+  }, [mounted, authLoaded, user?.id]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -181,8 +237,22 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     };
   }, [settings, mounted]);
 
+  useEffect(() => {
+    return () => {
+      if (densityPersistTimerRef.current) clearTimeout(densityPersistTimerRef.current);
+    };
+  }, []);
+
   const updateSetting = useCallback(<K extends keyof Settings>(key: K, value: Settings[K]) => {
     userHasChangedRef.current = true;
+    if (key === "liveTableDensity") {
+      liveTableDensityEditedLocallyRef.current = true;
+      if (densityPersistTimerRef.current) clearTimeout(densityPersistTimerRef.current);
+      densityPersistTimerRef.current = setTimeout(() => {
+        densityPersistTimerRef.current = null;
+        void persistLiveTableDensityToServer(value as LiveTableDensity);
+      }, SAVE_DEBOUNCE_MS);
+    }
     setSettings((prev) => ({ ...prev, [key]: value }));
   }, []);
 
