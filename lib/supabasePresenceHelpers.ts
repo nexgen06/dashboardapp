@@ -24,14 +24,23 @@ export function onlineUsersFromPresenceState(ch: RealtimeChannel): OnlineUser[] 
   for (const key of Object.keys(state)) {
     if (!key) continue;
     const entry = state[key];
-    const metas = Array.isArray(entry)
-      ? entry
-      : entry &&
-          typeof entry === "object" &&
-          "metas" in entry &&
-          Array.isArray((entry as { metas: unknown[] }).metas)
-        ? (entry as { metas: unknown[] }).metas
-        : [];
+    let metas: unknown[] = [];
+    if (Array.isArray(entry)) {
+      metas = entry;
+    } else if (entry && typeof entry === "object") {
+      const o = entry as Record<string, unknown>;
+      if (Array.isArray(o.metas)) {
+        metas = o.metas;
+      } else if (
+        typeof o.email === "string" ||
+        typeof o.name === "string" ||
+        typeof o.clientId === "string" ||
+        typeof o.sessionId === "string" ||
+        typeof o.user_id === "string"
+      ) {
+        metas = [entry];
+      }
+    }
     metas.forEach((raw, idx) => {
       if (!raw || typeof raw !== "object") return;
       const m = raw as Record<string, unknown>;

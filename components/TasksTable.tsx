@@ -23,7 +23,7 @@ import type { Project } from "@/types/project";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
 import { useProjects } from "@/hooks/useProjects";
 import { usePresence } from "@/hooks/usePresence";
-import { useSettings, getStatusOptions, getPriorityOptions, type DateFormat } from "@/contexts/settings-context";
+import { useSettings, getStatusOptions, getPriorityOptions, type DateFormat, type LiveTableDensity } from "@/contexts/settings-context";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -51,7 +51,7 @@ import { formatDate } from "@/lib/formatDate";
 import { parseCSV } from "@/lib/csvParser";
 import { parseJSON } from "@/lib/jsonParser";
 import * as XLSX from "xlsx";
-import { Pencil, Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp } from "lucide-react";
+import { Pencil, Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3 } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
 const STATUS_FILTER_OPTIONS = ["Tümü", "Yapılacak", "Devam ediyor", "Devam", "Tamamlandı"] as const;
@@ -77,6 +77,60 @@ const COLUMN_VISIBILITY_LABELS: Record<string, string> = {
 const CANLI_TABLO_COLUMN_ORDER: ColumnOrderState = ["select", "status", "assignee", "priority", "updated", "detay", "actions", "presence"];
 /** Sabit sütun sırası (dinamik sütun yokken); component dışında referans sabit kalsın diye */
 const BASE_COLUMN_ORDER_STABLE: ColumnOrderState = ["select", "status", "content", "actions"];
+
+/** Canlı Tablo görünüm yoğunluğu — padding, yazı ve kontrol boyutları */
+const LIVE_TABLE_DENSITY_UI: Record<
+  LiveTableDensity,
+  {
+    table: string;
+    th: string;
+    td: string;
+    grip: string;
+    colFilterBtn: string;
+    colMenuBtn: string;
+    sortIcon: string;
+    rowCheckbox: string;
+    actionsBtn: string;
+    selectHeaderSpan: string;
+  }
+> = {
+  compact: {
+    table: "text-xs",
+    th: "px-2 py-1.5",
+    td: "px-2 py-1",
+    grip: "h-3.5 w-3.5",
+    colFilterBtn: "h-6 w-6",
+    colMenuBtn: "h-6 w-6",
+    sortIcon: "h-3.5 w-3.5",
+    rowCheckbox: "h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500",
+    actionsBtn: "h-7 w-7",
+    selectHeaderSpan: "text-xs",
+  },
+  normal: {
+    table: "text-sm",
+    th: "px-4 py-3",
+    td: "px-4 py-2",
+    grip: "h-4 w-4",
+    colFilterBtn: "h-7 w-7",
+    colMenuBtn: "h-7 w-7",
+    sortIcon: "h-4 w-4",
+    rowCheckbox: "h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500",
+    actionsBtn: "h-8 w-8",
+    selectHeaderSpan: "text-xs",
+  },
+  comfortable: {
+    table: "text-base",
+    th: "px-5 py-4",
+    td: "px-5 py-3",
+    grip: "h-5 w-5",
+    colFilterBtn: "h-8 w-8",
+    colMenuBtn: "h-8 w-8",
+    sortIcon: "h-5 w-5",
+    rowCheckbox: "h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500",
+    actionsBtn: "h-9 w-9",
+    selectHeaderSpan: "text-sm",
+  },
+};
 
 /** İçeriğe göre sütun genişliği hesaplamada kullanılan min/max (px) */
 const COLUMN_SIZE_BOUNDS: Record<string, { min: number; max: number }> = {
@@ -193,11 +247,20 @@ type EditableCellProps = {
   onSave: (taskId: string, patch: Record<string, unknown>) => void;
   onFocus: () => void;
   onBlur: () => void;
+  density?: LiveTableDensity;
 };
 
-function EditableCell({ value, taskId, field, onSave, onFocus, onBlur }: EditableCellProps) {
+function EditableCell({ value, taskId, field, onSave, onFocus, onBlur, density = "normal" }: EditableCellProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [localValue, setLocalValue] = useState(value);
+  const cellText =
+    density === "compact" ? "text-xs" : density === "comfortable" ? "text-base" : "text-sm";
+  const cellPad =
+    density === "compact"
+      ? "px-1.5 py-1"
+      : density === "comfortable"
+        ? "px-2.5 py-2"
+        : "px-2 py-1.5";
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -239,7 +302,11 @@ function EditableCell({ value, taskId, field, onSave, onFocus, onBlur }: Editabl
           onChange={(e) => setLocalValue(e.target.value)}
           onBlur={handleSave}
           onKeyDown={handleKeyDown}
-          className="w-full min-w-0 rounded border border-blue-300 bg-blue-50/50 px-2 py-1.5 text-sm text-slate-900 outline-none ring-2 ring-blue-500 focus:border-blue-500 focus:bg-blue-50 dark:border-blue-600 dark:bg-blue-900/20 dark:text-slate-100 dark:focus:bg-blue-900/30"
+          className={cn(
+            "w-full min-w-0 rounded border border-blue-300 bg-blue-50/50 text-slate-900 outline-none ring-2 ring-blue-500 focus:border-blue-500 focus:bg-blue-50 dark:border-blue-600 dark:bg-blue-900/20 dark:text-slate-100 dark:focus:bg-blue-900/30",
+            cellText,
+            cellPad
+          )}
         />
         <span className="text-xs text-slate-500 dark:text-slate-400">Enter ile kaydet, Esc ile iptal</span>
       </div>
@@ -253,10 +320,14 @@ function EditableCell({ value, taskId, field, onSave, onFocus, onBlur }: Editabl
         onFocus();
         setIsEditing(true);
       }}
-      className="flex w-full min-w-0 items-center gap-1.5 rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+      className={cn(
+        "flex w-full min-w-0 items-center gap-1.5 rounded text-left text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700",
+        cellText,
+        cellPad
+      )}
     >
       <span className="min-w-0 flex-1 truncate">{value || "—"}</span>
-      <Pencil className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+      <Pencil className={cn("shrink-0 text-slate-400", density === "comfortable" ? "h-4 w-4" : "h-3.5 w-3.5")} />
     </button>
   );
 }
@@ -881,10 +952,12 @@ function SelectAllCheckbox({
   checked,
   indeterminate,
   onChange,
+  className,
 }: {
   checked: boolean;
   indeterminate: boolean;
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  className: string;
 }) {
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -896,7 +969,7 @@ function SelectAllCheckbox({
       type="checkbox"
       checked={checked}
       onChange={onChange}
-      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+      className={className}
       aria-label="Tümünü seç"
     />
   );
@@ -929,6 +1002,7 @@ function StatusCell({
   onFocus,
   onBlur,
   statusOptions = STATUS_OPTIONS.slice(),
+  density = "normal",
 }: {
   value: string;
   taskId: string;
@@ -936,11 +1010,21 @@ function StatusCell({
   onFocus: () => void;
   onBlur: () => void;
   statusOptions?: string[];
+  density?: LiveTableDensity;
 }) {
   const display = getStatusDisplay(value);
   const badgeStyle = STATUS_BADGE_STYLES[display] ?? STATUS_BADGE_STYLES.Yapılacak;
   const dotClass = STATUS_DOT_CLASS[display] ?? STATUS_DOT_CLASS.Yapılacak;
   const [dropdownOpen, setDropdownOpen] = useState(false);
+
+  const badgePad =
+    density === "compact"
+      ? "px-2 py-0.5 text-xs gap-1.5"
+      : density === "comfortable"
+        ? "px-3 py-1.5 text-base gap-2"
+        : "px-2.5 py-1 text-sm gap-2";
+  const dotHw =
+    density === "compact" ? "h-1.5 w-1.5" : density === "comfortable" ? "h-2.5 w-2.5" : "h-2 w-2";
 
   const completedLabel = statusOptions.find((s) => /tamamlandı|tamamlandi|done|completed/i.test(s)) ?? "Tamamlandı";
   const isCompleted = statusOptions.some((s) => s === display) && /tamamlandı|tamamlandi|done|completed/i.test(display);
@@ -980,11 +1064,12 @@ function StatusCell({
           onFocus={onFocus}
           onBlur={onBlur}
           className={cn(
-            "inline-flex items-center gap-2 rounded-md border px-2.5 py-1 text-sm font-medium transition-colors hover:opacity-90 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1",
+            "inline-flex items-center rounded-md border font-medium transition-colors hover:opacity-90 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1",
+            badgePad,
             badgeStyle
           )}
         >
-          <span className={cn("h-2 w-2 shrink-0 rounded-full", dotClass)} aria-hidden />
+          <span className={cn("shrink-0 rounded-full", dotClass, dotHw)} aria-hidden />
           <span>{display || "—"}</span>
         </Badge>
         {/* Radix dropdown konumu için görünmez tetikleyici; tıklanmaz, menü sadece Badge tıklamasıyla açılıyor */}
@@ -1071,7 +1156,9 @@ export function TasksTable() {
     userName: user?.displayName ?? user?.email ?? undefined,
     userId: user?.id ?? undefined,
   });
-  const { settings } = useSettings();
+  const { settings, updateSetting } = useSettings();
+  const tableDensity = settings.liveTableDensity;
+  const dui = LIVE_TABLE_DENSITY_UI[tableDensity];
   const statusOptions = getStatusOptions(settings);
   const priorityOptions = getPriorityOptions(settings);
   const currentUserEmail = (user?.email ?? "").trim().toLowerCase();
@@ -1646,8 +1733,9 @@ export function TasksTable() {
             checked={table.getIsAllPageRowsSelected()}
             indeterminate={table.getIsSomePageRowsSelected() && !table.getIsAllPageRowsSelected()}
             onChange={table.getToggleAllPageRowsSelectedHandler()}
+            className={dui.rowCheckbox}
           />
-          <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Seçim</span>
+          <span className={cn("font-medium text-slate-600 dark:text-slate-400", dui.selectHeaderSpan)}>Seçim</span>
         </span>
       ),
       cell: ({ row }) => (
@@ -1656,7 +1744,7 @@ export function TasksTable() {
           checked={row.getIsSelected()}
           disabled={!row.getCanSelect()}
           onChange={row.getToggleSelectedHandler()}
-          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+          className={dui.rowCheckbox}
           aria-label="Satırı seç"
         />
       ),
@@ -1676,6 +1764,7 @@ export function TasksTable() {
           onFocus={() => setEditingRow(row.original.id)}
           onBlur={() => setEditingRow(null)}
           statusOptions={statusOptions}
+          density={tableDensity}
         />
       ),
       size: 140,
@@ -1703,6 +1792,7 @@ export function TasksTable() {
                 }}
                 onFocus={() => setEditingRow(task.id)}
                 onBlur={() => setEditingRow(null)}
+                density={tableDensity}
               />
             </span>
             {showLink && (
@@ -1742,7 +1832,7 @@ export function TasksTable() {
                   type="checkbox"
                   checked={checked}
                   onChange={(e) => handleDynamicCellSave(taskId, key, e.target.checked ? "✓" : "")}
-                  className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  className={dui.rowCheckbox}
                 />
               </label>
             );
@@ -1757,7 +1847,12 @@ export function TasksTable() {
               <select
                 value={value}
                 onChange={(e) => handleDynamicCellSave(taskId, key, e.target.value)}
-                className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                className={cn(
+                  "w-full rounded border border-slate-200 bg-white px-2 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100",
+                  tableDensity === "compact" && "py-0.5 text-xs",
+                  tableDensity === "normal" && "py-1 text-sm",
+                  tableDensity === "comfortable" && "py-2 text-base"
+                )}
               >
                 <option value="">—</option>
                 {options.map((opt) => (
@@ -1779,6 +1874,7 @@ export function TasksTable() {
               }}
               onFocus={() => setEditingRow(taskId)}
               onBlur={() => setEditingRow(null)}
+              density={tableDensity}
             />
           );
         },
@@ -1798,8 +1894,8 @@ export function TasksTable() {
         return (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" aria-label="Menü">
-                <MoreHorizontal className="h-4 w-4" />
+              <Button variant="ghost" size="icon" className={cn(dui.actionsBtn, "shrink-0")} aria-label="Menü">
+                <MoreHorizontal className={cn(dui.sortIcon, "shrink-0")} />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -2535,6 +2631,23 @@ export function TasksTable() {
                 İçeriğe göre ölçeklendir
               </Button>
             )}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <label htmlFor="live-table-density" className="sr-only">
+                Görünüm yoğunluğu
+              </label>
+              <Rows3 className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden />
+              <select
+                id="live-table-density"
+                value={tableDensity}
+                onChange={(e) => updateSetting("liveTableDensity", e.target.value as LiveTableDensity)}
+                title="Satır aralığı ve yazı boyutu"
+                className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+              >
+                <option value="compact">Yoğun</option>
+                <option value="normal">Normal</option>
+                <option value="comfortable">Büyük</option>
+              </select>
+            </div>
             <Button
               type="button"
               variant="outline"
@@ -2673,7 +2786,7 @@ export function TasksTable() {
         )}
       >
         <table
-          className="w-full min-w-full text-sm border-collapse table-fixed"
+          className={cn("w-full min-w-full border-collapse table-fixed", dui.table)}
           style={{
             width: "100%",
             minWidth: "100%",
@@ -2702,7 +2815,8 @@ export function TasksTable() {
                       onDrop={(e) => handleDrop(e, col.id)}
                       onDragEnd={handleDragEnd}
                       className={cn(
-                        "relative select-none border-r border-slate-200 px-4 py-3 text-left font-medium text-slate-700 dark:border-slate-600 dark:text-slate-300",
+                        "relative select-none border-r border-slate-200 text-left font-medium text-slate-700 dark:border-slate-600 dark:text-slate-300",
+                        dui.th,
                         draggedColumnId === col.id && "opacity-50",
                         isPinnedLeft && "sticky left-0 z-10 bg-slate-100 dark:bg-slate-700/80 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.1)] dark:shadow-[4px_0_8px_-2px_rgba(0,0,0,0.3)]",
                         isPinnedRight && "sticky right-0 z-10 bg-slate-100 dark:bg-slate-700/80 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.1)] dark:shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.3)]"
@@ -2714,7 +2828,7 @@ export function TasksTable() {
                       }}
                     >
                       <div className="flex min-w-0 items-center gap-1">
-                        <GripVertical className="h-4 w-4 shrink-0 cursor-grab text-slate-400 active:cursor-grabbing" aria-hidden />
+                        <GripVertical className={cn(dui.grip, "shrink-0 cursor-grab text-slate-400 active:cursor-grabbing")} aria-hidden />
                         {col.getCanSort?.() ? (
                           <button
                             type="button"
@@ -2723,11 +2837,11 @@ export function TasksTable() {
                           >
                             <span className="truncate">{flexRender(header.column.columnDef.header, header.getContext())}</span>
                             {col.getIsSorted() === "asc" ? (
-                              <ArrowUp className="h-4 w-4 shrink-0 text-blue-600" />
+                              <ArrowUp className={cn(dui.sortIcon, "shrink-0 text-blue-600")} />
                             ) : col.getIsSorted() === "desc" ? (
-                              <ArrowDown className="h-4 w-4 shrink-0 text-blue-600" />
+                              <ArrowDown className={cn(dui.sortIcon, "shrink-0 text-blue-600")} />
                             ) : (
-                              <ArrowUpDown className="h-4 w-4 shrink-0 text-slate-400" />
+                              <ArrowUpDown className={cn(dui.sortIcon, "shrink-0 text-slate-400")} />
                             )}
                           </button>
                         ) : (
@@ -2740,7 +2854,8 @@ export function TasksTable() {
                               variant="ghost"
                               size="icon"
                               className={cn(
-                                "h-7 w-7 shrink-0",
+                                dui.colFilterBtn,
+                                "shrink-0",
                                 columnFilters[col.id]?.length > 0
                                   ? "text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-900/30 dark:hover:bg-blue-900/50"
                                   : "text-slate-400 hover:text-slate-600"
@@ -2845,8 +2960,8 @@ export function TasksTable() {
                         )}
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 text-slate-500" aria-label="Sütun menüsü">
-                              <MoreVertical className="h-4 w-4" />
+                            <Button variant="ghost" size="icon" className={cn(dui.colMenuBtn, "shrink-0 text-slate-500")} aria-label="Sütun menüsü">
+                              <MoreVertical className={cn(dui.sortIcon)} />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="start">
@@ -2918,7 +3033,8 @@ export function TasksTable() {
                       <td
                         key={cell.id}
                         className={cn(
-                          "border-r border-slate-100 px-4 py-2 dark:border-slate-700 align-top",
+                          "border-r border-slate-100 dark:border-slate-700 align-top",
+                          dui.td,
                           isCompleted && completedCellBg,
                           isPinnedLeft && "sticky left-0 z-10 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.05)] dark:shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]",
                           isPinnedRight && "sticky right-0 z-10 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.05)] dark:shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.2)]",

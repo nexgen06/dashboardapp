@@ -1,8 +1,8 @@
 "use client";
 
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { User, Settings, LogOut, LogIn } from "lucide-react";
+import { User, Settings, LogOut, LogIn, Shield } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useNotificationSummary } from "@/hooks/useNotificationSummary";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -18,7 +18,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-function getPageTitle(pathname: string, tab: string | null): string {
+function getPageTitle(pathname: string): string {
   if (pathname === "/giris") return "Giriş";
   if (pathname === "/ayarlar") return "Ayarlar";
   if (pathname === "/yonetim/kullanici-yetkileri") return "Kullanıcı yetkileri";
@@ -31,10 +31,9 @@ function getPageTitle(pathname: string, tab: string | null): string {
 
 export function Header() {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const tab = searchParams?.get("tab") ?? null;
-  const pageTitle = getPageTitle(pathname, tab);
-  const { user, isAuthEnabled, signOut } = useAuth();
+  const pageTitle = getPageTitle(pathname);
+  const { user, isAuthEnabled, signOut, hasPermission } = useAuth();
+  const showUserManagementNav = hasPermission("area.userManagement");
   const notificationSummary = useNotificationSummary(user?.email ?? null);
 
   const displayName = user?.displayName || user?.email || "Kullanıcı";
@@ -94,8 +93,17 @@ export function Header() {
               <DropdownMenuSeparator />
               <DropdownMenuItem className="cursor-pointer" asChild>
                 <Link href="/yonetim/kullanici-yetkileri">
-                  <User className="mr-2 h-4 w-4" />
-                  Profil / Yetki
+                  {showUserManagementNav ? (
+                    <>
+                      <Shield className="mr-2 h-4 w-4" />
+                      Kullanıcı yetkileri
+                    </>
+                  ) : (
+                    <>
+                      <User className="mr-2 h-4 w-4" />
+                      Rolüm ve yetkiler
+                    </>
+                  )}
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem className="cursor-pointer" asChild>

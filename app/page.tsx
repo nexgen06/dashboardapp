@@ -8,20 +8,27 @@ import { DashboardSection } from "@/components/DashboardSection";
 export default function HomePage() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { hasPermission } = useAuth();
+  const { hasPermission, isLoaded } = useAuth();
   const canProjects = hasPermission("area.projects");
   const canLiveTable = hasPermission("area.liveTable");
 
   const tabParam = searchParams?.get("tab") ?? null;
 
-  // Redirect legacy tab URLs to dedicated pages
+  // Legacy ?tab=… adresleri: yetki varsa ilgili sayfaya; yoksa sorguyu kaldırarak / bırak
   useEffect(() => {
+    if (!isLoaded) return;
     if (tabParam === "projeler" && canProjects) {
       router.replace("/projeler");
-    } else if (tabParam === "canli-tablo" && canLiveTable) {
-      router.replace("/canli-tablo");
+      return;
     }
-  }, [tabParam, canProjects, canLiveTable, router]);
+    if (tabParam === "canli-tablo" && canLiveTable) {
+      router.replace("/canli-tablo");
+      return;
+    }
+    if (tabParam === "projeler" || tabParam === "canli-tablo") {
+      router.replace("/");
+    }
+  }, [isLoaded, tabParam, canProjects, canLiveTable, router]);
 
   return (
     <div className="container max-w-6xl">

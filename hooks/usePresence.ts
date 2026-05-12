@@ -42,6 +42,7 @@ export function usePresence(options: UsePresenceOptions = {}) {
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const clientIdRef = useRef<string | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const subscribedRef = useRef(false);
   const clientToRowRef = useRef<Map<string, { rowId: string | null; email?: string; name?: string }>>(new Map());
 
   const setEditingRow = useCallback(
@@ -64,14 +65,32 @@ export function usePresence(options: UsePresenceOptions = {}) {
     [userEmail, userName]
   );
 
-  const updateOnlineFromState = useCallback((ch: RealtimeChannel) => {
-    const list = onlineUsersFromPresenceState(ch);
-    setOnlineUsers((prev) => (list.length > 0 ? list : prev));
-  }, []);
+  const updateOnlineFromState = useCallback(
+    (ch: RealtimeChannel) => {
+      if (!subscribedRef.current) return;
+      const list = onlineUsersFromPresenceState(ch);
+      const cid = clientIdRef.current;
+      let next = list;
+      if (cid) {
+        const hasSelf = next.some((u) => u.key === cid || u.key.startsWith(`${cid}:`));
+        if (!hasSelf) {
+          next = [
+            { key: cid, email: userEmail ?? undefined, name: userName ?? undefined },
+            ...list,
+          ];
+        }
+      }
+      setOnlineUsers(
+        next.length > 0 ? next : cid ? [{ key: cid, email: userEmail ?? undefined, name: userName ?? undefined }] : []
+      );
+    },
+    [userEmail, userName]
+  );
 
   useEffect(() => {
     const myClientId = createBrowserClientId();
     clientIdRef.current = myClientId;
+    subscribedRef.current = false;
 
     const channel = supabase.channel(PRESENCE_CHANNEL, {
       config: {
@@ -125,8 +144,10 @@ export function usePresence(options: UsePresenceOptions = {}) {
         updateOnlineFromState(channel);
         setTimeout(() => updateOnlineFromState(channel), 120);
       })
-      .subscribe(async (status) => {
-        if (status === "SUBSCRIBED") {
+      .subscribe(async (status, err) => {
+        const ok = String(status ?? "").toUpperCase() === "SUBSCRIBED";
+        if (ok) {
+          subscribedRef.current = true;
           channelRef.current = channel;
           await channel
             .track({
@@ -148,6 +169,16 @@ export function usePresence(options: UsePresenceOptions = {}) {
           });
           setTimeout(() => updateOnlineFromState(channel), 80);
           setTimeout(() => updateOnlineFromState(channel), 350);
+        } else {
+          const s = String(status ?? "");
+          const failed =
+            s === "CLOSED" ||
+            s === "CHANNEL_ERROR" ||
+            s === "TIMED_OUT" ||
+            String(s).toLowerCase() === "errored";
+          if (failed || err) {
+            console.warn("[Presence] tasks-presence kanalı:", s, err ?? "");
+          }
         }
       });
 
@@ -158,6 +189,7 @@ export function usePresence(options: UsePresenceOptions = {}) {
 
     return () => {
       clearInterval(intervalId);
+      subscribedRef.current = false;
       channelRef.current = null;
       clientIdRef.current = null;
       channel.untrack().finally(() => {

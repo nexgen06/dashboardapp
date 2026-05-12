@@ -9,6 +9,8 @@ export type Theme = "light" | "dark" | "system";
 export type Language = "tr" | "en";
 export type DateFormat = "DD.MM.YYYY" | "YYYY-MM-DD" | "MM/DD/YYYY";
 export type LogLevel = "error" | "warn" | "info" | "debug";
+/** Canlı Tablo satır / yazı yoğunluğu */
+export type LiveTableDensity = "compact" | "normal" | "comfortable";
 
 const DEFAULT_STATUS_LIST = "Yapılacak, Devam, Tamamlandı";
 const DEFAULT_PRIORITY_LIST = "High, Medium, Low";
@@ -32,6 +34,18 @@ export type Settings = {
   defaultTaskStatus: string;
   /** Yeni görevde varsayılan öncelik (listede olmalı). */
   defaultTaskPriority: string;
+  /** Canlı Tablo görünüm yoğunluğu (satır aralığı, yazı boyutu). */
+  liveTableDensity: LiveTableDensity;
+  /**
+   * Görev özeti / Acil görevler satır başlığı: `content` boşsa `extra_data` içinde bu anahtarlar sırayla aranır.
+   * Virgül veya satır ile ayırın. Boşsa varsayılan sabit liste kullanılır.
+   */
+  taskSummaryPreferredExtraKeys: string;
+  /**
+   * Acil görevlerde “yüksek öncelik” sayılacak `task.priority` değerleri (küçük/büyük harf duyarsız).
+   * Virgül veya satır ile ayırın. Boşsa high, yüksek, kritik, p1, acil, urgent kullanılır.
+   */
+  urgentPriorityTokens: string;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -49,7 +63,15 @@ const DEFAULT_SETTINGS: Settings = {
   customPriorityList: "",
   defaultTaskStatus: "Yapılacak",
   defaultTaskPriority: "Medium",
+  liveTableDensity: "normal",
+  taskSummaryPreferredExtraKeys: "",
+  urgentPriorityTokens: "",
 };
+
+function coerceLiveTableDensity(v: unknown): LiveTableDensity {
+  if (v === "compact" || v === "normal" || v === "comfortable") return v;
+  return "normal";
+}
 
 function loadSettings(): Settings {
   if (typeof window === "undefined") return DEFAULT_SETTINGS;
@@ -57,7 +79,11 @@ function loadSettings(): Settings {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_SETTINGS;
     const parsed = JSON.parse(raw) as Partial<Settings>;
-    return { ...DEFAULT_SETTINGS, ...parsed };
+    return {
+      ...DEFAULT_SETTINGS,
+      ...parsed,
+      liveTableDensity: coerceLiveTableDensity(parsed.liveTableDensity),
+    };
   } catch {
     return DEFAULT_SETTINGS;
   }
@@ -112,9 +138,16 @@ const SettingsContext = createContext<SettingsContextType | undefined>(undefined
 
 const SECTION_KEYS: Record<SettingsSection, (keyof Settings)[]> = {
   genel: ["language", "dateFormat"],
-  gorunum: ["theme", "sidebarCollapsedByDefault"],
+  gorunum: ["theme", "sidebarCollapsedByDefault", "liveTableDensity"],
   bildirimler: ["notificationsEmail", "notificationsPush", "notificationsSound"],
-  gorevler: ["customStatusList", "customPriorityList", "defaultTaskStatus", "defaultTaskPriority"],
+  gorevler: [
+    "customStatusList",
+    "customPriorityList",
+    "defaultTaskStatus",
+    "defaultTaskPriority",
+    "taskSummaryPreferredExtraKeys",
+    "urgentPriorityTokens",
+  ],
   gelismis: ["debugMode", "logLevel", "experimentalFeatures"],
 };
 

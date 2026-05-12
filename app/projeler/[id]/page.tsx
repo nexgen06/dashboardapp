@@ -20,7 +20,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { ArrowLeft, PlusCircle, Unlink, Loader2, ListTodo, User, Calendar, Upload, Users, ShieldCheck, X, Eye } from "lucide-react";
+import { ArrowLeft, PlusCircle, Unlink, Loader2, ListTodo, User, Calendar, Upload, Users, ShieldCheck, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useProjectPresence } from "@/hooks/useProjectPresence";
 import { useProjectChatRoom } from "@/hooks/useProjectChatRoom";
@@ -442,24 +442,6 @@ export default function ProjeDetayPage() {
               ))}
             </div>
           )}
-          {viewerNotice && (
-            <div
-              role="status"
-              aria-live="polite"
-              className="mt-3 flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100"
-            >
-              <Eye className="h-4 w-4 shrink-0 mt-0.5" aria-hidden />
-              <span className="flex-1">{viewerNotice.message}</span>
-              <button
-                type="button"
-                onClick={dismissViewerNotice}
-                className="rounded p-1 text-sky-700 hover:bg-sky-100 dark:text-sky-300 dark:hover:bg-sky-900/50"
-                aria-label="Kapat"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          )}
           {onlineUsers.length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <span className="text-xs text-slate-500 dark:text-slate-400 inline-flex items-center gap-1">
@@ -803,6 +785,27 @@ export default function ProjeDetayPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {viewerNotice && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed z-[70] top-[4.5rem] end-3 max-w-[min(18rem,calc(100vw-1.5rem))] animate-in fade-in slide-in-from-right-4 duration-300 sm:end-6 sm:top-20"
+        >
+          <div className="flex items-start gap-2 rounded-xl border border-sky-200 bg-white/95 px-3.5 py-2.5 text-sm font-medium text-sky-950 shadow-lg backdrop-blur-sm dark:border-sky-800 dark:bg-slate-900/95 dark:text-sky-50">
+            <User className="mt-0.5 h-4 w-4 shrink-0 text-sky-600 dark:text-sky-300" aria-hidden />
+            <span className="min-w-0 flex-1 leading-snug">{viewerNotice.message}</span>
+            <button
+              type="button"
+              onClick={dismissViewerNotice}
+              className="-m-1 shrink-0 rounded-md p-1 text-sky-700 hover:bg-sky-100 dark:text-sky-200 dark:hover:bg-sky-900/60"
+              aria-label="Kapat"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

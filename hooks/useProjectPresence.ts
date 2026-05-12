@@ -69,7 +69,7 @@ function channelNameForProject(projectId: string): string {
 }
 
 /**
- * Proje detay: çevrimiçi kullanıcılar + “projeyi görüntülüyor” broadcast.
+ * Proje detay: çevrimiçi kullanıcılar + “X katıldı” broadcast (diğer oturumlara kısa bildirim).
  * Sohbet mesajları `useProjectChatRoom` + `project_chat_messages` tablosunda.
  */
 export function useProjectPresence(options: UseProjectPresenceOptions) {
@@ -90,16 +90,42 @@ export function useProjectPresence(options: UseProjectPresenceOptions) {
 
   const clientIdRef = useRef<string | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
-  const lastEmailNoticeAtRef = useRef<Map<string, number>>(new Map());
+  const subscribedRef = useRef(false);
+  /** Aynı kullanıcı / oturum için tekrarlayan “katıldı” balonlarını sınırlar (yenileme, yeniden bağlanma). */
+  const lastJoinNoticeAtRef = useRef<Map<string, number>>(new Map());
   const projectTitleRef = useRef(projectTitle);
   projectTitleRef.current = projectTitle;
 
   const dismissViewerNotice = useCallback(() => setViewerNotice(null), []);
 
-  const updateOnlineFromState = useCallback((ch: RealtimeChannel) => {
-    const list = onlineUsersFromPresenceState(ch);
-    setOnlineUsers((prev) => (list.length > 0 ? list : prev));
-  }, []);
+  /** Balon birkaç saniye sonra kendiliğinden kaybolur */
+  useEffect(() => {
+    if (!viewerNotice) return;
+    const t = window.setTimeout(() => setViewerNotice(null), 5200);
+    return () => window.clearTimeout(t);
+  }, [viewerNotice?.id]);
+
+  const updateOnlineFromState = useCallback(
+    (ch: RealtimeChannel) => {
+      if (!subscribedRef.current) return;
+      const list = onlineUsersFromPresenceState(ch);
+      const cid = clientIdRef.current;
+      let next = list;
+      if (cid) {
+        const hasSelf = next.some((u) => u.key === cid || u.key.startsWith(`${cid}:`));
+        if (!hasSelf) {
+          next = [
+            { key: cid, email: userEmail ?? undefined, name: userName ?? undefined },
+            ...list,
+          ];
+        }
+      }
+      setOnlineUsers(
+        next.length > 0 ? next : cid ? [{ key: cid, email: userEmail ?? undefined, name: userName ?? undefined }] : []
+      );
+    },
+    [userEmail, userName]
+  );
 
   useEffect(() => {
     if (!enabled || !projectId.trim()) {
@@ -108,6 +134,7 @@ export function useProjectPresence(options: UseProjectPresenceOptions) {
     }
 
     setPresenceReady(false);
+    subscribedRef.current = false;
 
     const myClientId = createBrowserClientId();
     clientIdRef.current = myClientId;
@@ -151,16 +178,14 @@ export function useProjectPresence(options: UseProjectPresenceOptions) {
         const p = payload;
         if (!p || p.sessionId === myClientId || p.projectId !== projectId) return;
 
-        const emailNorm = (p.email ?? "").trim().toLowerCase();
+        const noticeKey = (p.email ?? "").trim().toLowerCase() || `sid:${p.sessionId}`;
         const now = Date.now();
-        if (emailNorm) {
-          const last = lastEmailNoticeAtRef.current.get(emailNorm) ?? 0;
-          if (now - last < 4000) return;
-          lastEmailNoticeAtRef.current.set(emailNorm, now);
-        }
+        const last = lastJoinNoticeAtRef.current.get(noticeKey) ?? 0;
+        if (now - last < 45_000) return;
+        lastJoinNoticeAtRef.current.set(noticeKey, now);
 
         const who = (p.name && p.name.trim()) || (p.email && p.email.trim()) || "Bir kullanıcı";
-        const message = `${who} bu projeyi görüntülüyor.`;
+        const message = `${who} katıldı`;
 
         setViewerNotice({
           id: `${p.sessionId}-${p.at}`,
@@ -181,8 +206,10 @@ export function useProjectPresence(options: UseProjectPresenceOptions) {
         updateOnlineFromState(channel);
         setTimeout(() => updateOnlineFromState(channel), 120);
       })
-      .subscribe(async (status) => {
-        if (status === "SUBSCRIBED") {
+      .subscribe(async (status, err) => {
+        const ok = String(status ?? "").toUpperCase() === "SUBSCRIBED";
+        if (ok) {
+          subscribedRef.current = true;
           channelRef.current = channel;
           setPresenceReady(true);
 
@@ -216,6 +243,16 @@ export function useProjectPresence(options: UseProjectPresenceOptions) {
           });
           setTimeout(() => updateOnlineFromState(channel), 80);
           setTimeout(() => updateOnlineFromState(channel), 350);
+        } else {
+          const s = String(status ?? "");
+          const failed =
+            s === "CLOSED" ||
+            s === "CHANNEL_ERROR" ||
+            s === "TIMED_OUT" ||
+            String(s).toLowerCase() === "errored";
+          if (failed || err) {
+            console.warn("[Presence] proje kanalı:", topic, s, err ?? "");
+          }
         }
       });
 
@@ -227,6 +264,7 @@ export function useProjectPresence(options: UseProjectPresenceOptions) {
       clearInterval(intervalId);
       channelRef.current = null;
       clientIdRef.current = null;
+      subscribedRef.current = false;
       setPresenceReady(false);
       channel.untrack().finally(() => {
         supabase.removeChannel(channel);

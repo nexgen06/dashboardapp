@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
 import { useProjects } from "@/hooks/useProjects";
 import { useAuth } from "@/contexts/auth-context";
+import { useSettings, parseListOptionString } from "@/contexts/settings-context";
 import { cn } from "@/lib/utils";
 import { getRelativeTime } from "@/lib/relativeTime";
 import { getTaskDisplayLabel } from "@/lib/taskDisplayLabel";
+import { urgentPrioritySetFromCsv, isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
 import type { Task } from "@/types/tasks";
 import type { Project } from "@/types/project";
 import { Loader2, CheckCircle2, Clock, Circle, AlertCircle, AlertTriangle, Flame, User, Users, TrendingUp, X } from "lucide-react";
@@ -34,11 +36,25 @@ export function GorevOzeti() {
   const { tasks, isLoading, error, isRealtimeConnected, saveTask } = useTasksWithRealtime();
   const { projects } = useProjects();
   const { user, isAdmin } = useAuth();
+  const { settings } = useSettings();
   const now = new Date();
   const [filterMode, setFilterMode] = useState<"all" | "mine" | "byAssignee">("all");
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
 
   const currentUserEmail = (user?.email ?? "").trim().toLowerCase();
+
+  const urgentPrioritySet = useMemo(
+    () => urgentPrioritySetFromCsv(settings.urgentPriorityTokens),
+    [settings.urgentPriorityTokens]
+  );
+  const summaryExtraKeys = useMemo(
+    () => parseListOptionString(settings.taskSummaryPreferredExtraKeys),
+    [settings.taskSummaryPreferredExtraKeys]
+  );
+  const taskLabel = useCallback(
+    (task: Task) => getTaskDisplayLabel(task, summaryExtraKeys),
+    [summaryExtraKeys]
+  );
 
   /** Atanmamış kullanıcılar sadece kendisine atanmış projelerin görevlerini görür; admin tüm projeleri görür. */
   const visibleProjectIds = useMemo(
@@ -90,10 +106,10 @@ export function GorevOzeti() {
     }).length;
     const total = filteredTasks.length;
     const yapilacak = Math.max(0, total - tamamlandi - devam);
-    const highPriority = filteredTasks.filter((t) => (t.priority ?? "").toLowerCase() === "high").length;
+    const highPriority = filteredTasks.filter((t) => isUrgentPriorityValue(t.priority, urgentPrioritySet)).length;
     const completionRate = total > 0 ? Math.round((tamamlandi / total) * 100) : 0;
     return { tamamlandi, devam, yapilacak, total, highPriority, completionRate };
-  }, [filteredTasks]);
+  }, [filteredTasks, urgentPrioritySet]);
 
   // Haftalık trend (son 7 gün)
   const weeklyTrend = useMemo(() => {
@@ -117,16 +133,16 @@ export function GorevOzeti() {
       .slice(0, GECMIS_GOREV_SAYISI);
   }, [filteredTasks]);
 
-  // Acil görevler: High öncelik VEYA bugün/geçmiş bitiş tarihi
+  // Acil görevler: ayarlarda tanımlı yüksek öncelik VEYA bugün/geçmiş bitiş tarihi (due_date)
   const acilGorevler = useMemo(() => {
     const bugun = new Date();
     bugun.setHours(23, 59, 59, 999); // Bugün sonu
     return filteredTasks.filter((t) => {
       if (isTaskCompleted(t)) return false; // Tamamlanmış görevleri dahil etme
-      const isHighPriority = (t.priority ?? "").toLowerCase() === "high";
+      const isUrgentP = isUrgentPriorityValue(t.priority, urgentPrioritySet);
       const hasDueDate = t.due_date && t.due_date.trim() !== "";
-      if (!isHighPriority && !hasDueDate) return false;
-      if (isHighPriority && !hasDueDate) return true; // High öncelik, tarih yok
+      if (!isUrgentP && !hasDueDate) return false;
+      if (isUrgentP && !hasDueDate) return true;
       if (hasDueDate) {
         const dueDate = new Date(t.due_date!);
         return dueDate <= bugun; // Bugün veya geçmiş
@@ -137,12 +153,12 @@ export function GorevOzeti() {
       const da = a.due_date ? new Date(a.due_date).getTime() : Infinity;
       const db = b.due_date ? new Date(b.due_date).getTime() : Infinity;
       if (da !== db) return da - db;
-      // Sonra önceliğe göre (High önce)
-      const pa = (a.priority ?? "").toLowerCase() === "high" ? 0 : 1;
-      const pb = (b.priority ?? "").toLowerCase() === "high" ? 0 : 1;
+      // Sonra önceliğe göre (acil öncelik önce)
+      const pa = isUrgentPriorityValue(a.priority, urgentPrioritySet) ? 0 : 1;
+      const pb = isUrgentPriorityValue(b.priority, urgentPrioritySet) ? 0 : 1;
       return pa - pb;
     });
-  }, [filteredTasks]);
+  }, [filteredTasks, urgentPrioritySet]);
 
   function getTaskUrgency(task: Task): "overdue" | "today" | "high" | "normal" {
     if (isTaskCompleted(task)) return "normal";
@@ -155,7 +171,7 @@ export function GorevOzeti() {
       if (dueDate < bugun) return "overdue";
       if (dueDate >= bugun && dueDate <= bugunSonu) return "today";
     }
-    if ((task.priority ?? "").toLowerCase() === "high") return "high";
+    if (isUrgentPriorityValue(task.priority, urgentPrioritySet)) return "high";
     return "normal";
   }
 
@@ -307,7 +323,7 @@ export function GorevOzeti() {
                 <AlertCircle className="h-3.5 w-3.5" />
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-medium text-purple-700 dark:text-purple-300 truncate">Yüksek öncelik</p>
+                <p className="text-xs font-medium text-purple-700 dark:text-purple-300 truncate">Acil öncelik</p>
                 <p className="text-lg font-bold text-purple-900 dark:text-purple-100">{stats.highPriority}</p>
               </div>
             </div>
@@ -340,10 +356,13 @@ export function GorevOzeti() {
       {/* Acil Görevler */}
       {acilGorevler.length > 0 && (
         <div>
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-red-700 dark:text-red-300 mb-2">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-red-700 dark:text-red-300 mb-1">
             <Flame className="h-4 w-4" />
             Acil Görevler ({acilGorevler.length})
           </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+            Öncelik alanı ayarlardaki “acil öncelik” listesine uyan görevler veya bugün / geçmiş son tarihi olan tamamlanmamış görevler. Satır başlığı için önce görev metni, yoksa belirttiğiniz ek sütun adları kullanılır.
+          </p>
           <ul className="space-y-1.5 max-h-[180px] overflow-auto pr-1">
             {acilGorevler.map((task) => {
               const urgency = getTaskUrgency(task);
@@ -366,8 +385,8 @@ export function GorevOzeti() {
                   ) : (
                     <AlertCircle className="h-4 w-4 shrink-0 text-purple-600 dark:text-purple-400" />
                   )}
-                  <span className="min-w-0 flex-1 truncate font-medium" title={getTaskDisplayLabel(task)}>
-                    {getTaskDisplayLabel(task)}
+                  <span className="min-w-0 flex-1 truncate font-medium" title={taskLabel(task)}>
+                    {taskLabel(task)}
                   </span>
                   {task.due_date && (
                     <span
@@ -381,9 +400,9 @@ export function GorevOzeti() {
                       {isOverdue ? "GECİKMİŞ" : isToday ? "BUGÜN" : new Date(task.due_date).toLocaleDateString("tr-TR", { day: "numeric", month: "short" })}
                     </span>
                   )}
-                  {(task.priority ?? "").toLowerCase() === "high" && !task.due_date && (
+                  {isUrgentPriorityValue(task.priority, urgentPrioritySet) && !task.due_date && (
                     <span className="shrink-0 rounded-full bg-purple-600 px-2 py-0.5 text-xs font-bold text-white">
-                      HIGH
+                      {(task.priority ?? "").trim() || "Öncelik"}
                     </span>
                   )}
                   {task.assignee && (
@@ -478,8 +497,8 @@ export function GorevOzeti() {
                     )}
                     aria-hidden
                   />
-                  <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-200" title={getTaskDisplayLabel(task)}>
-                    {getTaskDisplayLabel(task)}
+                  <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-200" title={taskLabel(task)}>
+                    {taskLabel(task)}
                   </span>
                   <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">
                     {task.updated_at ? getRelativeTime(new Date(task.updated_at), now) : "—"}

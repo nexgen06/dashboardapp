@@ -11,7 +11,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useSettings, getStatusOptions, getPriorityOptions } from "@/contexts/settings-context";
-import type { Theme, Language, DateFormat, LogLevel, SettingsSection } from "@/contexts/settings-context";
+import type { Theme, Language, DateFormat, LogLevel, SettingsSection, LiveTableDensity } from "@/contexts/settings-context";
 import { useAuth } from "@/contexts/auth-context";
 import { Settings2, Globe, Palette, Bell, RotateCcw, Check, Shield, Key, Zap, LogOut, Monitor, Smartphone, Search, AlertTriangle, Trash2, Loader2, Database, ListTodo } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -107,7 +107,24 @@ function GorevlerAyarlar({ searchQuery, resetSection, canResetSettings }: { sear
   const priorityMatch = matchesSearch(searchQuery, "Öncelik listesi", "Görev öncelikleri. Virgül veya satırla ayırın.");
   const defaultStatusMatch = matchesSearch(searchQuery, "Varsayılan durum", "Yeni görevde seçili gelecek durum.");
   const defaultPriorityMatch = matchesSearch(searchQuery, "Varsayılan öncelik", "Yeni görevde seçili gelecek öncelik.");
-  const noneMatch = searchQuery.trim() && !statusMatch && !priorityMatch && !defaultStatusMatch && !defaultPriorityMatch;
+  const summaryKeysMatch = matchesSearch(
+    searchQuery,
+    "Özet başlık sütunları",
+    "Görev özeti ve acil görevler listesinde satır başlığı için extra_data anahtarları."
+  );
+  const urgentTokensMatch = matchesSearch(
+    searchQuery,
+    "Acil öncelik değerleri",
+    "Hangi priority değerleri acil görev sayılır."
+  );
+  const noneMatch =
+    searchQuery.trim() &&
+    !statusMatch &&
+    !priorityMatch &&
+    !defaultStatusMatch &&
+    !defaultPriorityMatch &&
+    !summaryKeysMatch &&
+    !urgentTokensMatch;
 
   return (
     <div className="space-y-2">
@@ -165,6 +182,34 @@ function GorevlerAyarlar({ searchQuery, resetSection, canResetSettings }: { sear
           </select>
         </SettingRow>
       )}
+      {summaryKeysMatch && (
+        <SettingRow
+          label="Özet başlık sütunları (extra_data)"
+          description="Canlı tablo ‘Görev özeti’ ve ‘Acil görevler’ satırında `content` boşsa bu isimler sırayla `extra_data` içinde aranır (ör. Başlık, Ticket). Virgül veya satır ile ayırın. Boş bırakırsanız varsayılan sabit liste kullanılır."
+        >
+          <textarea
+            value={settings.taskSummaryPreferredExtraKeys}
+            onChange={(e) => updateSetting("taskSummaryPreferredExtraKeys", e.target.value)}
+            placeholder="Başlık, Ticket, Görev"
+            rows={2}
+            className="w-full max-w-md rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+          />
+        </SettingRow>
+      )}
+      {urgentTokensMatch && (
+        <SettingRow
+          label="Acil öncelik değerleri (priority alanı)"
+          description="Görev özeti ‘Acil görevler’ bölümünde `priority` tam olarak bu değerlerden biriyle eşleşiyorsa (büyük/küçük harf duyarsız) yüksek öncelik sayılır. Virgül veya satır ile ayırın. Boş bırakırsanız: high, yüksek, kritik, p1, acil, urgent."
+        >
+          <textarea
+            value={settings.urgentPriorityTokens}
+            onChange={(e) => updateSetting("urgentPriorityTokens", e.target.value)}
+            placeholder="High, Yüksek, Kritik"
+            rows={2}
+            className="w-full max-w-md rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+          />
+        </SettingRow>
+      )}
       {noneMatch && <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Arama kriterine uyan ayar yok.</p>}
       {canResetSettings && (
       <div className="pt-4">
@@ -183,7 +228,12 @@ function GorusAyarlar({ searchQuery, resetSection, canResetSettings }: { searchQ
 
   const themeMatch = matchesSearch(searchQuery, "Tema", "Açık, koyu veya sistem ayarına göre.");
   const sidebarMatch = matchesSearch(searchQuery, "Sidebar varsayılan", "Sayfa açıldığında sidebar dar mı açık mı olsun.");
-  const noneMatch = searchQuery.trim() && !themeMatch && !sidebarMatch;
+  const densityMatch = matchesSearch(
+    searchQuery,
+    "Canlı Tablo yoğunluğu",
+    "Satır aralığı ve yazı boyutu: Yoğun, Normal veya Büyük."
+  );
+  const noneMatch = searchQuery.trim() && !themeMatch && !sidebarMatch && !densityMatch;
 
   return (
     <div className="space-y-2">
@@ -217,6 +267,22 @@ function GorusAyarlar({ searchQuery, resetSection, canResetSettings }: { searchQ
           />
           <span className="text-sm text-slate-700 dark:text-slate-300">Varsayılan olarak daraltılmış</span>
         </label>
+      </SettingRow>
+      )}
+      {densityMatch && (
+      <SettingRow
+        label="Canlı Tablo yoğunluğu"
+        description="Canlı Tablo sayfasındaki satır aralığı ve yazı boyutu. Aynı seçenek tablo araç çubuğundan da değiştirilebilir."
+      >
+        <select
+          value={settings.liveTableDensity}
+          onChange={(e) => updateSetting("liveTableDensity", e.target.value as LiveTableDensity)}
+          className="w-full max-w-xs rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+        >
+          <option value="compact">Yoğun</option>
+          <option value="normal">Normal</option>
+          <option value="comfortable">Büyük</option>
+        </select>
       </SettingRow>
       )}
       {noneMatch && <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Arama kriterine uyan ayar yok.</p>}
