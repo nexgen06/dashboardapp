@@ -16,7 +16,9 @@ import {
   type SortingState,
   type PaginationState,
 } from "@tanstack/react-table";
-import { useRef, useState, useCallback, useEffect, useMemo } from "react";
+import type { ReactNode } from "react";
+import { useRef, useState, useCallback, useEffect, useMemo, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import type { Task } from "@/types/tasks";
 import type { Project } from "@/types/project";
@@ -45,8 +47,9 @@ import {
   DropdownMenuTrigger,
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { OnlineUsersPanel } from "@/components/OnlineUsersPanel";
-import { getRelativeTime } from "@/lib/relativeTime";
+import { presenceEditorLines } from "@/lib/userDisplayName";
 import { formatDate } from "@/lib/formatDate";
 import { parseCSV } from "@/lib/csvParser";
 import { parseJSON } from "@/lib/jsonParser";
@@ -992,7 +995,40 @@ function getStatusDisplay(value: string): string {
  */
 function isTaskCompleted(task: Task): boolean {
   const s = (task.status ?? "").trim();
-  return /tamamlandı|tamamlandi|done|completed/i.test(s);
+  return (
+    /tamamlandı|tamamlandi|done|completed/i.test(s) ||
+    /^tamam$/i.test(s) ||
+    /^bitti$/i.test(s)
+  );
+}
+
+/** Toolbar “Durum” filtresindeki bir seçimin görev durumuyla eşleşmesi (filteredData ile aynı mantık). */
+function taskStatusMatchesToolbarChip(taskStatus: string, filterLabel: string): boolean {
+  const s = taskStatus.trim();
+  const f = filterLabel.trim();
+  if (f === "Devam ediyor" || f === "Devam") return /devam|sürüyor/i.test(s);
+  if (f === "Yapılacak") return /yapılacak|yapilacak/i.test(s);
+  if (f === "Tamamlandı") return /tamamlandı|tamamlandi|done|completed/i.test(s);
+  return s === f;
+}
+
+function rawStatusIsCompleted(status: string): boolean {
+  const s = (status ?? "").trim();
+  return (
+    /tamamlandı|tamamlandi|done|completed/i.test(s) ||
+    /^tamam$/i.test(s) ||
+    /^bitti$/i.test(s)
+  );
+}
+
+/** Tek tıkla tamamlandıdan çıkarken: ayarlardaki varsayılan veya listedeki uygun “yapılacak” / ilk tamamlanmamış. */
+function resolveRestoreStatus(statusOptions: string[], defaultTaskStatus: string): string {
+  const d = (defaultTaskStatus ?? "").trim();
+  if (d && statusOptions.includes(d)) return d;
+  const todo = statusOptions.find((s) => /yapılacak|yapilacak|todo/i.test(s));
+  if (todo) return todo;
+  const nonDone = statusOptions.find((s) => !rawStatusIsCompleted(s));
+  return nonDone ?? statusOptions[0] ?? "Yapılacak";
 }
 
 function StatusCell({
@@ -1002,6 +1038,7 @@ function StatusCell({
   onFocus,
   onBlur,
   statusOptions = STATUS_OPTIONS.slice(),
+  defaultTaskStatus = "Yapılacak",
   density = "normal",
 }: {
   value: string;
@@ -1010,12 +1047,120 @@ function StatusCell({
   onFocus: () => void;
   onBlur: () => void;
   statusOptions?: string[];
+  defaultTaskStatus?: string;
   density?: LiveTableDensity;
 }) {
   const display = getStatusDisplay(value);
   const badgeStyle = STATUS_BADGE_STYLES[display] ?? STATUS_BADGE_STYLES.Yapılacak;
   const dotClass = STATUS_DOT_CLASS[display] ?? STATUS_DOT_CLASS.Yapılacak;
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const anchorRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const singleClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSingleSaveRef = useRef<{
+    taskId: string;
+    onSave: (taskId: string, patch: Partial<Task>) => void;
+    status: string;
+  } | null>(null);
+
+  const completedLabel = statusOptions.find((s) => /tamamlandı|tamamlandi|done|completed/i.test(s)) ?? "Tamamlandı";
+
+  const clearPendingSingleClick = useCallback(() => {
+    if (singleClickTimerRef.current) {
+      clearTimeout(singleClickTimerRef.current);
+      singleClickTimerRef.current = null;
+    }
+    pendingSingleSaveRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (singleClickTimerRef.current) {
+        clearTimeout(singleClickTimerRef.current);
+        singleClickTimerRef.current = null;
+      }
+      const p = pendingSingleSaveRef.current;
+      if (p) {
+        pendingSingleSaveRef.current = null;
+        p.onSave(p.taskId, { status: p.status, last_updated_by: "anon" });
+      }
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!menuOpen || !anchorRef.current) return;
+    const r = anchorRef.current.getBoundingClientRect();
+    setMenuPos({ top: r.bottom + 4, left: r.left });
+  }, [menuOpen]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointer = (e: MouseEvent | TouchEvent) => {
+      const node = e.target as Node;
+      if (anchorRef.current?.contains(node)) return;
+      if (menuRef.current?.contains(node)) return;
+      setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    const onScroll = () => setMenuOpen(false);
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("touchstart", onPointer, { passive: true });
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("touchstart", onPointer);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [menuOpen]);
+
+  const openPicker = useCallback(() => {
+    clearPendingSingleClick();
+    setMenuOpen(true);
+  }, [clearPendingSingleClick]);
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (e.button === 2) return;
+
+      if (menuOpen) {
+        clearPendingSingleClick();
+        setMenuOpen(false);
+        return;
+      }
+
+      if (e.detail >= 2) {
+        openPicker();
+        return;
+      }
+
+      clearPendingSingleClick();
+      const nextStatus = rawStatusIsCompleted(value)
+        ? resolveRestoreStatus(statusOptions, defaultTaskStatus)
+        : completedLabel;
+      pendingSingleSaveRef.current = { taskId, onSave, status: nextStatus };
+      singleClickTimerRef.current = setTimeout(() => {
+        singleClickTimerRef.current = null;
+        pendingSingleSaveRef.current = null;
+        onSave(taskId, { status: nextStatus, last_updated_by: "anon" });
+      }, 280);
+    },
+    [taskId, onSave, completedLabel, clearPendingSingleClick, openPicker, menuOpen, value, statusOptions, defaultTaskStatus]
+  );
+
+  const handleDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openPicker();
+    },
+    [openPicker]
+  );
 
   const badgePad =
     density === "compact"
@@ -1026,72 +1171,56 @@ function StatusCell({
   const dotHw =
     density === "compact" ? "h-1.5 w-1.5" : density === "comfortable" ? "h-2.5 w-2.5" : "h-2 w-2";
 
-  const completedLabel = statusOptions.find((s) => /tamamlandı|tamamlandi|done|completed/i.test(s)) ?? "Tamamlandı";
-  const isCompleted = statusOptions.some((s) => s === display) && /tamamlandı|tamamlandi|done|completed/i.test(display);
-
-  const handleBadgeClick = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (e.button === 2) return; // sağ tık → onContextMenu
-      if (e.detail === 2) {
-        setDropdownOpen(true);
-        return;
-      }
-      if (isCompleted) {
-        setDropdownOpen(true);
-        return;
-      }
-      onSave(taskId, { status: completedLabel, last_updated_by: "anon" });
-    },
-    [taskId, isCompleted, onSave, completedLabel]
-  );
-
-  const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setDropdownOpen(true);
-  }, []);
+  const portal =
+    menuOpen && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            ref={menuRef}
+            role="listbox"
+            aria-label="Durum seçin"
+            className="fixed z-[300] min-w-[10rem] overflow-hidden rounded-md border border-slate-200 bg-white py-1 text-sm shadow-lg dark:border-slate-600 dark:bg-slate-800"
+            style={{ top: menuPos.top, left: menuPos.left }}
+          >
+            {statusOptions.map((s) => (
+              <button
+                key={s}
+                type="button"
+                role="option"
+                className="flex w-full cursor-pointer items-center px-3 py-2 text-left text-slate-800 hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-700"
+                onClick={() => {
+                  onSave(taskId, { status: s, last_updated_by: "anon" });
+                  setMenuOpen(false);
+                }}
+              >
+                {s}
+              </button>
+            ))}
+          </div>,
+          document.body
+        )
+      : null;
 
   return (
-    <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
-      <div className="relative inline-flex">
-        <Badge
-          variant="outline"
-          role="button"
-          tabIndex={0}
-          title="Tek tık: Tamamlandı · Çift tık veya sağ tık: Tüm seçenekler"
-          onClick={handleBadgeClick}
-          onContextMenu={handleContextMenu}
-          onFocus={onFocus}
-          onBlur={onBlur}
-          className={cn(
-            "inline-flex items-center rounded-md border font-medium transition-colors hover:opacity-90 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1",
-            badgePad,
-            badgeStyle
-          )}
-        >
-          <span className={cn("shrink-0 rounded-full", dotClass, dotHw)} aria-hidden />
-          <span>{display || "—"}</span>
-        </Badge>
-        {/* Radix dropdown konumu için görünmez tetikleyici; tıklanmaz, menü sadece Badge tıklamasıyla açılıyor */}
-        <DropdownMenuTrigger asChild>
-          <span
-            className="absolute inset-0 pointer-events-none w-full h-full"
-            aria-hidden
-            tabIndex={-1}
-          />
-        </DropdownMenuTrigger>
-      </div>
-      <DropdownMenuContent align="start">
-        {statusOptions.map((s) => (
-          <DropdownMenuItem
-            key={s}
-            onClick={() => onSave(taskId, { status: s, last_updated_by: "anon" })}
-          >
-            {s}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <button
+        ref={anchorRef}
+        type="button"
+        title="Tek tık: Tamamlandı / varsayılana dön · Çift tık: tüm durumlar"
+        onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
+        onFocus={onFocus}
+        onBlur={onBlur}
+        className={cn(
+          "inline-flex select-none items-center rounded-md border font-medium transition-colors hover:opacity-90 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1",
+          badgePad,
+          badgeStyle
+        )}
+      >
+        <span className={cn("shrink-0 rounded-full", dotClass, dotHw)} aria-hidden />
+        <span>{display || "—"}</span>
+      </button>
+      {portal}
+    </>
   );
 }
 
@@ -1108,16 +1237,16 @@ function TaskStats({ tasks }: { tasks: Task[] }) {
   const diger = total - tamamlandi - devamEden;
 
   return (
-    <div className="flex flex-wrap items-center gap-3 text-sm">
-      <span className="font-medium text-slate-700 dark:text-slate-300">Toplam {total} görev</span>
+    <div className="flex flex-wrap items-center gap-3 text-xs font-medium text-slate-700 sm:text-sm dark:text-slate-300">
+      <span className="text-slate-800 dark:text-slate-100">Toplam {total} görev</span>
       <span className="text-slate-400 dark:text-slate-500">·</span>
-      <span className="text-slate-600 dark:text-slate-400">{tamamlandi} tamamlandı</span>
+      <span className="font-normal text-slate-600 dark:text-slate-400">{tamamlandi} tamamlandı</span>
       <span className="text-slate-400 dark:text-slate-500">·</span>
-      <span className="text-slate-600 dark:text-slate-400">{devamEden} devam ediyor</span>
+      <span className="font-normal text-slate-600 dark:text-slate-400">{devamEden} devam ediyor</span>
       {diger > 0 && (
         <>
           <span className="text-slate-400 dark:text-slate-500">·</span>
-          <span className="text-slate-600 dark:text-slate-400">{diger} diğer</span>
+          <span className="font-normal text-slate-600 dark:text-slate-400">{diger} diğer</span>
         </>
       )}
     </div>
@@ -1156,10 +1285,12 @@ export function TasksTable() {
     userName: user?.displayName ?? user?.email ?? undefined,
     userId: user?.id ?? undefined,
   });
+  const [presenceHoverRowId, setPresenceHoverRowId] = useState<string | null>(null);
+
   const { settings, updateSetting } = useSettings();
   const tableDensity = settings.liveTableDensity;
   const dui = LIVE_TABLE_DENSITY_UI[tableDensity];
-  const statusOptions = getStatusOptions(settings);
+  const statusOptions = useMemo(() => getStatusOptions(settings), [settings.customStatusList]);
   const priorityOptions = getPriorityOptions(settings);
   const currentUserEmail = (user?.email ?? "").trim().toLowerCase();
   const canCreateTask = hasPermission("liveTable.createTask");
@@ -1178,13 +1309,15 @@ export function TasksTable() {
   const [columnOrder, setColumnOrder] = useState<ColumnOrderState>(BASE_COLUMN_ORDER_STABLE);
   const [columnPinning, setColumnPinning] = useState<ColumnPinningState>({ left: [], right: [] });
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({
-    select: 44,
+    select: 56,
     status: 140,
     content: 260,
     actions: 52,
   });
   const [detailTask, setDetailTask] = useState<Task | null>(null);
   const [isFullWidth, setIsFullWidth] = useState(false);
+  /** Dar ekranda hızlı filtre satırı varsayılan kapalı */
+  const [quickFiltersOpen, setQuickFiltersOpen] = useState(false);
   const [draggedColumnId, setDraggedColumnId] = useState<string | null>(null);
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
@@ -1299,12 +1432,7 @@ export function TasksTable() {
     if (statusArr.length > 0) {
       result = result.filter((t) => {
         const s = (t.status ?? "").trim();
-        return statusArr.some((filter) => {
-          if (filter === "Devam ediyor" || filter === "Devam") return /devam|sürüyor/i.test(s);
-          if (filter === "Yapılacak") return /yapılacak|yapilacak/i.test(s);
-          if (filter === "Tamamlandı") return /tamamlandı|tamamlandi|done|completed/i.test(s);
-          return s === filter;
-        });
+        return statusArr.some((filter) => taskStatusMatchesToolbarChip(s, filter));
       });
     }
     // Çoklu atanan filtresi
@@ -1724,7 +1852,8 @@ export function TasksTable() {
     saveTask(taskId, { extra_data: newExtraData });
   }, [tasks, handleSave, saveTask]);
 
-  const columns: ColumnDef<Task, string | null>[] = [
+  const columns: ColumnDef<Task, string | null>[] = useMemo(
+    () => [
     columnHelper.display({
       id: "select",
       header: ({ table }) => (
@@ -1738,19 +1867,67 @@ export function TasksTable() {
           <span className={cn("font-medium text-slate-600 dark:text-slate-400", dui.selectHeaderSpan)}>Seçim</span>
         </span>
       ),
-      cell: ({ row }) => (
-        <input
-          type="checkbox"
-          checked={row.getIsSelected()}
-          disabled={!row.getCanSelect()}
-          onChange={row.getToggleSelectedHandler()}
-          className={dui.rowCheckbox}
-          aria-label="Satırı seç"
-        />
-      ),
-      size: 44,
-      minSize: 36,
-      maxSize: 80,
+      cell: ({ row }) => {
+        const editors = editorsByRowId.get(row.original.id) ?? [];
+        const first = editors[0];
+        const line =
+          editors.length === 0
+            ? null
+            : editors.length === 1
+              ? presenceEditorLines(first).primary
+              : `${presenceEditorLines(first).primary} +${editors.length - 1}`;
+        const editorsTooltip =
+          editors.length === 0
+            ? ""
+            : editors
+                .map((e) => {
+                  const { primary, emailLine } = presenceEditorLines(e);
+                  return emailLine ? `${primary} — ${emailLine}` : primary;
+                })
+                .join("\n");
+        return (
+          <div className="flex min-w-0 flex-col items-start gap-1">
+            <input
+              type="checkbox"
+              checked={row.getIsSelected()}
+              disabled={!row.getCanSelect()}
+              onChange={row.getToggleSelectedHandler()}
+              className={dui.rowCheckbox}
+              aria-label="Satırı seç"
+            />
+            {line != null && (
+              <Tooltip delayDuration={160}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex max-w-full cursor-default items-center gap-0.5 rounded px-0.5 text-left text-[10px] font-medium leading-tight text-violet-700 outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-violet-400 dark:text-violet-300"
+                    aria-label={`Düzenleyen: ${editors.map((e) => presenceEditorLines(e).primary).join(", ")}`}
+                  >
+                    <User className="h-3 w-3 shrink-0 opacity-80" aria-hidden />
+                    <span className="min-w-0 truncate">{line}</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="right"
+                  align="start"
+                  sideOffset={10}
+                  className="z-[400] max-w-[min(20rem,calc(100vw-2rem))] border-2 border-violet-500 bg-violet-100 px-3 py-2.5 text-sm font-semibold text-violet-950 shadow-[0_8px_32px_rgba(0,0,0,0.18)] dark:border-violet-400 dark:bg-violet-900/95 dark:text-violet-50 md:text-base"
+                >
+                  <span className="block text-[0.65rem] font-bold uppercase tracking-wide text-violet-700 dark:text-violet-200">
+                    Bu satırda düzenleme
+                  </span>
+                  <span className="mt-1.5 block whitespace-pre-line break-words text-[13px] font-semibold leading-snug md:text-sm">
+                    {editorsTooltip}
+                  </span>
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        );
+      },
+      size: 56,
+      minSize: 48,
+      maxSize: 140,
       enableResizing: false,
     }),
     columnHelper.display({
@@ -1764,6 +1941,7 @@ export function TasksTable() {
           onFocus={() => setEditingRow(row.original.id)}
           onBlur={() => setEditingRow(null)}
           statusOptions={statusOptions}
+          defaultTaskStatus={settings.defaultTaskStatus}
           density={tableDensity}
         />
       ),
@@ -1924,11 +2102,31 @@ export function TasksTable() {
       maxSize: 80,
       enableResizing: false,
     }),
-  ];
+    ],
+    [
+      handleSave,
+      statusOptions,
+      tableDensity,
+      dui,
+      extraDataKeys,
+      handleDynamicCellSave,
+      deletingIds,
+      editorsByRowId,
+      canEditTask,
+      canCreateTask,
+      canDeleteTask,
+      handleCopyTask,
+      handleDeleteTask,
+      setEditingRow,
+      setEditTask,
+      settings.defaultTaskStatus,
+    ]
+  );
 
   const table = useReactTable({
     data: filteredData,
     columns,
+    getRowId: (row) => row.id,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
@@ -2049,7 +2247,7 @@ export function TasksTable() {
       )}
       <div
         className={cn(
-          "flex flex-col min-h-0 flex-1 rounded-lg border-0 bg-transparent shadow-none",
+          "flex min-h-0 flex-1 flex-col gap-2 rounded-lg border-0 bg-transparent shadow-none",
           isFullWidth && "fixed inset-6 z-50 flex flex-col rounded-xl border-2 border-slate-300 bg-white p-4 shadow-2xl dark:border-slate-600 dark:bg-slate-800"
         )}
       >
@@ -2134,10 +2332,25 @@ export function TasksTable() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <div className="flex shrink-0 flex-col gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
-        {/* Akıllı Filtreler */}
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium text-slate-600 dark:text-slate-400 mr-1">Hızlı filtreler:</span>
+      <div className="flex shrink-0 flex-col gap-3 px-2 py-3 sm:px-4">
+        {/* Katman 1 — Hızlı filtreler (mobilde daraltılabilir) */}
+        <div className="rounded-lg border border-slate-200/90 bg-slate-50/80 px-2 py-2 dark:border-slate-600/80 dark:bg-slate-800/45 sm:px-3 sm:py-2.5">
+          <button
+            type="button"
+            aria-expanded={quickFiltersOpen}
+            onClick={() => setQuickFiltersOpen((o) => !o)}
+            className="flex w-full items-center justify-between rounded-md px-1 py-1 text-left text-xs font-medium text-slate-700 hover:bg-slate-100/80 dark:text-slate-300 dark:hover:bg-slate-700/50 md:hidden"
+          >
+            <span>Hızlı filtreler</span>
+            <ChevronDown
+              className={cn("h-4 w-4 shrink-0 text-slate-500 transition-transform dark:text-slate-400", quickFiltersOpen && "rotate-180")}
+              aria-hidden
+            />
+          </button>
+          <div className={cn("flex flex-wrap items-center gap-2", !quickFiltersOpen && "hidden md:flex")}>
+            <span className="hidden text-xs font-medium text-slate-600 dark:text-slate-400 md:mr-1 md:inline">
+              Hızlı filtreler:
+            </span>
           <Button
             type="button"
             variant="outline"
@@ -2246,7 +2459,10 @@ export function TasksTable() {
             )}
           </Button>
         </div>
+        </div>
 
+        {/* Katman 2 — Arama ve ayrıntılı filtreler */}
+        <div className="rounded-lg border border-slate-200/90 bg-white px-2 py-2 dark:border-slate-600/80 dark:bg-slate-900/25 sm:px-3 sm:py-2.5">
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative flex-1 min-w-[200px] max-w-sm">
             <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
@@ -2469,9 +2685,10 @@ export function TasksTable() {
             </span>
           )}
         </div>
+        </div>
         {/* Filtre Özeti Çubuğu - Aktif Filtre Badge'leri */}
         {activeFilterCount > 0 && (
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/50">
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200/90 bg-slate-50/90 px-3 py-2 dark:border-slate-600/90 dark:bg-slate-800/55">
             <span className="flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-400">
               <Filter className="h-3.5 w-3.5" />
               Aktif filtreler:
@@ -2612,7 +2829,7 @@ export function TasksTable() {
           </div>
         )}
       </div>
-      <div className="flex shrink-0 flex-col gap-2 px-1 pb-2">
+      <div className="shrink-0 rounded-lg border border-slate-200/70 bg-slate-50/50 px-2 py-2 dark:border-slate-700/80 dark:bg-slate-800/35 sm:px-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-xs text-slate-500 dark:text-slate-400">
             Sütunları sürükleyerek sıralayın, kenardan genişletin; menü ile sabitleyin.
@@ -2661,10 +2878,14 @@ export function TasksTable() {
           </div>
         </div>
       </div>
-      <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between shrink-0">
+      <div
+        className={cn(
+          "sticky z-20 -mx-2 flex shrink-0 flex-col gap-3 border-b border-slate-200 bg-white/90 px-2 py-3 shadow-sm backdrop-blur-md dark:border-slate-700 dark:bg-slate-900/90 sm:-mx-4 sm:px-4 sm:flex-row sm:items-center sm:justify-between supports-[backdrop-filter]:bg-white/80 dark:supports-[backdrop-filter]:bg-slate-900/85",
+          isFullWidth ? "top-0" : "top-14"
+        )}
+      >
         <div className="flex flex-wrap items-center gap-3">
           <TaskStats tasks={tasksVisibleByProject} />
-          <span className="hidden sm:inline text-slate-400 dark:text-slate-500">|</span>
           {isRealtimeConnected ? (
             <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" title="Realtime bağlı">
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500 animate-pulse" aria-hidden />
@@ -2744,10 +2965,11 @@ export function TasksTable() {
             type="button"
             size="sm"
             onClick={() => setNewTaskOpen(true)}
+            aria-label="Yeni görev"
             className="bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-500 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus-visible:ring-blue-400"
           >
-            <PlusCircle className="mr-2 h-4 w-4 shrink-0" aria-hidden />
-            Yeni görev
+            <PlusCircle className="h-4 w-4 shrink-0 sm:mr-2" aria-hidden />
+            <span className="hidden sm:inline">Yeni görev</span>
           </Button>
           )}
         </div>
@@ -2778,6 +3000,7 @@ export function TasksTable() {
           )}
         </div>
       )}
+      <TooltipProvider delayDuration={200} skipDelayDuration={120}>
       <div
         className={cn(
           "flex-1 min-h-0 w-full overflow-auto rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800",
@@ -2998,66 +3221,154 @@ export function TasksTable() {
               const isCompleted = isTaskCompleted(row.original);
               const visibleCells = row.getVisibleCells();
               const totalSize = visibleCells.reduce((sum, c) => sum + Math.max(c.column.getSize(), 40), 0) || 1;
-              const rowTitle = isEditedByOthers
-                ? rowEditors.length === 1
-                  ? `${rowEditors[0].name || rowEditors[0].email || "Bir kullanıcı"} düzenliyor`
-                  : `${rowEditors
-                      .map((e) => e.name?.trim() || e.email?.trim() || "")
-                      .filter(Boolean)
-                      .slice(0, 3)
-                      .join(", ")}${rowEditors.length > 3 ? ` +${rowEditors.length - 3}` : ""} düzenliyor`
+              let rowTooltipBody: ReactNode | undefined;
+              if (isEditedByOthers) {
+                if (rowEditors.length === 1) {
+                  const { primary, emailLine } = presenceEditorLines(rowEditors[0]);
+                  rowTooltipBody = (
+                    <>
+                      <span className="block text-[0.65rem] font-bold uppercase tracking-wide text-violet-800 dark:text-violet-200">
+                        Bu satırda düzenleme
+                      </span>
+                      <span className="mt-1.5 block text-base font-semibold leading-snug">{primary}</span>
+                      {emailLine && (
+                        <span className="mt-1 block break-all text-xs font-medium leading-snug opacity-90">
+                          {emailLine}
+                        </span>
+                      )}
+                    </>
+                  );
+                } else {
+                  rowTooltipBody = (
+                    <>
+                      <span className="block text-[0.65rem] font-bold uppercase tracking-wide text-violet-800 dark:text-violet-200">
+                        Bu satırda düzenleme ({rowEditors.length})
+                      </span>
+                      <ul className="mt-2 max-h-40 list-none space-y-2 overflow-y-auto text-left text-sm font-semibold">
+                        {rowEditors.map((e, i) => {
+                          const { primary, emailLine } = presenceEditorLines(e);
+                          return (
+                            <li
+                              key={i}
+                              className="border-b border-violet-200/60 pb-2 last:border-0 last:pb-0 dark:border-violet-600/50"
+                            >
+                              <span className="block">{primary}</span>
+                              {emailLine && (
+                                <span className="mt-0.5 block break-all text-xs font-normal opacity-90">
+                                  {emailLine}
+                                </span>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </>
+                  );
+                }
+              }
+              const rowLockedByOthersBg = "bg-violet-50/65 dark:bg-violet-950/35";
+              const completedCellBg = "bg-emerald-50/80 dark:bg-emerald-950/25";
+              const pinnedDefaultBg = "bg-white dark:bg-slate-800";
+              const pinnedBg = isEditedByOthers
+                ? rowLockedByOthersBg
                 : isCompleted
-                  ? "Bu görev tamamlandı olarak işaretlendi"
-                  : undefined;
-              return (
-                <tr
-                  key={row.id}
-                  className={cn(
-                    "border-b border-slate-100 transition-colors hover:bg-slate-50/50 dark:border-slate-700 dark:hover:bg-slate-700/30",
-                    isCompleted && "bg-emerald-50/80 dark:bg-emerald-950/25 hover:bg-emerald-50/90 dark:hover:bg-emerald-950/35",
-                    isCompleted && !isSelected && !isEditedByOthers && "border-l-4 border-l-emerald-400 dark:border-l-emerald-500",
-                    isSelected && "bg-blue-50/60 dark:bg-blue-900/20 hover:bg-blue-50/80 dark:hover:bg-blue-900/30",
-                    isSelected && !isEditedByOthers && "border-l-4 border-l-blue-500 dark:border-l-blue-400",
-                    isEditedByOthers && "border-l-4 border-l-amber-500 bg-amber-50/30 dark:bg-amber-900/15 dark:border-l-amber-400 hover:bg-amber-50/60 dark:hover:bg-amber-900/25"
-                  )}
-                  title={rowTitle}
-                >
-                  {visibleCells.map((cell) => {
-                    const isPinnedLeft = cell.column.getIsPinned() === "left";
-                    const isPinnedRight = cell.column.getIsPinned() === "right";
-                    const baseSize = Math.max(cell.column.getSize(), 40);
-                    const widthPct = Math.max((baseSize / totalSize) * 100, 2);
-                    const completedCellBg = "bg-emerald-50/80 dark:bg-emerald-950/25";
-                    const pinnedBg = isCompleted ? completedCellBg : "bg-white dark:bg-slate-800";
-                    return (
-                      <td
-                        key={cell.id}
-                        className={cn(
-                          "border-r border-slate-100 dark:border-slate-700 align-top",
-                          dui.td,
-                          isCompleted && completedCellBg,
-                          isPinnedLeft && "sticky left-0 z-10 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.05)] dark:shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]",
-                          isPinnedRight && "sticky right-0 z-10 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.05)] dark:shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.2)]",
-                          (isPinnedLeft || isPinnedRight) && pinnedBg
-                        )}
-                        style={{
-                          width: `${widthPct}%`,
-                          minWidth: `${widthPct}%`,
-                          maxWidth: `${widthPct}%`,
-                        }}
+                  ? completedCellBg
+                  : pinnedDefaultBg;
+              const rowClassName = cn(
+                "border-b border-slate-100 transition-colors dark:border-slate-700",
+                !isEditedByOthers && "hover:bg-slate-50/50 dark:hover:bg-slate-700/30",
+                !isEditedByOthers &&
+                  isCompleted &&
+                  "bg-emerald-50/80 dark:bg-emerald-950/25 hover:bg-emerald-50/90 dark:hover:bg-emerald-950/35",
+                !isEditedByOthers &&
+                  isCompleted &&
+                  !isSelected &&
+                  "border-l-4 border-l-emerald-400 dark:border-l-emerald-500",
+                isSelected && !isCompleted && !isEditedByOthers && "bg-blue-50/60 dark:bg-blue-900/20 hover:bg-blue-50/80 dark:hover:bg-blue-900/30",
+                isSelected && !isCompleted && !isEditedByOthers && "border-l-4 border-l-blue-500 dark:border-l-blue-400",
+                isSelected &&
+                  isCompleted &&
+                  !isEditedByOthers &&
+                  "bg-emerald-50/85 ring-2 ring-inset ring-blue-400/50 dark:bg-emerald-950/30 dark:ring-blue-500/45",
+                isEditedByOthers &&
+                  "relative z-[1] cursor-default border-l-4 border-l-violet-500 bg-violet-50/65 shadow-[inset_0_0_0_1px_rgba(139,92,246,0.14)] dark:border-l-violet-400 dark:bg-violet-950/35 dark:shadow-[inset_0_0_0_1px_rgba(167,139,250,0.2)] hover:bg-violet-50/90 dark:hover:bg-violet-950/45"
+              );
+              const rowTooltipClass =
+                "z-[400] max-w-[min(22rem,calc(100vw-2rem))] border-2 border-violet-500 bg-violet-100 px-3 py-2.5 text-sm font-semibold leading-snug text-violet-950 shadow-[0_8px_32px_rgba(0,0,0,0.18)] animate-in fade-in-0 zoom-in-95 dark:border-violet-400 dark:bg-violet-900/95 dark:text-violet-50 md:text-base";
+              const rowCells = visibleCells.map((cell) => {
+                const isPinnedLeft = cell.column.getIsPinned() === "left";
+                const isPinnedRight = cell.column.getIsPinned() === "right";
+                const baseSize = Math.max(cell.column.getSize(), 40);
+                const widthPct = Math.max((baseSize / totalSize) * 100, 2);
+                return (
+                  <td
+                    key={cell.id}
+                    className={cn(
+                      "border-r border-slate-100 dark:border-slate-700 align-top",
+                      dui.td,
+                      isEditedByOthers && rowLockedByOthersBg,
+                      isCompleted && !isEditedByOthers && completedCellBg,
+                      isPinnedLeft && "sticky left-0 z-10 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.05)] dark:shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]",
+                      isPinnedRight && "sticky right-0 z-10 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.05)] dark:shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.2)]",
+                      (isPinnedLeft || isPinnedRight) && pinnedBg
+                    )}
+                    style={{
+                      width: `${widthPct}%`,
+                      minWidth: `${widthPct}%`,
+                      maxWidth: `${widthPct}%`,
+                    }}
+                  >
+                    <div className="min-w-0 overflow-hidden text-slate-700 dark:text-slate-200">
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </div>
+                  </td>
+                );
+              });
+
+              const claimRowPresence = () => setEditingRow(row.original.id);
+              const rowPointerHandlers = {
+                onPointerDown: claimRowPresence,
+              };
+
+              if (rowTooltipBody != null && isEditedByOthers) {
+                return (
+                  <Tooltip
+                    key={row.id}
+                    delayDuration={80}
+                    disableHoverableContent
+                    open={presenceHoverRowId === row.id}
+                    onOpenChange={(open) => {
+                      if (!open) setPresenceHoverRowId((cur) => (cur === row.id ? null : cur));
+                    }}
+                  >
+                    <TooltipTrigger asChild>
+                      <tr
+                        className={rowClassName}
+                        {...rowPointerHandlers}
+                        onPointerEnter={() => setPresenceHoverRowId(row.id)}
+                        onPointerLeave={() =>
+                          setPresenceHoverRowId((cur) => (cur === row.id ? null : cur))
+                        }
                       >
-                        <div className="min-w-0 overflow-hidden text-slate-700 dark:text-slate-200">
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </div>
-                      </td>
-                    );
-                  })}
+                        {rowCells}
+                      </tr>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" sideOffset={10} className={rowTooltipClass}>
+                      {rowTooltipBody}
+                    </TooltipContent>
+                  </Tooltip>
+                );
+              }
+              return (
+                <tr key={row.id} className={rowClassName} {...rowPointerHandlers}>
+                  {rowCells}
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
+      </TooltipProvider>
       {filteredData.length > 0 && (
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-700">
           <div className="flex items-center gap-2">

@@ -11,6 +11,12 @@ import { useProjectChatUnread } from "@/contexts/project-chat-unread-context";
 import { formatDate } from "@/lib/formatDate";
 import { parseCSV } from "@/lib/csvParser";
 import { parseJSON } from "@/lib/jsonParser";
+import {
+  findAssigneeColumnIndex,
+  findAssigneeJsonKey,
+  normalizeTaskAssigneeEmail,
+  pickRoundRobinAssignee,
+} from "@/lib/projectImportAssignee";
 import type { Project, ProjectStatus, ProjectPriority } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +49,10 @@ export type NewProjectSubmitData = {
   due_date?: string | null;
   /** Proje önceliği (High / Medium / Low). */
   priority?: ProjectPriority | null;
+  /** Yalnızca yönetici: katı atanan görünürlüğü (RLS). */
+  strictAssigneeVisibility?: boolean;
+  /** Yeni proje + dosya: atanan e-posta listesine round-robin (en az 2 e-posta). */
+  importRoundRobin?: boolean;
 };
 
 const STATUS_OPTIONS: ProjectStatus[] = ["Aktif", "Tamamlandı", "Beklemede"];
@@ -89,6 +99,7 @@ function ProjectFormModal({
   onSubmit,
   isSubmitting,
   formError,
+  isAdmin,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -96,6 +107,7 @@ function ProjectFormModal({
   onSubmit: (data: NewProjectSubmitData) => Promise<void>;
   isSubmitting: boolean;
   formError?: string | null;
+  isAdmin: boolean;
 }) {
   const [name, setName] = useState(project?.name ?? "");
   const [description, setDescription] = useState(project?.description ?? "");
@@ -106,6 +118,8 @@ function ProjectFormModal({
   const [assignee, setAssignee] = useState("");
   const [assignedEmails, setAssignedEmails] = useState<string[]>([]);
   const [emailInput, setEmailInput] = useState("");
+  const [strictAssigneeVisibility, setStrictAssigneeVisibility] = useState(false);
+  const [importRoundRobin, setImportRoundRobin] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isEdit = !!project;
@@ -122,6 +136,8 @@ function ProjectFormModal({
       setAssignee("");
       setAssignedEmails(project.assigned_emails ?? []);
       setEmailInput("");
+      setStrictAssigneeVisibility(project.strict_assignee_visibility ?? false);
+      setImportRoundRobin(false);
     } else if (open && !project) {
       setName("");
       setDescription("");
@@ -132,6 +148,8 @@ function ProjectFormModal({
       setAssignee("");
       setAssignedEmails([]);
       setEmailInput("");
+      setStrictAssigneeVisibility(false);
+      setImportRoundRobin(false);
     }
   }, [open, project]);
 
@@ -159,6 +177,8 @@ function ProjectFormModal({
       importFile: isEdit ? undefined : importFile ?? undefined,
       assignee: isEdit ? undefined : (assignee.trim() || undefined),
       assignedEmails: assignedEmails.length > 0 ? assignedEmails : undefined,
+      strictAssigneeVisibility: isAdmin ? strictAssigneeVisibility : undefined,
+      importRoundRobin: !isEdit ? importRoundRobin : undefined,
     });
     onOpenChange(false);
     setName("");
@@ -170,6 +190,8 @@ function ProjectFormModal({
     setAssignee("");
     setAssignedEmails([]);
     setEmailInput("");
+    setStrictAssigneeVisibility(false);
+    setImportRoundRobin(false);
   };
 
   return (
@@ -309,6 +331,26 @@ function ProjectFormModal({
             )}
           </div>
 
+          {isAdmin && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+              <label className="flex cursor-pointer items-start gap-2">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                  checked={strictAssigneeVisibility}
+                  onChange={(e) => setStrictAssigneeVisibility(e.target.checked)}
+                />
+                <span className="text-sm text-slate-800 dark:text-slate-200">
+                  <span className="font-medium">Katı atanan görünürlüğü</span>
+                  <span className="mt-1 block text-xs font-normal text-slate-600 dark:text-slate-400">
+                    Açıkken üye ve izleyici rolleri bu projede yalnızca kendilerine atanmış ve atanmamış görevleri görür;
+                    yönetici ve proje yöneticisi tüm görevleri görür. Veritabanı RLS ile uygulanır (SQL betiğini çalıştırmış olmalısınız).
+                  </span>
+                </span>
+              </label>
+            </div>
+          )}
+
           {!isEdit && (
             <>
               <div className="rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50/50 dark:bg-slate-800/50 p-3 space-y-3">
@@ -342,6 +384,20 @@ function ProjectFormModal({
                     {importFile.name}
                   </div>
                 )}
+                {importFile && assignedEmails.length >= 2 && (
+                  <label className="flex cursor-pointer items-start gap-2 pt-1">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      checked={importRoundRobin}
+                      onChange={(e) => setImportRoundRobin(e.target.checked)}
+                    />
+                    <span className="text-xs text-slate-700 dark:text-slate-300">
+                      <strong>Eşit dağıt (round-robin):</strong> Dosyadaki her satır, yukarıdaki atanan e-posta listesine sırayla paylaştırılır.
+                      İşaretliyken CSV’deki &quot;Atanan&quot; sütunu yok sayılır.
+                    </span>
+                  </label>
+                )}
               </div>
               <div>
                 <label htmlFor="project-assignee" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
@@ -356,7 +412,8 @@ function ProjectFormModal({
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
                 />
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  Dosya yüklediyseniz bu alan tüm görevlere atanan olarak uygulanır.
+                  Dosya yüklediyseniz: CSV/Excel&apos;de &quot;Atanan&quot; / &quot;assignee&quot; başlıklı sütun varsa satır bazında kullanılır.
+                  Sütun yoksa bu alan tüm satırlara aynı atananı yazar. Round-robin seçiliyse bu alan ve sütun yok sayılır.
                 </p>
               </div>
             </>
@@ -466,6 +523,9 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
           assigned_emails: data.assignedEmails ?? [],
           due_date: data.due_date ?? null,
           priority: data.priority ?? null,
+          ...(isAdmin
+            ? { strict_assignee_visibility: data.strictAssigneeVisibility ?? false }
+            : {}),
         });
         setFormOpen(false);
         setEditingProject(null);
@@ -479,17 +539,24 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
         assigned_emails: data.assignedEmails?.length ? data.assignedEmails : undefined,
         due_date: data.due_date ?? undefined,
         priority: data.priority ?? undefined,
+        strict_assignee_visibility: isAdmin ? (data.strictAssigneeVisibility ?? false) : false,
       });
       if (data.importFile && projectId) {
         const text = await data.importFile.text();
         const fileName = (data.importFile.name || "").toLowerCase();
         const isJson = fileName.endsWith(".json");
-        const assignee = (data.assignee ?? "").trim() || null;
+        const recipients = (data.assignedEmails ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean);
+        const roundRobin = !!(data.importRoundRobin && recipients.length >= 2);
+        const defaultRaw = (data.assignee ?? "").trim();
+        const defaultAssignee =
+          normalizeTaskAssigneeEmail(defaultRaw) ?? (defaultRaw || null);
         const projectPriority = normalizeProjectPriority(data.priority);
         type TaskInsert = { content: string; status: string; assignee: string | null; project_id: string; extra_data: Record<string, string> | null; priority?: string | null };
         const tasksToInsert: TaskInsert[] = [];
+        let distributeIndex = 0;
         if (isJson) {
           const { headers, rows } = parseJSON(text);
+          const assigneeKey = roundRobin ? null : findAssigneeJsonKey(headers);
           if (headers.length > 0 && rows.length > 0) {
             for (const row of rows) {
               const extra_data: Record<string, string> = {};
@@ -499,7 +566,12 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
               });
               const hasAnyData = Object.values(extra_data).some((v) => String(v ?? "").trim() !== "");
               if (hasAnyData) {
-                // content boş bırakılır; Canlı Tablo'da Açıklama "ek not" için ayrıldı. Liste etiketi extra_data'dan türetilir.
+                const fromCol =
+                  assigneeKey != null ? normalizeTaskAssigneeEmail(row[assigneeKey]) : null;
+                const assignee = roundRobin
+                  ? pickRoundRobinAssignee(recipients, distributeIndex)
+                  : (fromCol ?? defaultAssignee);
+                distributeIndex += 1;
                 tasksToInsert.push({
                   content: "",
                   status: "Yapılacak",
@@ -513,6 +585,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
           }
         } else {
           const { headers, rows } = parseCSV(text);
+          const assigneeCol = roundRobin ? null : findAssigneeColumnIndex(headers);
           if (headers.length > 0 && rows.length > 0) {
             for (const row of rows) {
               const extra_data: Record<string, string> = {};
@@ -522,6 +595,12 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
               });
               const hasAnyData = Object.values(extra_data).some((v) => String(v ?? "").trim() !== "");
               if (hasAnyData) {
+                const fromCol =
+                  assigneeCol != null ? normalizeTaskAssigneeEmail(row[assigneeCol]) : null;
+                const assignee = roundRobin
+                  ? pickRoundRobinAssignee(recipients, distributeIndex)
+                  : (fromCol ?? defaultAssignee);
+                distributeIndex += 1;
                 tasksToInsert.push({
                   content: "",
                   status: "Yapılacak",
@@ -828,6 +907,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
         onSubmit={handleFormSubmit}
         isSubmitting={isSubmitting}
         formError={formError}
+        isAdmin={isAdmin}
       />
       <Dialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
         <DialogContent showClose={true}>

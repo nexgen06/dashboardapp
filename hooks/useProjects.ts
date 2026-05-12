@@ -5,6 +5,8 @@ import { supabase } from "@/lib/supabaseClient";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { Project, ProjectStatus, ProjectPriority } from "@/types/project";
 
+let projectsRealtimeChannelSeq = 0;
+
 type PostgresChangePayload = {
   eventType: "INSERT" | "UPDATE" | "DELETE";
   new: Record<string, unknown>;
@@ -37,6 +39,8 @@ function mapRowToProject(row: Record<string, unknown>): Project {
   const priority = row.priority != null && /^high|medium|low$/i.test(String(row.priority))
     ? (String(row.priority).charAt(0).toUpperCase() + String(row.priority).slice(1).toLowerCase()) as ProjectPriority
     : null;
+  const strict_assignee_visibility =
+    row.strict_assignee_visibility === true || String(row.strict_assignee_visibility).toLowerCase() === "true";
   return {
     id: String(row.id),
     name: String(row.name ?? ""),
@@ -47,6 +51,7 @@ function mapRowToProject(row: Record<string, unknown>): Project {
     assigned_emails: assigned_emails ?? null,
     due_date: dueDate ?? null,
     priority: priority ?? null,
+    strict_assignee_visibility: strict_assignee_visibility,
   };
 }
 
@@ -80,8 +85,9 @@ export function useProjects() {
   // Realtime: başka kullanıcıların proje ekleme/güncelleme/silme değişiklikleri anında yansır.
   useEffect(() => {
     let channel: RealtimeChannel;
+    const channelTopic = `projects-realtime-sync-${++projectsRealtimeChannelSeq}`;
     channel = supabase
-      .channel("projects-realtime-sync")
+      .channel(channelTopic)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "projects" },
@@ -143,6 +149,7 @@ export function useProjects() {
       assigned_emails?: string[] | null;
       due_date?: string | null;
       priority?: ProjectPriority | null;
+      strict_assignee_visibility?: boolean;
     }): Promise<string | null> => {
       const baseRow: Record<string, unknown> = {
         name: payload.name.trim() || "İsimsiz proje",
@@ -159,6 +166,9 @@ export function useProjects() {
       }
       if (payload.priority != null && String(payload.priority).trim() !== "") {
         baseRow.priority = payload.priority;
+      }
+      if (payload.strict_assignee_visibility !== undefined) {
+        baseRow.strict_assignee_visibility = payload.strict_assignee_visibility;
       }
       let { data, error: insertError } = await supabase
         .from("projects")
@@ -191,7 +201,7 @@ export function useProjects() {
   );
 
   const updateProject = useCallback(
-    async (id: string, payload: Partial<Pick<Project, "name" | "description" | "status" | "assigned_emails" | "due_date" | "priority">>) => {
+    async (id: string, payload: Partial<Pick<Project, "name" | "description" | "status" | "assigned_emails" | "due_date" | "priority" | "strict_assignee_visibility">>) => {
       const updateRow: Record<string, unknown> = { ...payload, updated_at: new Date().toISOString() };
       if (payload.assigned_emails !== undefined) {
         updateRow.assigned_emails =
@@ -201,6 +211,9 @@ export function useProjects() {
       }
       if (payload.due_date !== undefined) updateRow.due_date = payload.due_date ?? null;
       if (payload.priority !== undefined) updateRow.priority = payload.priority ?? null;
+      if (payload.strict_assignee_visibility !== undefined) {
+        updateRow.strict_assignee_visibility = payload.strict_assignee_visibility;
+      }
       const { error: updateError } = await supabase.from("projects").update(updateRow).eq("id", id);
       if (updateError) throw updateError;
       // Normalize assigned_emails in local state (DB'ye yazdığımız hali)

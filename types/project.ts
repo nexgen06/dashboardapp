@@ -17,6 +17,8 @@ export type Project = {
   assigned_emails?: string[] | null;
   /** Proje hedef / bitiş tarihi (ISO date string). Yeni proje oluştururken veya düzenlerken tanımlanabilir. */
   due_date?: string | null;
-  /** Proje önceliği. Görev listesinde varsayılan öncelik veya filtreleme için kullanılabilir. */
+  /** Varsayılan görev önceliği (proje önceliği). */
   priority?: ProjectPriority | null;
+  /** Açıksa üye/izleyici yalnızca kendi atanan görevlerini ve atanmamış görevleri görür (RLS). Yönetici ve proje yöneticisi tümünü görür. */
+  strict_assignee_visibility?: boolean;
 };

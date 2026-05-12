@@ -1,55 +1,47 @@
--- Dashboard: Supabase Auth + profil / roller tablosu
--- Supabase SQL Editor veya migrations ile çalıştırın.
--- Profil SELECT sıkılaştırması ve projects/tasks RLS için bu dosyadan sonra
--- scripts/supabase-rls-policies.sql betiğini çalıştırın.
-
-create table if not exists public.profiles (
-  id uuid primary key references auth.users (id) on delete cascade,
-  email text not null default '',
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id uuid PRIMARY KEY REFERENCES auth.users (id) ON DELETE CASCADE,
+  email text NOT NULL DEFAULT '',
   display_name text,
-  role_id text not null default 'member',
-  updated_at timestamptz not null default now()
+  role_id text NOT NULL DEFAULT 'member',
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-alter table public.profiles enable row level security;
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
--- İlk oluşturmada kullanıcı kendi satırını ekler / günceller
-create policy profiles_select_authenticated on public.profiles
-  for select
-  using (auth.role () = 'authenticated');
+DROP POLICY IF EXISTS profiles_select_authenticated ON public.profiles;
+DROP POLICY IF EXISTS profiles_insert_own ON public.profiles;
+DROP POLICY IF EXISTS profiles_update_own ON public.profiles;
 
-create policy profiles_insert_own on public.profiles
-  for insert
-  with check (auth.uid () = id);
+CREATE POLICY profiles_select_authenticated ON public.profiles
+  FOR SELECT USING (auth.role() = 'authenticated');
 
-create policy profiles_update_own on public.profiles
-  for update
-  using (auth.uid () = id);
+CREATE POLICY profiles_insert_own ON public.profiles
+  FOR INSERT WITH CHECK (auth.uid() = id);
 
--- Rol ataması için (yalnızca role_id='admin' çağıranlar)
-create or replace function public.admin_set_role(target_id uuid, new_role text)
-returns void
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  if auth.uid () is null then
-    raise exception 'not authenticated';
-  end if;
-  if new_role not in ('admin', 'project_manager', 'member', 'viewer') then
-    raise exception 'invalid role';
-  end if;
-  if not exists (
-    select 1 from public.profiles p where p.id = auth.uid () and p.role_id = 'admin'
-  ) then
-    raise exception 'only admins can change roles';
-  end if;
-  update public.profiles
-  set role_id = new_role, updated_at = now()
-  where id = target_id;
-end;
+CREATE POLICY profiles_update_own ON public.profiles
+  FOR UPDATE USING (auth.uid() = id);
+
+CREATE OR REPLACE FUNCTION public.admin_set_role (target_id uuid, new_role text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'not authenticated';
+  END IF;
+  IF new_role NOT IN ('admin', 'project_manager', 'member', 'viewer') THEN
+    RAISE EXCEPTION 'invalid role';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role_id = 'admin'
+  ) THEN
+    RAISE EXCEPTION 'only admins can change roles';
+  END IF;
+  UPDATE public.profiles SET role_id = new_role, updated_at = now() WHERE id = target_id;
+END;
 $$;
 
-revoke all on function public.admin_set_role (uuid, text) from public;
-grant execute on function public.admin_set_role (uuid, text) to authenticated;
+REVOKE ALL ON FUNCTION public.admin_set_role (uuid, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_set_role (uuid, text) TO authenticated;

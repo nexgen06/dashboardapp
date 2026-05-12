@@ -8,6 +8,7 @@ import {
   Table2,
   Settings,
   Shield,
+  BarChart3,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -38,6 +39,7 @@ export function Sidebar() {
     { href: "/canli-tablo", label: "Canlı Tablo", icon: Table2, permission: "area.liveTable" },
     { href: "/ayarlar", label: "Ayarlar", icon: Settings, permission: "area.settings" },
     { href: "/yonetim/kullanici-yetkileri", label: "Kullanıcı yetkileri", icon: Shield, permission: "area.userManagement" },
+    { href: "/yonetim/gorev-istatistikleri", label: "Görev istatistikleri", icon: BarChart3, permission: "area.userManagement" },
   ].filter((item) => !item.permission || hasPermission(item.permission as Parameters<typeof hasPermission>[0]));
 
   return (

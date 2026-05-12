@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { Task } from "@/types/tasks";
 
@@ -37,6 +37,8 @@ function mapRowToTask(row: Record<string, unknown>): Task {
   };
 }
 
+let tasksRealtimeChannelSeq = 0;
+
 /**
  * tasks tablosunu Supabase'den çeker ve Realtime ile anlık senkronize eder.
  * Optimistic update için setTasks / updateTask kullanılır.
@@ -55,12 +57,20 @@ export function useTasksWithRealtime() {
         .order("id", { ascending: true });
 
       if (fetchError) {
-        throw fetchError;
+        const parts = [fetchError.message, fetchError.code, fetchError.details, fetchError.hint]
+          .filter((x) => x != null && String(x).trim() !== "");
+        throw new Error(parts.length > 0 ? parts.join(" — ") : "Supabase görev listesi alınamadı");
       }
       setTasks((data ?? []).map(mapRowToTask));
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Veri yüklenemedi");
+      const msg =
+        e instanceof Error
+          ? e.message
+          : typeof e === "object" && e !== null && "message" in e
+            ? String((e as { message: unknown }).message)
+            : "Veri yüklenemedi";
+      setError(msg);
       setTasks([]);
     } finally {
       setIsLoading(false);
@@ -87,8 +97,9 @@ export function useTasksWithRealtime() {
       }, 400);
     };
 
+    const channelTopic = `tasks-realtime-sync-${++tasksRealtimeChannelSeq}`;
     channel = supabase
-      .channel("tasks-realtime-sync")
+      .channel(channelTopic)
       .on(
         "postgres_changes",
         {
@@ -205,6 +216,20 @@ export function useTasksWithRealtime() {
       if (updateError) {
         console.error("[Tasks] Update failed:", updateError);
         await fetchTasks();
+        return;
+      }
+
+      if (isSupabaseConfigured() && patch.status !== undefined && patch.status !== null) {
+        void supabase.rpc("notify_admins_user_completed_all_tasks").then(({ error: rpcErr }) => {
+          if (
+            rpcErr &&
+            rpcErr.code !== "42P01" &&
+            rpcErr.code !== "42883" &&
+            !String(rpcErr.message ?? "").includes("admin_alerts")
+          ) {
+            console.warn("[Tasks] notify_admins_user_completed_all_tasks:", rpcErr);
+          }
+        });
       }
     },
     [fetchTasks]

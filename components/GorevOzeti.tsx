@@ -8,6 +8,7 @@ import { useSettings, parseListOptionString } from "@/contexts/settings-context"
 import { cn } from "@/lib/utils";
 import { getRelativeTime } from "@/lib/relativeTime";
 import { getTaskDisplayLabel } from "@/lib/taskDisplayLabel";
+import { isTaskCompleted, isTaskInProgress } from "@/lib/taskStats";
 import { urgentPrioritySetFromCsv, isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
 import type { Task } from "@/types/tasks";
 import type { Project } from "@/types/project";
@@ -15,11 +16,6 @@ import { Loader2, CheckCircle2, Clock, Circle, AlertCircle, AlertTriangle, Flame
 import { Button } from "@/components/ui/button";
 
 const GECMIS_GOREV_SAYISI = 12;
-
-function isTaskCompleted(task: Task): boolean {
-  const s = (task.status ?? "").toLowerCase();
-  return s === "tamamlandı" || s === "tamamlandi" || s === "yapıldı" || s === "yapildi" || s === "done" || s === "completed";
-}
 
 /** Projeyi kullanıcı görebilir mi: admin her zaman; atama varsa sadece atananlar, atama yoksa sadece admin. */
 function canViewProject(p: Project, isAdmin: boolean, currentUserEmail: string): boolean {
@@ -100,10 +96,7 @@ export function GorevOzeti() {
 
   const stats = useMemo(() => {
     const tamamlandi = filteredTasks.filter((t) => isTaskCompleted(t)).length;
-    const devam = filteredTasks.filter((t) => {
-      const s = (t.status ?? "").toLowerCase();
-      return s === "devam" || s === "devam ediyor" || s === "in progress";
-    }).length;
+    const devam = filteredTasks.filter((t) => isTaskInProgress(t)).length;
     const total = filteredTasks.length;
     const yapilacak = Math.max(0, total - tamamlandi - devam);
     const highPriority = filteredTasks.filter((t) => isUrgentPriorityValue(t.priority, urgentPrioritySet)).length;
@@ -253,7 +246,7 @@ export function GorevOzeti() {
         </div>
       )}
 
-      {/* Progress Bar + Haftalık Trend */}
+      {/* Progress Bar + Haftalık Trend — sadece seçili filtreye uyan görev varken anlamlı */}
       {filteredTasks.length > 0 && (
         <div className="rounded-lg border border-slate-200 bg-gradient-to-r from-blue-50 to-purple-50 dark:border-slate-600 dark:from-slate-800 dark:to-slate-700 p-3">
           <div className="flex items-center justify-between mb-2">
@@ -281,10 +274,10 @@ export function GorevOzeti() {
         </div>
       )}
 
-      {/* İstatistik Kartları */}
-      {filteredTasks.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-900/20 p-2.5 transition-all hover:shadow-sm">
+      {/* İstatistik kartları — dar sütunda da okunaklı olsun (viewport lg değil panel genişliği); filtre boşken 0 göster */}
+      {tasksVisibleByProject.length > 0 && (
+        <div className="grid min-w-0 grid-cols-2 gap-2">
+          <div className="min-w-0 rounded-lg border border-emerald-200 bg-emerald-50 p-2.5 transition-all hover:shadow-sm dark:border-emerald-700 dark:bg-emerald-900/20">
             <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white">
                 <CheckCircle2 className="h-3.5 w-3.5" />
@@ -295,7 +288,7 @@ export function GorevOzeti() {
               </div>
             </div>
           </div>
-          <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-700 dark:bg-amber-900/20 p-2.5 transition-all hover:shadow-sm">
+          <div className="min-w-0 rounded-lg border border-amber-200 bg-amber-50 p-2.5 transition-all hover:shadow-sm dark:border-amber-700 dark:bg-amber-900/20">
             <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white">
                 <Clock className="h-3.5 w-3.5" />
@@ -306,7 +299,7 @@ export function GorevOzeti() {
               </div>
             </div>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-700/30 p-2.5 transition-all hover:shadow-sm">
+          <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-2.5 transition-all hover:shadow-sm dark:border-slate-600 dark:bg-slate-700/30">
             <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-400 text-white">
                 <Circle className="h-3.5 w-3.5" />
@@ -317,7 +310,7 @@ export function GorevOzeti() {
               </div>
             </div>
           </div>
-          <div className="rounded-lg border border-purple-200 bg-purple-50 dark:border-purple-700 dark:bg-purple-900/20 p-2.5 transition-all hover:shadow-sm">
+          <div className="min-w-0 rounded-lg border border-purple-200 bg-purple-50 p-2.5 transition-all hover:shadow-sm dark:border-purple-700 dark:bg-purple-900/20">
             <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-purple-500 text-white">
                 <AlertCircle className="h-3.5 w-3.5" />
@@ -328,7 +321,7 @@ export function GorevOzeti() {
               </div>
             </div>
           </div>
-          <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-700 dark:bg-blue-900/20 p-2.5 transition-all hover:shadow-sm">
+          <div className="min-w-0 rounded-lg border border-blue-200 bg-blue-50 p-2.5 transition-all hover:shadow-sm dark:border-blue-700 dark:bg-blue-900/20">
             <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-500 text-white text-xs font-bold">
                 %
@@ -339,9 +332,9 @@ export function GorevOzeti() {
               </div>
             </div>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-700/30 p-2.5 transition-all hover:shadow-sm">
+          <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-2.5 transition-all hover:shadow-sm dark:border-slate-600 dark:bg-slate-700/30">
             <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-600 text-white text-xs font-bold">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-600 text-xs font-bold text-white">
                 Σ
               </div>
               <div className="min-w-0">

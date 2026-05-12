@@ -10,6 +10,12 @@ import { useAuth } from "@/contexts/auth-context";
 import { formatDate } from "@/lib/formatDate";
 import { parseCSV } from "@/lib/csvParser";
 import { parseJSON } from "@/lib/jsonParser";
+import {
+  findAssigneeColumnIndex,
+  findAssigneeJsonKey,
+  normalizeTaskAssigneeEmail,
+  pickRoundRobinAssignee,
+} from "@/lib/projectImportAssignee";
 import type { ProjectStatus } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -44,6 +50,31 @@ const PRIORITY_STYLES: Record<string, string> = {
   Low: "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-700 dark:text-slate-300",
 };
 const ME_LABEL = "Ben";
+
+/** Katı RLS için DB'de e-posta tutulur; arayüzde kendi satırında "Ben" gösterilir. */
+function formatAssigneeForDisplay(assignee: string | null | undefined, viewerEmail: string): string {
+  const a = assignee?.trim() ?? "";
+  if (!a) return "—";
+  const v = viewerEmail.trim().toLowerCase();
+  if (v && a.toLowerCase() === v) return ME_LABEL;
+  return a;
+}
+
+/** Katı modda atananda "Ben" yerine oturum e-postası yazılır (RLS eşleşmesi). */
+function assigneeValueForDatabase(
+  strictAssigneeVisibility: boolean | undefined,
+  formValue: string,
+  viewerEmail: string
+): string | null {
+  const t = formValue.trim();
+  if (!t) return null;
+  if (!strictAssigneeVisibility) return t;
+  if (t === ME_LABEL) {
+    const e = viewerEmail.trim().toLowerCase();
+    return e || null;
+  }
+  return t;
+}
 const PROJECT_STATUS_STYLES: Record<ProjectStatus, string> = {
   Aktif: "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300 dark:border-emerald-700",
   Tamamlandı: "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600",
@@ -159,6 +190,8 @@ export default function ProjeDetayPage() {
   const [dateFilter, setDateFilter] = useState<DateFilterKind>("all");
   const [importOpen, setImportOpen] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
+  const [importRoundRobin, setImportRoundRobin] = useState(false);
+  const [importDefaultAssignee, setImportDefaultAssignee] = useState("");
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -190,7 +223,7 @@ export default function ProjeDetayPage() {
         await createTask({
           content: newContent.trim() || "Yeni görev",
           status: newStatus,
-          assignee: newAssignee.trim() || null,
+          assignee: assigneeValueForDatabase(project?.strict_assignee_visibility, newAssignee, currentUserEmail),
           project_id: id,
           due_date: newDueDate.trim() || null,
           priority: newPriority || null,
@@ -204,19 +237,22 @@ export default function ProjeDetayPage() {
         setSubmitting(false);
       }
     },
-    [id, createTask, newContent, newStatus, newAssignee, newDueDate, newPriority]
+    [id, createTask, newContent, newStatus, newAssignee, newDueDate, newPriority, project?.strict_assignee_visibility, currentUserEmail]
   );
 
   const handleAssignToMe = useCallback(
     async (taskId: string) => {
       setUpdatingId(taskId);
       try {
-        await saveTask(taskId, { assignee: ME_LABEL, last_updated_by: "anon" });
+        await saveTask(taskId, {
+          assignee: project?.strict_assignee_visibility ? (currentUserEmail || null) : ME_LABEL,
+          last_updated_by: "anon",
+        });
       } finally {
         setUpdatingId(null);
       }
     },
-    [saveTask]
+    [saveTask, project?.strict_assignee_visibility, currentUserEmail]
   );
 
   const handleRemoveFromProject = useCallback(
@@ -240,10 +276,17 @@ export default function ProjeDetayPage() {
       const isJson = fileName.endsWith(".json");
       const p = (project?.priority != null ? String(project.priority).trim() : "").toLowerCase();
       const projectPriority = p === "high" ? "High" : p === "medium" ? "Medium" : p === "low" ? "Low" : null;
+      const recipients = assignedEmails.map((e) => String(e).trim().toLowerCase()).filter(Boolean);
+      const roundRobin = importRoundRobin && recipients.length >= 2;
+      const defaultRaw = importDefaultAssignee.trim();
+      const defaultAssignee =
+        normalizeTaskAssigneeEmail(defaultRaw) ?? (defaultRaw || null);
       type TaskInsert = { content: string; status: string; assignee: string | null; project_id: string; extra_data: Record<string, string> | null; priority?: string | null };
       const tasksToInsert: TaskInsert[] = [];
+      let distributeIndex = 0;
       if (isJson) {
         const { headers, rows } = parseJSON(text);
+        const assigneeKey = roundRobin ? null : findAssigneeJsonKey(headers);
         if (headers.length > 0 && rows.length > 0) {
           for (const row of rows) {
             const extra_data: Record<string, string> = {};
@@ -253,11 +296,16 @@ export default function ProjeDetayPage() {
             });
             const hasAnyData = Object.values(extra_data).some((v) => String(v ?? "").trim() !== "");
             if (hasAnyData) {
-              // content boş bırakılır; Canlı Tablo'da Açıklama "ek not" için ayrıldı. Liste etiketi getTaskDisplayLabel ile extra_data'dan gelir.
+              const fromCol =
+                assigneeKey != null ? normalizeTaskAssigneeEmail(row[assigneeKey]) : null;
+              const assignee = roundRobin
+                ? pickRoundRobinAssignee(recipients, distributeIndex)
+                : (fromCol ?? defaultAssignee);
+              distributeIndex += 1;
               tasksToInsert.push({
                 content: "",
                 status: "Yapılacak",
-                assignee: null,
+                assignee,
                 project_id: id,
                 extra_data: Object.keys(extra_data).length > 0 ? extra_data : null,
                 priority: projectPriority,
@@ -267,6 +315,7 @@ export default function ProjeDetayPage() {
         }
       } else {
         const { headers, rows } = parseCSV(text);
+        const assigneeCol = roundRobin ? null : findAssigneeColumnIndex(headers);
         if (headers.length > 0 && rows.length > 0) {
           for (const row of rows) {
             const extra_data: Record<string, string> = {};
@@ -276,11 +325,16 @@ export default function ProjeDetayPage() {
             });
             const hasAnyData = Object.values(extra_data).some((v) => String(v ?? "").trim() !== "");
             if (hasAnyData) {
-              // content boş bırakılır; Canlı Tablo'da Açıklama "ek not" için ayrıldı. Liste etiketi getTaskDisplayLabel ile extra_data'dan gelir.
+              const fromCol =
+                assigneeCol != null ? normalizeTaskAssigneeEmail(row[assigneeCol]) : null;
+              const assignee = roundRobin
+                ? pickRoundRobinAssignee(recipients, distributeIndex)
+                : (fromCol ?? defaultAssignee);
+              distributeIndex += 1;
               tasksToInsert.push({
                 content: "",
                 status: "Yapılacak",
-                assignee: null,
+                assignee,
                 project_id: id,
                 extra_data: Object.keys(extra_data).length > 0 ? extra_data : null,
                 priority: projectPriority,
@@ -294,12 +348,22 @@ export default function ProjeDetayPage() {
       }
       setImportOpen(false);
       setImportFile(null);
+      setImportRoundRobin(false);
+      setImportDefaultAssignee("");
     } catch (e) {
       console.error("[ProjeDetay] Import failed:", e);
     } finally {
       setImporting(false);
     }
-  }, [importFile, id, project?.priority, createTasksBulk]);
+  }, [
+    importFile,
+    id,
+    project?.priority,
+    createTasksBulk,
+    assignedEmails,
+    importRoundRobin,
+    importDefaultAssignee,
+  ]);
 
   const handleStatusChange = useCallback(
     async (taskId: string, status: string) => {
@@ -500,7 +564,9 @@ export default function ProjeDetayPage() {
             >
               <option value="all">Tümü</option>
               {uniqueAssignees.map((a) => (
-                <option key={a} value={a}>{a}</option>
+                <option key={a} value={a}>
+                  {formatAssigneeForDisplay(a, currentUserEmail)}
+                </option>
               ))}
             </select>
             <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1 ml-2">
@@ -580,7 +646,7 @@ export default function ProjeDetayPage() {
                     </Badge>
                   )}
                   <span className="text-xs text-slate-500 dark:text-slate-400 min-w-[4rem]">
-                    {task.assignee ? task.assignee : "—"}
+                    {formatAssigneeForDisplay(task.assignee, currentUserEmail)}
                   </span>
                   {canEditTaskInProject && (
                     <Button
@@ -701,7 +767,9 @@ export default function ProjeDetayPage() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => setNewAssignee(ME_LABEL)}
+                  onClick={() =>
+                    setNewAssignee(project?.strict_assignee_visibility ? currentUserEmail : ME_LABEL)
+                  }
                   className="shrink-0"
                 >
                   Bana ata
@@ -748,14 +816,24 @@ export default function ProjeDetayPage() {
       </Dialog>
 
       {/* CSV/JSON Import Modal */}
-      <Dialog open={importOpen} onOpenChange={setImportOpen}>
+      <Dialog
+        open={importOpen}
+        onOpenChange={(open) => {
+          setImportOpen(open);
+          if (!open) {
+            setImportFile(null);
+            setImportRoundRobin(false);
+            setImportDefaultAssignee("");
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>CSV / JSON ile toplu görev ekle</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              CSV veya JSON dosyası yükleyin. Tüm sütunlar olduğu gibi tabloya yansır; ilk sütun boş olamaz.
+              CSV veya JSON dosyası yükleyin. Tüm sütunlar tabloya yansır. &quot;Atanan&quot; / &quot;assignee&quot; başlıklı sütun varsa satır bazında kullanılır; yoksa aşağıdaki e-posta tüm satırlara uygulanır (atama boş kalabilir).
             </p>
             <input
               ref={fileInputRef}
@@ -774,9 +852,35 @@ export default function ProjeDetayPage() {
                 ✓ Dosya seçildi: {importFile.name}
               </p>
             )}
+            <div>
+              <label htmlFor="import-default-assignee" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Varsayılan atanan (e-posta, opsiyonel)
+              </label>
+              <input
+                id="import-default-assignee"
+                type="email"
+                value={importDefaultAssignee}
+                onChange={(e) => setImportDefaultAssignee(e.target.value)}
+                placeholder="atanan@ornek.com"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+              />
+            </div>
+            {assignedEmails.length >= 2 && (
+              <label className="flex cursor-pointer items-start gap-2">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  checked={importRoundRobin}
+                  onChange={(e) => setImportRoundRobin(e.target.checked)}
+                />
+                <span className="text-xs text-slate-700 dark:text-slate-300">
+                  <strong>Eşit dağıt (round-robin):</strong> Projedeki atanan e-posta listesine sırayla paylaştır. İşaretliyken dosyadaki atanan sütunu yok sayılır.
+                </span>
+              </label>
+            )}
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => { setImportOpen(false); setImportFile(null); }}>
+            <Button type="button" variant="outline" onClick={() => { setImportOpen(false); setImportFile(null); setImportRoundRobin(false); setImportDefaultAssignee(""); }}>
               İptal
             </Button>
             <Button type="button" onClick={handleImportFile} disabled={!importFile || importing} className="bg-blue-600 hover:bg-blue-700">

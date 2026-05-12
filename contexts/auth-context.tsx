@@ -8,6 +8,7 @@ import { getFullAdminEmailSet } from "@/lib/full-admin-emails";
 import { getAuthBackend, isAuthEnabled } from "@/lib/authConfig";
 import { supabase } from "@/lib/supabaseClient";
 import { adminSetRoleForUid, ensureSupabaseProfileAndRole } from "@/lib/supabaseProfiles";
+import { resolveAuthDisplayName } from "@/lib/userDisplayName";
 
 const FULL_ADMIN_EMAILS = getFullAdminEmailSet();
 
@@ -62,8 +63,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         const sbUser = session.user;
         let roleId: RoleId = "member";
+        let profileDisplayName: string | null = null;
         try {
-          roleId = await ensureSupabaseProfileAndRole(supabase, sbUser);
+          const ensured = await ensureSupabaseProfileAndRole(supabase, sbUser);
+          roleId = ensured.roleId;
+          profileDisplayName = ensured.profileDisplayName;
         } catch (profErr) {
           console.warn("[Auth] Supabase profil güncellenemedi; üye varsayılanı kullanılacak:", profErr);
           const mail = (sbUser.email ?? "").toLowerCase();
@@ -71,13 +75,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         roleId = coerceRoleId(roleId);
-        const displayFromMeta =
-          typeof sbUser.user_metadata?.full_name === "string" ? sbUser.user_metadata.full_name : null;
 
         setUserState({
           id: sbUser.id,
           email: sbUser.email ?? "",
-          displayName: displayFromMeta ?? sbUser.email ?? null,
+          displayName: resolveAuthDisplayName(sbUser, profileDisplayName),
           roleId,
         });
       } catch (err) {
@@ -88,7 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUserState({
             id: su.id,
             email: su.email ?? "",
-            displayName: su.email ?? null,
+            displayName: resolveAuthDisplayName(su, null),
             roleId: FULL_ADMIN_EMAILS.has(mail) ? "admin" : "member",
           });
         } else {

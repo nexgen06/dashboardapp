@@ -1,5 +1,3 @@
--- projects tablosu (Supabase SQL Editor'da çalıştırın)
-
 CREATE TABLE IF NOT EXISTS public.projects (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL DEFAULT '',
@@ -9,4 +7,8 @@ CREATE TABLE IF NOT EXISTS public.projects (
   updated_at timestamptz DEFAULT now()
 );
 
--- Realtime (isteğe bağlı): Database > Replication > supabase_realtime içinde projects'ı etkinleştirin.
+ALTER TABLE public.projects
+  ADD COLUMN IF NOT EXISTS assigned_emails text[] DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS due_date date,
+  ADD COLUMN IF NOT EXISTS priority text,
+  ADD COLUMN IF NOT EXISTS strict_assignee_visibility boolean NOT NULL DEFAULT false;

@@ -1,50 +1,34 @@
--- Dashboard: uygulama geneli ayarlar (ör. canlı tablo yoğunluğu — tüm üyeler ortak).
--- Supabase SQL Editor'da çalıştırın. RLS için `scripts/supabase-rls-policies.sql` içindeki
--- yardımcı fonksiyonlara ihtiyaç yoktur; yalnızca authenticated kullanılır.
-
-create table if not exists public.app_settings (
-  key text primary key,
-  value text not null,
-  updated_at timestamptz not null default now()
+CREATE TABLE IF NOT EXISTS public.app_settings (
+  key text PRIMARY KEY,
+  value text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-insert into public.app_settings (key, value)
-values ('live_table_density', 'normal')
-on conflict (key) do nothing;
+INSERT INTO public.app_settings (key, value)
+VALUES ('live_table_density', 'normal')
+ON CONFLICT (key) DO NOTHING;
 
-alter table public.app_settings enable row level security;
+ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
 
-drop policy if exists app_settings_select_authenticated on public.app_settings;
-drop policy if exists app_settings_insert_authenticated on public.app_settings;
-drop policy if exists app_settings_update_authenticated on public.app_settings;
+DROP POLICY IF EXISTS app_settings_select_authenticated ON public.app_settings;
+DROP POLICY IF EXISTS app_settings_insert_authenticated ON public.app_settings;
+DROP POLICY IF EXISTS app_settings_update_authenticated ON public.app_settings;
 
-create policy app_settings_select_authenticated on public.app_settings
-  for select
-  to authenticated
-  using (true);
+CREATE POLICY app_settings_select_authenticated ON public.app_settings
+  FOR SELECT TO authenticated USING (true);
 
-create policy app_settings_insert_authenticated on public.app_settings
-  for insert
-  to authenticated
-  with check (true);
+CREATE POLICY app_settings_insert_authenticated ON public.app_settings
+  FOR INSERT TO authenticated WITH CHECK (true);
 
-create policy app_settings_update_authenticated on public.app_settings
-  for update
-  to authenticated
-  using (true)
-  with check (true);
+CREATE POLICY app_settings_update_authenticated ON public.app_settings
+  FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
 
--- Realtime: yoğunluk değişince diğer sekmeler / kullanıcılar anında güncellenir.
-do $$
-begin
-  if not exists (
-    select 1
-    from pg_publication_tables
-    where
-      pubname = 'supabase_realtime'
-      and schemaname = 'public'
-      and tablename = 'app_settings'
-  ) then
-    alter publication supabase_realtime add table public.app_settings;
-  end if;
-end $$;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'app_settings'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.app_settings;
+  END IF;
+END $$;

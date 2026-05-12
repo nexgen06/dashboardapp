@@ -6,6 +6,7 @@ import type { SupabaseClient, User as SupabaseUser } from "@supabase/supabase-js
 import type { RoleId } from "@/types/permissions";
 import { coerceRoleId } from "@/lib/permissions";
 import { getFullAdminEmailSet } from "@/lib/full-admin-emails";
+import { pickMetadataDisplayName } from "@/lib/userDisplayName";
 
 export type DirectoryUserProfile = {
   uid: string;
@@ -25,15 +26,16 @@ function mapRowToProfile(uid: string, row: Record<string, unknown>): DirectoryUs
   };
 }
 
-/** Oturum açılmış kullanıcı için profili oluşturur/günceller ve efektif rolü döndürür */
-export async function ensureSupabaseProfileAndRole(client: SupabaseClient, sbUser: SupabaseUser): Promise<RoleId> {
+/** Oturum açılmış kullanıcı için profili oluşturur/günceller; rol ve profildeki görünen adı döndürür */
+export async function ensureSupabaseProfileAndRole(
+  client: SupabaseClient,
+  sbUser: SupabaseUser
+): Promise<{ roleId: RoleId; profileDisplayName: string | null }> {
   const uid = sbUser.id;
   const email = (sbUser.email ?? "").trim();
   const lower = email.toLowerCase();
-  const displayName =
-    typeof sbUser.user_metadata?.full_name === "string"
-      ? (sbUser.user_metadata.full_name as string)
-      : sbUser.email ?? null;
+  const metaName = pickMetadataDisplayName(sbUser.user_metadata as Record<string, unknown>);
+  const display_name: string | null = metaName ?? null;
 
   const fullAdmins = getFullAdminEmailSet();
 
@@ -58,7 +60,7 @@ export async function ensureSupabaseProfileAndRole(client: SupabaseClient, sbUse
   const payload = {
     id: uid,
     email,
-    display_name: displayName ?? existingDisplay ?? null,
+    display_name: display_name ?? existingDisplay ?? (email || null),
     role_id: roleId,
     updated_at: new Date().toISOString(),
   };
@@ -67,10 +69,10 @@ export async function ensureSupabaseProfileAndRole(client: SupabaseClient, sbUse
 
   if (upErr) {
     console.warn("[supabaseProfiles] profiles upsert:", upErr);
-    return coerceRoleId(roleId);
+    return { roleId: coerceRoleId(roleId), profileDisplayName: payload.display_name };
   }
 
-  return coerceRoleId(roleId);
+  return { roleId: coerceRoleId(roleId), profileDisplayName: payload.display_name };
 }
 
 export async function listDirectoryUsers(client: SupabaseClient): Promise<DirectoryUserProfile[]> {
