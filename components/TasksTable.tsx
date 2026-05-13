@@ -32,6 +32,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -45,7 +46,6 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-  DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { OnlineUsersPanel } from "@/components/OnlineUsersPanel";
@@ -59,8 +59,15 @@ import {
   mergeColumnOrderWithDynamics,
   saveLiveTablePrefs,
 } from "@/lib/liveTableColumnPersistence";
+import {
+  ADVANCED_FILTER_OP_OPTIONS,
+  advancedFilterRuleIsActive,
+  generateAdvancedFilterRuleId,
+  taskMatchesAdvancedRule,
+  type AdvancedFilterRule,
+} from "@/lib/liveTableAdvancedFilters";
 import * as XLSX from "xlsx";
-import { Pencil, Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check } from "lucide-react";
+import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
 const STATUS_FILTER_OPTIONS = ["Tümü", "Yapılacak", "Devam ediyor", "Devam", "Tamamlandı"] as const;
@@ -86,6 +93,9 @@ const COLUMN_VISIBILITY_LABELS: Record<string, string> = {
 const CANLI_TABLO_COLUMN_ORDER: ColumnOrderState = ["select", "status", "assignee", "priority", "updated", "detay", "actions", "presence"];
 /** Sabit sütun sırası (dinamik sütun yokken); component dışında referans sabit kalsın diye */
 const BASE_COLUMN_ORDER_STABLE: ColumnOrderState = ["select", "status", "content", "actions"];
+
+/** İlk açılışta İşlemler sütunu gizli; «Kolonları göster» ile açılabilir. Daha önce kaydedilmiş tercih varsa o kullanılır. */
+const DEFAULT_LIVE_TABLE_COLUMN_VISIBILITY: VisibilityState = { actions: false };
 
 /** Canlı Tablo görünüm yoğunluğu — padding, yazı ve kontrol boyutları */
 const LIVE_TABLE_DENSITY_UI: Record<
@@ -155,12 +165,34 @@ const AUTO_SIZE_PADDING = 32;
 /** Bir hücrenin metin uzunluğunu (ölçeklendirme için) döndürür */
 function getCellTextLength(columnId: string, task: Task): number {
   if (columnId === "select" || columnId === "actions") return 0;
+  if (columnId === "status") return String(task.status ?? "").length;
   if (columnId === "content") return String(task.content ?? "—").length;
   if (columnId.startsWith("extra:")) {
     const key = columnId.replace(/^extra:/, "");
     return String(task.extra_data?.[key] ?? "—").length;
   }
   return 0;
+}
+
+/** Mevcut sayfadaki satırlara ve başlık metnine göre sütun genişlikleri (px). */
+function computeAutoColumnWidths(filteredData: Task[], extraDataKeys: string[]): ColumnSizingState {
+  const baseIds = ["select", "status", "content", "actions"];
+  const extraIds = extraDataKeys.map((k) => `extra:${k}`);
+  const next: ColumnSizingState = {};
+  for (const id of [...baseIds, ...extraIds]) {
+    const bounds = COLUMN_SIZE_BOUNDS[id] ?? (id.startsWith("extra:") ? DEFAULT_EXTRA_BOUNDS : null);
+    if (!bounds) continue;
+    const headerLabel =
+      COLUMN_VISIBILITY_LABELS[id] ?? (id.startsWith("extra:") ? id.replace(/^extra:/, "") : id);
+    let maxLen = headerLabel.length;
+    for (const task of filteredData) {
+      const len = getCellTextLength(id, task);
+      if (len > maxLen) maxLen = len;
+    }
+    const width = Math.min(bounds.max, Math.max(bounds.min, maxLen * AUTO_SIZE_CHAR_PX + AUTO_SIZE_PADDING));
+    next[id] = width;
+  }
+  return next;
 }
 
 function getExportValue(columnId: string, task: Task, dateFormat: DateFormat): string {
@@ -352,7 +384,6 @@ function EditableCell({
       >
         {(displayValue !== undefined ? displayValue : value) || "—"}
       </span>
-      <Pencil className={cn("shrink-0 text-slate-400", density === "comfortable" ? "h-4 w-4" : "h-3.5 w-3.5")} />
     </button>
   );
 }
@@ -1365,7 +1396,7 @@ export function TasksTable() {
   const [editTask, setEditTask] = useState<Task | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(DEFAULT_LIVE_TABLE_COLUMN_VISIBILITY);
   const [columnOrder, setColumnOrder] = useState<ColumnOrderState>(BASE_COLUMN_ORDER_STABLE);
   const [columnPinning, setColumnPinning] = useState<ColumnPinningState>({ left: [], right: [] });
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({
@@ -1397,6 +1428,12 @@ export function TasksTable() {
   const [datePreset, setDatePreset] = useState<string>("custom");
   const [sorting, setSorting] = useState<SortingState>([{ id: "updated", desc: true }]);
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 10 });
+  /** Sütun görünürlüğü — çoklu seçim ve tek seferde uygulama için taslak */
+  const [columnPickerOpen, setColumnPickerOpen] = useState(false);
+  const [columnVisibilityDraft, setColumnVisibilityDraft] = useState<Record<string, boolean>>({});
+  const [columnPickerSearch, setColumnPickerSearch] = useState("");
+  const [advancedFilterRules, setAdvancedFilterRules] = useState<AdvancedFilterRule[]>([]);
+  const [advancedFilterOpen, setAdvancedFilterOpen] = useState(false);
   const now = new Date();
 
   /** Atanmamış projeler sadece admin görür; üye sadece kendisine atanmış projelerin görevlerini görür. */
@@ -1457,9 +1494,30 @@ export function TasksTable() {
     return Array.from(set).sort();
   }, [tasksVisibleByProject]);
 
-  /** Oturumdaki kullanıcı için tam tercih yüklendi (kayıt için beklenir) */
-  const liveTableSaveAllowedRef = useRef(false);
+  const advancedFilterFieldOptions = useMemo(() => {
+    const opts: { id: string; label: string }[] = [
+      { id: "content", label: COLUMN_VISIBILITY_LABELS.content ?? "Açıklama" },
+      { id: "status", label: COLUMN_VISIBILITY_LABELS.status ?? "Durum" },
+      { id: "assignee", label: "Atanan" },
+      { id: "priority", label: "Öncelik" },
+      { id: "due_date", label: "Son tarih" },
+    ];
+    for (const k of extraDataKeys) {
+      opts.push({ id: `extra:${k}`, label: k });
+    }
+    return opts;
+  }, [extraDataKeys]);
+
+  const activeAdvancedFilterRuleCount = useMemo(
+    () => advancedFilterRules.filter(advancedFilterRuleIsActive).length,
+    [advancedFilterRules]
+  );
+
+  /** Aynı commit içinde önce varsayılan state ile kayıt tetiklenmesin (localStorage'ı silmesin). */
+  const skipNextLiveTablePersistRef = useRef(false);
   const liveTableHydratedUserRef = useRef<string | null>(null);
+  /** Sürükleyerek genişletilen sütunlar: bunlar veri değişince otomatik ölçeklenmez */
+  const userSizedColumnsRef = useRef<Set<string>>(new Set());
   const userIdForPrefs = user?.id ?? null;
 
   useEffect(() => {
@@ -1467,25 +1525,30 @@ export function TasksTable() {
 
     if (!userIdForPrefs) {
       liveTableHydratedUserRef.current = null;
-      liveTableSaveAllowedRef.current = false;
+      userSizedColumnsRef.current.clear();
       setColumnOrder((prev) => mergeColumnOrderWithDynamics(prev, dynamicIds));
       return;
     }
 
     if (liveTableHydratedUserRef.current !== userIdForPrefs) {
       liveTableHydratedUserRef.current = userIdForPrefs;
-      liveTableSaveAllowedRef.current = false;
+      userSizedColumnsRef.current.clear();
+      skipNextLiveTablePersistRef.current = true;
       const saved = loadLiveTablePrefs(userIdForPrefs);
       setColumnOrder(mergeColumnOrderWithDynamics(saved?.columnOrder, dynamicIds));
-      setColumnVisibility(saved?.columnVisibility ?? {});
+      setColumnVisibility(
+        saved != null ? (saved.columnVisibility ?? {}) : DEFAULT_LIVE_TABLE_COLUMN_VISIBILITY
+      );
       setColumnPinning(saved?.columnPinning ?? { left: [], right: [] });
       if (saved?.columnSizing && Object.keys(saved.columnSizing).length > 0) {
+        for (const id of Object.keys(saved.columnSizing)) {
+          userSizedColumnsRef.current.add(id);
+        }
         setColumnSizing((prev) => ({ ...prev, ...saved.columnSizing }));
       }
       if (saved?.sorting && saved.sorting.length > 0) {
         setSorting(saved.sorting);
       }
-      liveTableSaveAllowedRef.current = true;
       return;
     }
 
@@ -1493,7 +1556,11 @@ export function TasksTable() {
   }, [userIdForPrefs, extraDataKeys]);
 
   useEffect(() => {
-    if (!userIdForPrefs || !liveTableSaveAllowedRef.current) return;
+    if (!userIdForPrefs) return;
+    if (skipNextLiveTablePersistRef.current) {
+      skipNextLiveTablePersistRef.current = false;
+      return;
+    }
     const t = window.setTimeout(() => {
       saveLiveTablePrefs(userIdForPrefs, {
         columnVisibility,
@@ -1583,8 +1650,22 @@ export function TasksTable() {
         });
       });
     }
+    const activeAdv = advancedFilterRules.filter(advancedFilterRuleIsActive);
+    if (activeAdv.length > 0) {
+      result = result.filter((t) => activeAdv.every((r) => taskMatchesAdvancedRule(t, r)));
+    }
     return result;
-  }, [tasksVisibleByProject, projectLinkedFilter, globalSearch, statusFilter, assigneeFilter, dateFrom, dateTo, columnFilters]);
+  }, [
+    tasksVisibleByProject,
+    projectLinkedFilter,
+    globalSearch,
+    statusFilter,
+    assigneeFilter,
+    dateFrom,
+    dateTo,
+    columnFilters,
+    advancedFilterRules,
+  ]);
 
   /** Satır güncellemesi `data` referansını değiştirir; TanStack varsayılanında sayfa 0'a sıçrar — kapatıyoruz. */
   const maxPageIndex = useMemo(
@@ -1606,10 +1687,20 @@ export function TasksTable() {
     if (Array.isArray(assigneeFilter) && assigneeFilter.length > 0) n++;
     if (dateFrom || dateTo || datePreset !== "custom") n++;
     // Sütun filtreleri
-    const columnFilterCount = Object.values(columnFilters).filter(arr => arr.length > 0).length;
+    const columnFilterCount = Object.values(columnFilters).filter((arr) => arr.length > 0).length;
     n += columnFilterCount;
+    n += activeAdvancedFilterRuleCount;
     return n;
-  }, [globalSearch, statusFilter, assigneeFilter, dateFrom, dateTo, datePreset, columnFilters]);
+  }, [
+    globalSearch,
+    statusFilter,
+    assigneeFilter,
+    dateFrom,
+    dateTo,
+    datePreset,
+    columnFilters,
+    activeAdvancedFilterRuleCount,
+  ]);
 
   const clearFilters = useCallback(() => {
     setProjectLinkedFilter("tümü");
@@ -1620,6 +1711,7 @@ export function TasksTable() {
     setDateTo("");
     setDatePreset("custom");
     setColumnFilters({});
+    setAdvancedFilterRules([]);
   }, []);
 
   // Sütun için benzersiz değerleri hesapla
@@ -1840,25 +1932,29 @@ export function TasksTable() {
     });
   }, []);
 
-  /** Sütun genişliklerini mevcut veri ve başlık metinlerine göre otomatik ayarlar */
+  /** Sütun genişliklerini mevcut veri ve başlık metinlerine göre otomatik ayarlar; elle sürüklenen sütunları sıfırlayıp hepsini yeniden ölçekler */
   const handleAutoSizeColumns = useCallback(() => {
-    const baseIds = ["select", "status", "content", "actions"];
-    const extraIds = extraDataKeys.map((k) => `extra:${k}`);
-    const columnIds = [...baseIds, ...extraIds];
-    const next: ColumnSizingState = {};
-    for (const id of columnIds) {
-      const bounds = COLUMN_SIZE_BOUNDS[id] ?? (id.startsWith("extra:") ? DEFAULT_EXTRA_BOUNDS : null);
-      if (!bounds) continue;
-      const headerLabel = COLUMN_VISIBILITY_LABELS[id] ?? (id.startsWith("extra:") ? id.replace(/^extra:/, "") : id);
-      let maxLen = headerLabel.length;
-      for (const task of filteredData) {
-        const len = getCellTextLength(id, task);
-        if (len > maxLen) maxLen = len;
-      }
-      const width = Math.min(bounds.max, Math.max(bounds.min, maxLen * AUTO_SIZE_CHAR_PX + AUTO_SIZE_PADDING));
-      next[id] = width;
-    }
+    userSizedColumnsRef.current.clear();
+    const next = computeAutoColumnWidths(filteredData, extraDataKeys);
     setColumnSizing((prev) => ({ ...prev, ...next }));
+  }, [filteredData, extraDataKeys]);
+
+  /** Veri / ek sütunlar değişince içeriğe göre genişlik (kullanıcı o sütunu elle boyutlandırmadıysa). */
+  useEffect(() => {
+    const auto = computeAutoColumnWidths(filteredData, extraDataKeys);
+    setColumnSizing((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const id of Object.keys(auto)) {
+        if (userSizedColumnsRef.current.has(id)) continue;
+        const v = auto[id];
+        if (v !== undefined && next[id] !== v) {
+          next[id] = v;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
   }, [filteredData, extraDataKeys]);
 
   const handleSave = useCallback(
@@ -2025,6 +2121,7 @@ export function TasksTable() {
       minSize: 48,
       maxSize: 140,
       enableResizing: false,
+      enableHiding: false,
     }),
     columnHelper.display({
       id: "status",
@@ -2241,7 +2338,15 @@ export function TasksTable() {
     onColumnVisibilityChange: setColumnVisibility,
     onColumnOrderChange: setColumnOrder,
     onColumnPinningChange: setColumnPinning,
-    onColumnSizingChange: setColumnSizing,
+    onColumnSizingChange: (updater) => {
+      setColumnSizing((old) => {
+        const next = typeof updater === "function" ? updater(old) : updater;
+        for (const key of Object.keys(next)) {
+          if (next[key] !== old[key]) userSizedColumnsRef.current.add(key);
+        }
+        return next;
+      });
+    },
     onSortingChange: setSorting,
     onPaginationChange: setPagination,
     state: { rowSelection, columnVisibility, columnOrder, columnPinning, columnSizing, sorting, pagination },
@@ -2270,6 +2375,14 @@ export function TasksTable() {
     },
     [tasksVisibleByProject, filteredData, visibleColumnIds, settings.dateFormat]
   );
+
+  const openColumnPicker = useCallback(() => {
+    setColumnPickerSearch("");
+    setColumnVisibilityDraft(
+      Object.fromEntries(table.getAllLeafColumns().map((c) => [c.id, c.getIsVisible()]))
+    );
+    setColumnPickerOpen(true);
+  }, [table]);
 
   const selectedRows = table.getSelectedRowModel().rows;
   const selectedTasks = selectedRows.map((r) => r.original);
@@ -2347,8 +2460,141 @@ export function TasksTable() {
     );
   }
 
+  const liveTableHeaderGroup = table.getHeaderGroups()[0];
+  const liveTableSumPx =
+    liveTableHeaderGroup?.headers.reduce((s, h) => s + Math.max(h.getSize(), 40), 0) ?? 0;
+
   const liveTableBody = (
     <>
+      <Dialog open={advancedFilterOpen} onOpenChange={setAdvancedFilterOpen}>
+        <DialogContent className="max-h-[min(92vh,40rem)] max-w-lg overflow-y-auto border-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+          <DialogHeader>
+            <DialogTitle>Gelişmiş filtre</DialogTitle>
+            <DialogDescription className="text-slate-600 dark:text-slate-400">
+              Kuralların hepsi birlikte uygulanır (hepsi doğru olmalı — VE). Tablo yapısı değişse de aynı pencereden ek sütunları seçebilirsiniz.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            {advancedFilterRules.length === 0 && (
+              <p className="text-sm text-slate-500 dark:text-slate-400">Henüz kural yok. Aşağıdan «Kural ekle» ile koşul ekleyin.</p>
+            )}
+            {advancedFilterRules.map((rule) => (
+              <div
+                key={rule.id}
+                className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50/50 p-3 dark:border-slate-600 dark:bg-slate-900/40 sm:flex-row sm:flex-wrap sm:items-end"
+              >
+                <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2">
+                  <div className="min-w-0">
+                    <span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">Alan</span>
+                    <select
+                      value={rule.field}
+                      onChange={(e) =>
+                        setAdvancedFilterRules((prev) =>
+                          prev.map((r) => (r.id === rule.id ? { ...r, field: e.target.value } : r))
+                        )
+                      }
+                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    >
+                      {advancedFilterFieldOptions.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="min-w-0">
+                    <span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">Koşul</span>
+                    <select
+                      value={rule.op}
+                      onChange={(e) =>
+                        setAdvancedFilterRules((prev) =>
+                          prev.map((r) =>
+                            r.id === rule.id ? { ...r, op: e.target.value as AdvancedFilterRule["op"] } : r
+                          )
+                        )
+                      }
+                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    >
+                      {ADVANCED_FILTER_OP_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div
+                    className={cn(
+                      "min-w-0 sm:col-span-2",
+                      (rule.op === "is_empty" || rule.op === "is_not_empty") && "opacity-60"
+                    )}
+                  >
+                    <span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">Değer</span>
+                    <input
+                      type="text"
+                      disabled={rule.op === "is_empty" || rule.op === "is_not_empty"}
+                      value={rule.value}
+                      onChange={(e) =>
+                        setAdvancedFilterRules((prev) =>
+                          prev.map((r) => (r.id === rule.id ? { ...r, value: e.target.value } : r))
+                        )
+                      }
+                      placeholder="Metin (büyük/küçük harf duyarsız)"
+                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900 placeholder:text-slate-400 disabled:cursor-not-allowed dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500"
+                    />
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50"
+                  onClick={() => setAdvancedFilterRules((prev) => prev.filter((r) => r.id !== rule.id))}
+                  aria-label="Kuralı sil"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-4 dark:border-slate-700">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setAdvancedFilterRules((prev) => [
+                  ...prev,
+                  {
+                    id: generateAdvancedFilterRuleId(),
+                    field: advancedFilterFieldOptions[0]?.id ?? "content",
+                    op: "contains",
+                    value: "",
+                  },
+                ])
+              }
+            >
+              <Plus className="mr-1.5 h-4 w-4 shrink-0" aria-hidden />
+              Kural ekle
+            </Button>
+            {advancedFilterRules.length > 0 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
+                onClick={() => setAdvancedFilterRules([])}
+              >
+                Tüm kuralları sil
+              </Button>
+            )}
+          </div>
+          <DialogFooter className="sm:justify-end">
+            <Button type="button" className="bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700" onClick={() => setAdvancedFilterOpen(false)}>
+              Kapat
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {canCreateTask && (
         <TaskFormDialog
           open={newTaskOpen}
@@ -2584,6 +2830,27 @@ export function TasksTable() {
             <option value="proje">Sadece proje görevleri</option>
             <option value="tümü">Tüm görevler</option>
           </select>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={cn(
+              "h-[38px] text-sm shrink-0",
+              activeAdvancedFilterRuleCount > 0
+                ? "border-blue-400 bg-blue-50 text-blue-800 dark:border-blue-600 dark:bg-blue-900/30 dark:text-blue-200"
+                : "text-slate-700 dark:text-slate-300"
+            )}
+            onClick={() => setAdvancedFilterOpen(true)}
+            title="Tüm alanlarda metin koşulları (VE ile birleşir)"
+          >
+            <ListFilter className="mr-1.5 h-4 w-4 shrink-0" aria-hidden />
+            Gelişmiş filtre
+            {activeAdvancedFilterRuleCount > 0 && (
+              <span className="ml-1.5 rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white dark:bg-blue-500">
+                {activeAdvancedFilterRuleCount}
+              </span>
+            )}
+          </Button>
           {/* Çoklu Durum Seçimi */}
           <div className="relative">
             <button
@@ -2878,6 +3145,22 @@ export function TasksTable() {
               </span>
             )}
 
+            {/* Gelişmiş filtre özeti */}
+            {activeAdvancedFilterRuleCount > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-800 dark:border-blue-600 dark:bg-blue-900/40 dark:text-blue-200">
+                <ListFilter className="h-3 w-3 shrink-0" aria-hidden />
+                Gelişmiş ({activeAdvancedFilterRuleCount} kural)
+                <button
+                  type="button"
+                  onClick={() => setAdvancedFilterRules([])}
+                  className="ml-0.5 rounded-full p-0.5 hover:bg-blue-200 dark:hover:bg-blue-800"
+                  title="Gelişmiş kuralları kaldır"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            )}
+
             {/* Sütun Filtreleri - Excel tarzı */}
             {Object.entries(columnFilters).filter(([, values]) => values.length > 0).map(([colId, values]) => {
               const colLabel = colId.startsWith("extra:") 
@@ -3006,28 +3289,150 @@ export function TasksTable() {
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           {canManageColumns && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="outline" size="sm" className="text-slate-700 dark:text-slate-300">
+            <Dialog open={columnPickerOpen} onOpenChange={setColumnPickerOpen}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-slate-700 dark:text-slate-300"
+                onClick={openColumnPicker}
+              >
                 <Columns3 className="mr-2 h-4 w-4" />
                 Kolonları göster
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-[12rem]">
-              {table.getAllLeafColumns().map((column) => {
-                const label = COLUMN_VISIBILITY_LABELS[column.id] ?? (String(column.id).startsWith("extra:") ? String(column.id).replace(/^extra:/, "") : column.id);
-                return (
-                  <DropdownMenuCheckboxItem
-                    key={column.id}
-                    checked={column.getIsVisible()}
-                    onCheckedChange={(checked) => column.toggleVisibility(!!checked)}
+              <DialogContent
+                className="flex max-h-[min(90dvh,36rem)] max-w-md flex-col gap-0 overflow-hidden border-slate-200 p-0 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 sm:max-w-md"
+                showClose
+              >
+                <div className="shrink-0 space-y-1 border-b border-slate-200 px-6 pb-4 pt-6 dark:border-slate-700">
+                  <DialogHeader className="space-y-2 text-left">
+                    <DialogTitle>Sütun görünürlüğü</DialogTitle>
+                    <DialogDescription className="text-slate-600 dark:text-slate-400">
+                      İstediğiniz sütunları işaretleyin; birden çok seçim yapabilirsiniz. Aşağıdaki «Uygula» ile tabloya yansıtın.
+                    </DialogDescription>
+                  </DialogHeader>
+                </div>
+                <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-4">
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs"
+                      onClick={() => {
+                        setColumnVisibilityDraft((d) => {
+                          const next = { ...d };
+                          table.getAllLeafColumns().forEach((col) => {
+                            if (col.getCanHide()) next[col.id] = true;
+                          });
+                          return next;
+                        });
+                      }}
+                    >
+                      Tümünü göster
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs"
+                      onClick={() => {
+                        setColumnVisibilityDraft((d) => {
+                          const next = { ...d };
+                          table.getAllLeafColumns().forEach((col) => {
+                            if (col.getCanHide()) next[col.id] = false;
+                          });
+                          return next;
+                        });
+                      }}
+                    >
+                      Seçilebilirleri gizle
+                    </Button>
+                  </div>
+                  <div className="relative">
+                    <Search
+                      className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500"
+                      aria-hidden
+                    />
+                    <input
+                      type="search"
+                      autoComplete="off"
+                      placeholder="Sütun ara…"
+                      value={columnPickerSearch}
+                      onChange={(e) => setColumnPickerSearch(e.target.value)}
+                      className="h-9 w-full rounded-md border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
+                    />
+                  </div>
+                  <div className="max-h-[min(40vh,16rem)] space-y-0.5 overflow-y-auto rounded-md border border-slate-200 p-2 sm:max-h-[min(45vh,18rem)] dark:border-slate-600">
+                    {table
+                      .getAllLeafColumns()
+                      .filter((col) => {
+                        const label =
+                          COLUMN_VISIBILITY_LABELS[col.id] ??
+                          (String(col.id).startsWith("extra:") ? String(col.id).replace(/^extra:/, "") : col.id);
+                        return label.toLowerCase().includes(columnPickerSearch.trim().toLowerCase());
+                      })
+                      .map((col) => {
+                        const label =
+                          COLUMN_VISIBILITY_LABELS[col.id] ??
+                          (String(col.id).startsWith("extra:") ? String(col.id).replace(/^extra:/, "") : col.id);
+                        const canHide = col.getCanHide();
+                        const checked = columnVisibilityDraft[col.id] ?? col.getIsVisible();
+                        return (
+                          <label
+                            key={col.id}
+                            className={cn(
+                              "flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 hover:bg-slate-50 dark:hover:bg-slate-700/60",
+                              !canHide && "cursor-not-allowed opacity-70 hover:bg-transparent dark:hover:bg-transparent"
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-500 dark:bg-slate-800"
+                              checked={checked}
+                              disabled={!canHide}
+                              onChange={(e) => {
+                                if (!canHide) return;
+                                setColumnVisibilityDraft((d) => ({ ...d, [col.id]: e.target.checked }));
+                              }}
+                            />
+                            <span className="min-w-0 flex-1 text-sm text-slate-800 dark:text-slate-200">{label}</span>
+                            {!canHide && (
+                              <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                                zorunlu
+                              </span>
+                            )}
+                          </label>
+                        );
+                      })}
+                  </div>
+                </div>
+                <DialogFooter className="shrink-0 gap-2 border-t border-slate-200 bg-white px-6 py-4 dark:border-slate-700 dark:bg-slate-800 sm:gap-2">
+                  <Button type="button" variant="outline" onClick={() => setColumnPickerOpen(false)}>
+                    İptal
+                  </Button>
+                  <Button
+                    type="button"
+                    className="bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700"
+                    onClick={() => {
+                      setColumnVisibility((prev) => {
+                        const next = { ...prev };
+                        for (const column of table.getAllLeafColumns()) {
+                          if (!column.getCanHide()) continue;
+                          const show = columnVisibilityDraft[column.id] ?? column.getIsVisible();
+                          if (show) delete next[column.id];
+                          else next[column.id] = false;
+                        }
+                        return next;
+                      });
+                      setColumnPickerOpen(false);
+                    }}
                   >
-                    {label}
-                  </DropdownMenuCheckboxItem>
-                );
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                    Uygula
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           )}
           {canImportCsv && (
             <Button
@@ -3098,35 +3503,37 @@ export function TasksTable() {
           )}
         </div>
       )}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <TooltipProvider delayDuration={200} skipDelayDuration={120}>
       <div
         className={cn(
-          "flex-1 min-h-0 w-full overflow-auto rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800",
-          isFullWidth && "min-h-0 flex-1",
+          "flex-1 min-h-0 w-full min-w-0 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 bg-white isolate [overflow-anchor:none] dark:border-slate-700 dark:bg-slate-800",
+          /* Sayfa düzeni flex’te bazen yükseklik sınırlanmıyor; viewport tavanı iç scroll + thead sticky’yi garanti eder (genişlet modunda portal zaten sınırlı). */
+          !isFullWidth &&
+            "max-h-[calc(100dvh-22rem)] sm:max-h-[calc(100dvh-20rem)] lg:max-h-[calc(100dvh-18rem)] xl:max-h-[calc(100dvh-16rem)]",
+          isFullWidth && "min-h-0 max-h-none flex-1",
           tasks.length > 0 && "min-h-[200px]"
         )}
       >
         <table
-          className={cn("w-full min-w-full border-collapse table-fixed", dui.table)}
+          className={cn("border-separate border-spacing-0 min-w-full", dui.table)}
           style={{
-            width: "100%",
-            minWidth: "100%",
             tableLayout: "fixed",
+            width: liveTableSumPx > 0 ? `max(100%, ${liveTableSumPx}px)` : "100%",
+            minWidth: liveTableSumPx > 0 ? `max(100%, ${liveTableSumPx}px)` : "100%",
           }}
         >
           <thead>
             {table.getHeaderGroups().map((headerGroup) => {
               const headers = headerGroup.headers;
-              const totalSize = headers.reduce((sum, h) => sum + Math.max(h.getSize(), 40), 0) || 1;
               return (
-              <tr key={headerGroup.id} className="border-b-2 border-slate-200 bg-slate-100 dark:border-slate-600 dark:bg-slate-700/70">
+              <tr key={headerGroup.id}>
                 {headers.map((header) => {
                   const col = header.column;
                   const isPinnedLeft = col.getIsPinned() === "left";
                   const isPinnedRight = col.getIsPinned() === "right";
                   const resizeHandler = typeof header.getResizeHandler === "function" ? header.getResizeHandler() : undefined;
-                  const baseSize = Math.max(header.getSize(), 40);
-                  const widthPct = Math.max((baseSize / totalSize) * 100, 2);
+                  const wPx = Math.max(header.getSize(), 40);
                   return (
                     <th
                       key={header.id}
@@ -3136,16 +3543,17 @@ export function TasksTable() {
                       onDrop={(e) => handleDrop(e, col.id)}
                       onDragEnd={handleDragEnd}
                       className={cn(
-                        "relative select-none border-r border-slate-200 text-left font-medium text-slate-700 dark:border-slate-600 dark:text-slate-300",
+                        "relative sticky top-0 z-[15] select-none border-r border-b-2 border-slate-200 bg-slate-100 text-left font-medium text-slate-700 shadow-[0_2px_6px_-3px_rgba(15,23,42,0.12)] dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:shadow-[0_2px_6px_-3px_rgba(0,0,0,0.35)]",
                         dui.th,
                         draggedColumnId === col.id && "opacity-50",
-                        isPinnedLeft && "sticky left-0 z-10 bg-slate-100 dark:bg-slate-700/80 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.1)] dark:shadow-[4px_0_8px_-2px_rgba(0,0,0,0.3)]",
-                        isPinnedRight && "sticky right-0 z-10 bg-slate-100 dark:bg-slate-700/80 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.1)] dark:shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.3)]"
+                        isPinnedLeft &&
+                          "left-0 z-[25] bg-slate-100 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.08),0_2px_6px_-3px_rgba(15,23,42,0.12)] dark:bg-slate-700 dark:shadow-[4px_0_8px_-2px_rgba(0,0,0,0.3),0_2px_6px_-3px_rgba(0,0,0,0.35)]",
+                        isPinnedRight &&
+                          "right-0 z-[25] bg-slate-100 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.08),0_2px_6px_-3px_rgba(15,23,42,0.12)] dark:bg-slate-700 dark:shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.3),0_2px_6px_-3px_rgba(0,0,0,0.35)]"
                       )}
                       style={{
-                        width: `${widthPct}%`,
-                        minWidth: `${widthPct}%`,
-                        maxWidth: `${widthPct}%`,
+                        width: wPx,
+                        minWidth: wPx,
                       }}
                     >
                       <div className="flex min-w-0 items-center gap-1">
@@ -3318,7 +3726,6 @@ export function TasksTable() {
               const isSelected = row.getIsSelected();
               const isCompleted = isTaskCompleted(row.original);
               const visibleCells = row.getVisibleCells();
-              const totalSize = visibleCells.reduce((sum, c) => sum + Math.max(c.column.getSize(), 40), 0) || 1;
               let rowTooltipBody: ReactNode | undefined;
               if (isEditedByOthers) {
                 if (rowEditors.length === 1) {
@@ -3396,8 +3803,7 @@ export function TasksTable() {
               const rowCells = visibleCells.map((cell) => {
                 const isPinnedLeft = cell.column.getIsPinned() === "left";
                 const isPinnedRight = cell.column.getIsPinned() === "right";
-                const baseSize = Math.max(cell.column.getSize(), 40);
-                const widthPct = Math.max((baseSize / totalSize) * 100, 2);
+                const wPx = Math.max(cell.column.getSize(), 40);
                 return (
                   <td
                     key={cell.id}
@@ -3411,9 +3817,8 @@ export function TasksTable() {
                       (isPinnedLeft || isPinnedRight) && pinnedBg
                     )}
                     style={{
-                      width: `${widthPct}%`,
-                      minWidth: `${widthPct}%`,
-                      maxWidth: `${widthPct}%`,
+                      width: wPx,
+                      minWidth: wPx,
                     }}
                   >
                     <div className="min-w-0 overflow-hidden text-slate-700 dark:text-slate-200">
@@ -3557,6 +3962,7 @@ export function TasksTable() {
           )}
         </div>
       )}
+      </div>
     </>
   );
 
@@ -3573,7 +3979,7 @@ export function TasksTable() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2 rounded-lg border-0 bg-transparent shadow-none">
+    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden rounded-lg border-0 bg-transparent shadow-none">
       {liveTableBody}
     </div>
   );
