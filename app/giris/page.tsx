@@ -149,13 +149,6 @@ export default function GirisPage() {
               )}
             </Button>
           </form>
-          <div className="mt-6 space-y-2 text-center">
-            <p className="text-xs text-slate-500 dark:text-slate-400">Supabase Auth</p>
-            <p className="text-xs text-slate-400 dark:text-slate-500 leading-relaxed max-w-sm mx-auto">
-              Bu sayfa genelde kayıt açmaz. Yeni kullanıcılar için yönetici, Supabase Dashboard → Authentication → Users
-              üzerinden hesap oluşturur.
-            </p>
-          </div>
         </div>
         <div className="mt-4 text-center">
           <Button variant="ghost" size="sm" asChild>

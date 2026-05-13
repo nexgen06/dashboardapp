@@ -39,10 +39,10 @@ export default function CanliTabloPage() {
 
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-[1920px] flex-1 flex-col px-3 pb-4 sm:px-4 lg:px-6 lg:pb-6">
-      {/* Kompakt başlık: metin | görsel | dön */}
+      {/* Başlık bandı: görsel ortada header yüksekliğine kadar büyür, alt çizgi (border-b) içinde kalır */}
       <header className="mb-3 shrink-0 border-b border-slate-200/80 pb-3 dark:border-slate-700/80">
-        <div className="flex flex-col items-stretch gap-3 md:flex-row md:items-center md:gap-3 lg:gap-5">
-          <div className="min-w-0 md:max-w-[min(100%,24rem)] md:shrink-0 md:basis-[40%] lg:basis-[36%]">
+        <div className="flex flex-col items-stretch gap-3 md:flex-row md:items-stretch md:gap-3 lg:gap-5">
+          <div className="flex min-w-0 shrink-0 flex-col justify-center md:max-w-[min(100%,22rem)] lg:max-w-[24rem]">
             <h1 className="text-xl font-semibold tracking-tight text-slate-800 dark:text-slate-100 sm:text-2xl">
               Canlı Tablo
             </h1>
@@ -50,19 +50,17 @@ export default function CanliTabloPage() {
               Google Tablolar benzeri: CSV içe aktarın, birlikte düzenleyin.
             </p>
           </div>
-          <div className="flex min-w-0 flex-1 justify-center px-1">
-            <div className="relative h-14 w-[min(100%,18rem)] shrink-0 sm:h-16 sm:w-[min(46vw,14rem)] md:h-20 md:w-[min(42vw,16rem)] lg:h-24 lg:w-[min(36vw,18rem)]">
-              <Image
-                src={ankaraHeader}
-                alt=""
-                fill
-                priority
-                className="object-contain object-center"
-                sizes="(max-width: 768px) 90vw, (max-width: 1280px) 40vw, 320px"
-              />
-            </div>
+          <div className="relative min-h-[6rem] w-full flex-1 min-w-0 sm:min-h-[7rem] md:min-h-[7.5rem] lg:min-h-[8.5rem]">
+            <Image
+              src={ankaraHeader}
+              alt=""
+              fill
+              priority
+              className="object-contain object-center"
+              sizes="(max-width: 768px) 100vw, (max-width: 1280px) 55vw, 900px"
+            />
           </div>
-          <div className="flex shrink-0 justify-end md:self-center">
+          <div className="flex shrink-0 items-center justify-end md:justify-end md:py-1">
             <Button variant="outline" size="sm" asChild>
               <Link href="/">{`Dashboard'a dön`}</Link>
             </Button>

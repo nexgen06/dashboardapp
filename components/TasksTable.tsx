@@ -53,8 +53,9 @@ import { presenceEditorLines } from "@/lib/userDisplayName";
 import { formatDate } from "@/lib/formatDate";
 import { parseCSV } from "@/lib/csvParser";
 import { parseJSON } from "@/lib/jsonParser";
+import { isSensitiveExtraColumnKey, maskSensitiveExtraValue } from "@/lib/extraColumnSensitiveDisplay";
 import * as XLSX from "xlsx";
-import { Pencil, Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3 } from "lucide-react";
+import { Pencil, Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
 const STATUS_FILTER_OPTIONS = ["Tümü", "Yapılacak", "Devam ediyor", "Devam", "Tamamlandı"] as const;
@@ -245,6 +246,8 @@ const columnHelper = createColumnHelper<Task>();
 
 type EditableCellProps = {
   value: string;
+  /** Düzenleme dışında gösterilecek metin (örn. maskeli TCKN); verilmezse value kullanılır */
+  displayValue?: string;
   taskId: string;
   field: string;
   onSave: (taskId: string, patch: Record<string, unknown>) => void;
@@ -253,7 +256,16 @@ type EditableCellProps = {
   density?: LiveTableDensity;
 };
 
-function EditableCell({ value, taskId, field, onSave, onFocus, onBlur, density = "normal" }: EditableCellProps) {
+function EditableCell({
+  value,
+  displayValue,
+  taskId,
+  field,
+  onSave,
+  onFocus,
+  onBlur,
+  density = "normal",
+}: EditableCellProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [localValue, setLocalValue] = useState(value);
   const cellText =
@@ -329,8 +341,51 @@ function EditableCell({ value, taskId, field, onSave, onFocus, onBlur, density =
         cellPad
       )}
     >
-      <span className="min-w-0 flex-1 truncate">{value || "—"}</span>
+      <span
+        className="min-w-0 flex-1 truncate"
+        title={displayValue !== undefined ? undefined : value || undefined}
+      >
+        {(displayValue !== undefined ? displayValue : value) || "—"}
+      </span>
       <Pencil className={cn("shrink-0 text-slate-400", density === "comfortable" ? "h-4 w-4" : "h-3.5 w-3.5")} />
+    </button>
+  );
+}
+
+/** Dinamik (extra) sütunlarda: hover ile panoya — hassas sütunlarda tam değer kopyalanır */
+function ExtraCellCopyButton({ text, density }: { text: string; density: LiveTableDensity }) {
+  const [copied, setCopied] = useState(false);
+  const iconClass = density === "comfortable" ? "h-4 w-4" : "h-3.5 w-3.5";
+
+  const handleCopy = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const t = text.trim();
+      if (!t || typeof navigator === "undefined" || !navigator.clipboard?.writeText) return;
+      try {
+        await navigator.clipboard.writeText(t);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1600);
+      } catch {
+        setCopied(false);
+      }
+    },
+    [text]
+  );
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => void handleCopy(e)}
+      title={copied ? "Kopyalandı" : "Panoya kopyala"}
+      aria-label={copied ? "Kopyalandı" : "Panoya kopyala"}
+      className={cn(
+        "shrink-0 rounded p-0.5 text-slate-400 opacity-0 transition-opacity group-hover/extra-cell:opacity-100 hover:bg-slate-200 hover:text-slate-800 focus:opacity-100 dark:text-slate-500 dark:hover:bg-slate-600 dark:hover:text-slate-100",
+        copied && "text-green-600 opacity-100 hover:text-green-600 dark:text-green-400"
+      )}
+    >
+      {copied ? <Check className={iconClass} strokeWidth={2.5} /> : <Copy className={iconClass} />}
     </button>
   );
 }
@@ -2039,21 +2094,32 @@ export function TasksTable() {
               </select>
             );
           }
-          // Inline editable text
+          // Inline editable text + hover ile kopyala (TCKN/sicil: maskeli gösterim)
+          const raw = String(value ?? "");
+          const sensitive = isSensitiveExtraColumnKey(key);
+          const masked = sensitive ? maskSensitiveExtraValue(raw) : raw;
+          const showCopy = raw.trim() !== "";
+
           return (
-            <EditableCell
-              value={value}
-              taskId={taskId}
-              field={key}
-              onSave={(id, patch) => {
-                if (key in patch) {
-                  handleDynamicCellSave(id, key, String(patch[key] ?? ""));
-                }
-              }}
-              onFocus={() => setEditingRow(taskId)}
-              onBlur={() => setEditingRow(null)}
-              density={tableDensity}
-            />
+            <div className="group/extra-cell flex min-w-0 items-center gap-0.5">
+              <div className="min-w-0 flex-1">
+                <EditableCell
+                  value={raw}
+                  displayValue={sensitive ? masked : undefined}
+                  taskId={taskId}
+                  field={key}
+                  onSave={(id, patch) => {
+                    if (key in patch) {
+                      handleDynamicCellSave(id, key, String(patch[key] ?? ""));
+                    }
+                  }}
+                  onFocus={() => setEditingRow(taskId)}
+                  onBlur={() => setEditingRow(null)}
+                  density={tableDensity}
+                />
+              </div>
+              {showCopy && <ExtraCellCopyButton text={raw} density={tableDensity} />}
+            </div>
           );
         },
         size: 150,
