@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/auth-context";
+import { hasPermission as userHasPermission } from "@/lib/permissions";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import {
   fetchLiveTableDensityFromServer,
@@ -244,6 +245,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const updateSetting = useCallback(<K extends keyof Settings>(key: K, value: Settings[K]) => {
+    if (!userHasPermission(user, "settings.edit")) return;
     userHasChangedRef.current = true;
     if (key === "liveTableDensity") {
       liveTableDensityEditedLocallyRef.current = true;
@@ -254,17 +256,19 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       }, SAVE_DEBOUNCE_MS);
     }
     setSettings((prev) => ({ ...prev, [key]: value }));
-  }, []);
+  }, [user]);
 
   const resetToDefaults = useCallback(() => {
+    if (!userHasPermission(user, "settings.edit")) return;
     setSettings(DEFAULT_SETTINGS);
     setInitialSettings(DEFAULT_SETTINGS);
     if (typeof window !== "undefined") {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_SETTINGS));
     }
-  }, []);
+  }, [user]);
 
   const resetSection = useCallback((section: SettingsSection) => {
+    if (!userHasPermission(user, "settings.edit")) return;
     const keys = SECTION_KEYS[section];
     setSettings((prev) => {
       const next = { ...prev };
@@ -277,13 +281,14 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       return next;
     });
     setLastSavedAt(Date.now());
-  }, []);
+  }, [user]);
 
   const isDirty =
     mounted &&
     JSON.stringify(settings) !== JSON.stringify(initialSettings);
 
   const save = useCallback(() => {
+    if (!userHasPermission(user, "settings.edit")) return;
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
@@ -291,7 +296,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     setInitialSettings(settings);
     saveSettings(settings);
     setLastSavedAt(Date.now());
-  }, [settings]);
+  }, [settings, user]);
 
   const value: SettingsContextType = {
     settings,

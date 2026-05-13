@@ -17,7 +17,7 @@ import {
   type PaginationState,
 } from "@tanstack/react-table";
 import type { ReactNode } from "react";
-import { useRef, useState, useCallback, useEffect, useMemo, useLayoutEffect } from "react";
+import { useRef, useState, useCallback, useEffect, useMemo, useLayoutEffect, useId } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import type { Task } from "@/types/tasks";
@@ -67,7 +67,7 @@ import {
   type AdvancedFilterRule,
 } from "@/lib/liveTableAdvancedFilters";
 import * as XLSX from "xlsx";
-import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter } from "lucide-react";
+import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
 const STATUS_FILTER_OPTIONS = ["Tümü", "Yapılacak", "Devam ediyor", "Devam", "Tamamlandı"] as const;
@@ -159,8 +159,25 @@ const COLUMN_SIZE_BOUNDS: Record<string, { min: number; max: number }> = {
   actions: { min: 44, max: 80 },
 };
 const DEFAULT_EXTRA_BOUNDS = { min: 100, max: 400 };
-const AUTO_SIZE_CHAR_PX = 8;
-const AUTO_SIZE_PADDING = 32;
+
+function charPxForDensity(d: LiveTableDensity): number {
+  if (d === "compact") return 7;
+  if (d === "comfortable") return 9;
+  return 8;
+}
+
+function paddingForDensity(d: LiveTableDensity): number {
+  if (d === "compact") return 28;
+  if (d === "comfortable") return 40;
+  return 32;
+}
+
+function getColumnSizeBounds(columnId: string): { min: number; max: number } | null {
+  const b = COLUMN_SIZE_BOUNDS[columnId];
+  if (b) return b;
+  if (columnId.startsWith("extra:")) return DEFAULT_EXTRA_BOUNDS;
+  return null;
+}
 
 /** Bir hücrenin metin uzunluğunu (ölçeklendirme için) döndürür */
 function getCellTextLength(columnId: string, task: Task): number {
@@ -174,25 +191,153 @@ function getCellTextLength(columnId: string, task: Task): number {
   return 0;
 }
 
-/** Mevcut sayfadaki satırlara ve başlık metnine göre sütun genişlikleri (px). */
-function computeAutoColumnWidths(filteredData: Task[], extraDataKeys: string[]): ColumnSizingState {
-  const baseIds = ["select", "status", "content", "actions"];
-  const extraIds = extraDataKeys.map((k) => `extra:${k}`);
+/** Satırlar için karakter uzunlukları — tek uç değer yerine yüzdelik ile daha dengeli genişlik. */
+function effectiveCharLengthForSizing(columnId: string, tasks: Task[], headerLen: number): number {
+  if (columnId === "select" || columnId === "actions") {
+    return Math.max(headerLen, columnId === "select" ? 4 : 6);
+  }
+  const lens: number[] = [];
+  for (const t of tasks) lens.push(getCellTextLength(columnId, t));
+  lens.sort((a, b) => a - b);
+  if (lens.length === 0) return Math.max(headerLen, 8);
+
+  const pick = (q: number) => lens[Math.min(lens.length - 1, Math.floor((lens.length - 1) * q))];
+
+  if (columnId === "content") {
+    const p90 = pick(0.9);
+    const pMax = lens[lens.length - 1];
+    const blended = Math.round(p90 * 0.82 + Math.min(pMax, p90 * 2.2) * 0.18);
+    return Math.max(headerLen, Math.min(blended, Math.max(headerLen + 12, pMax)));
+  }
+  if (columnId.startsWith("extra:")) {
+    const p85 = pick(0.85);
+    return Math.max(headerLen, p85);
+  }
+  if (columnId === "status") {
+    return Math.max(headerLen, lens[lens.length - 1]);
+  }
+  return headerLen;
+}
+
+function measureIntrinsicColumnWidths(
+  filteredData: Task[],
+  visibleColumnIds: string[],
+  density: LiveTableDensity
+): ColumnSizingState {
+  const charPx = charPxForDensity(density);
+  const pad = paddingForDensity(density);
   const next: ColumnSizingState = {};
-  for (const id of [...baseIds, ...extraIds]) {
-    const bounds = COLUMN_SIZE_BOUNDS[id] ?? (id.startsWith("extra:") ? DEFAULT_EXTRA_BOUNDS : null);
+  for (const id of visibleColumnIds) {
+    const bounds = getColumnSizeBounds(id);
     if (!bounds) continue;
     const headerLabel =
       COLUMN_VISIBILITY_LABELS[id] ?? (id.startsWith("extra:") ? id.replace(/^extra:/, "") : id);
-    let maxLen = headerLabel.length;
-    for (const task of filteredData) {
-      const len = getCellTextLength(id, task);
-      if (len > maxLen) maxLen = len;
-    }
-    const width = Math.min(bounds.max, Math.max(bounds.min, maxLen * AUTO_SIZE_CHAR_PX + AUTO_SIZE_PADDING));
-    next[id] = width;
+    const effLen = effectiveCharLengthForSizing(id, filteredData, headerLabel.length);
+    next[id] = Math.min(bounds.max, Math.max(bounds.min, effLen * charPx + pad));
   }
   return next;
+}
+
+function growPriorityForBalance(id: string): number {
+  if (id === "content") return 4;
+  if (id.startsWith("extra:")) return 3;
+  if (id === "status") return 2;
+  if (id === "actions") return 1;
+  return 0;
+}
+
+function shrinkPriorityForBalance(id: string): number {
+  if (id === "content") return 0;
+  if (id.startsWith("extra:")) return 1;
+  if (id === "status") return 2;
+  if (id === "actions") return 3;
+  return 4;
+}
+
+function sumSizedColumns(orderedIds: string[], w: Record<string, number>): number {
+  return orderedIds.reduce((s, id) => s + (w[id] ?? 0), 0);
+}
+
+/** İçerik tabanlı genişlikleri hedef toplam px’e (genelde görünür alan) göre küçültür veya büyütür. */
+function balanceColumnWidthsToTarget(
+  intrinsic: Record<string, number>,
+  orderedIds: string[],
+  target: number
+): Record<string, number> {
+  const w: Record<string, number> = {};
+  for (const id of orderedIds) {
+    const b = getColumnSizeBounds(id);
+    if (!b) continue;
+    const x = intrinsic[id] ?? b.min;
+    w[id] = Math.min(b.max, Math.max(b.min, x));
+  }
+  let sum = sumSizedColumns(orderedIds, w);
+  if (sum <= 0) return w;
+
+  if (sum > target) {
+    const scale = target / sum;
+    for (const id of orderedIds) {
+      const b = getColumnSizeBounds(id);
+      if (!b) continue;
+      w[id] = Math.max(b.min, Math.floor(w[id] * scale));
+    }
+    sum = sumSizedColumns(orderedIds, w);
+    let guard = 0;
+    while (sum > target && guard++ < 4000) {
+      const candidates = orderedIds.filter((id) => {
+        const b = getColumnSizeBounds(id);
+        return b != null && w[id] > b.min;
+      });
+      if (candidates.length === 0) break;
+      candidates.sort(
+        (a, b) => shrinkPriorityForBalance(a) - shrinkPriorityForBalance(b) || w[b] - w[a]
+      );
+      w[candidates[0]] -= 1;
+      sum -= 1;
+    }
+  } else if (sum < target) {
+    const scale = target / sum;
+    for (const id of orderedIds) {
+      const b = getColumnSizeBounds(id);
+      if (!b) continue;
+      w[id] = Math.min(b.max, Math.max(b.min, Math.round(w[id] * scale)));
+    }
+    sum = sumSizedColumns(orderedIds, w);
+    let guard = 0;
+    while (sum < target && guard++ < 4000) {
+      const candidates = orderedIds.filter((id) => {
+        const b = getColumnSizeBounds(id);
+        return b != null && w[id] < b.max;
+      });
+      if (candidates.length === 0) break;
+      candidates.sort(
+        (a, b) => growPriorityForBalance(b) - growPriorityForBalance(a) || w[b] - w[a]
+      );
+      w[candidates[0]] += 1;
+      sum += 1;
+    }
+  }
+  return w;
+}
+
+/** Görünür sütunlar + veri + (isteğe bağlı) görünüm genişliği ile dengeli ColumnSizingState. */
+function computeBalancedColumnSizing(
+  filteredData: Task[],
+  visibleColumnIds: string[],
+  viewportWidthPx: number,
+  density: LiveTableDensity
+): ColumnSizingState {
+  const intrinsic = measureIntrinsicColumnWidths(filteredData, visibleColumnIds, density);
+  const ordered = visibleColumnIds.filter((id) => intrinsic[id] != null);
+  if (ordered.length === 0) return {};
+
+  const rawSum = sumSizedColumns(ordered, intrinsic);
+  if (viewportWidthPx <= 0 || rawSum <= 0) return intrinsic;
+
+  const target = Math.max(280, Math.floor(viewportWidthPx) - 6);
+  if (Math.abs(rawSum - target) <= 2) return intrinsic;
+
+  return balanceColumnWidthsToTarget(intrinsic, ordered, target);
 }
 
 function getExportValue(columnId: string, task: Task, dateFormat: DateFormat): string {
@@ -277,6 +422,61 @@ function downloadExcel(rows: Task[], visibleColumnIds: string[], dateFormat: Dat
   a.download = name;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+/** CSV/Excel ile aynı veri; Roboto ile Türkçe uyumlu tablo PDF (tarayıcıda üretilir). */
+async function downloadPDF(rows: Task[], visibleColumnIds: string[], dateFormat: DateFormat, filename: string) {
+  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat);
+  const [{ default: pdfMake }, vfsMod] = await Promise.all([
+    import("pdfmake/build/pdfmake"),
+    import("pdfmake/build/vfs_fonts"),
+  ]);
+  const vfs = vfsMod.default ?? (vfsMod as unknown as Record<string, string>);
+  pdfMake.addVirtualFileSystem(vfs);
+
+  const body: unknown[][] = [
+    headers.map((h) => ({ text: String(h), style: "th" })),
+    ...rowArrays.map((row) => row.map((cell) => String(cell))),
+  ];
+
+  const docDefinition = {
+    pageSize: "A4" as const,
+    pageOrientation: "landscape" as const,
+    pageMargins: [36, 44, 36, 44] as [number, number, number, number],
+    content: [
+      { text: "Görev listesi", style: "h1", margin: [0, 0, 0, 14] as [number, number, number, number] },
+      {
+        table: {
+          headerRows: 1,
+          widths: Array(headers.length).fill("*"),
+          dontBreakRows: false,
+          body,
+        },
+        layout: {
+          hLineWidth: () => 0.5,
+          vLineWidth: () => 0.5,
+          hLineColor: () => "#cccccc",
+          vLineColor: () => "#cccccc",
+          fillColor: (rowIndex: number) => {
+            if (rowIndex === 0) return "#e8eef4";
+            return rowIndex % 2 === 0 ? "#f9fafb" : null;
+          },
+        },
+      },
+    ],
+    styles: {
+      h1: { fontSize: 14, bold: true },
+      th: { bold: true, fontSize: 9 },
+    },
+    defaultStyle: {
+      font: "Roboto",
+      fontSize: 8,
+    },
+  };
+
+  const pdf = pdfMake.createPdf(docDefinition);
+  const baseName = filename.replace(/\.pdf$/i, "");
+  await pdf.download(`${baseName}.pdf`);
 }
 
 const columnHelper = createColumnHelper<Task>();
@@ -1145,6 +1345,7 @@ function StatusCell({
   const badgeStyle = STATUS_BADGE_STYLES[display] ?? STATUS_BADGE_STYLES.Yapılacak;
   const dotClass = STATUS_DOT_CLASS[display] ?? STATUS_DOT_CLASS.Yapılacak;
   const [menuOpen, setMenuOpen] = useState(false);
+  const statusListboxId = useId();
   const anchorRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
@@ -1267,6 +1468,7 @@ function StatusCell({
       ? createPortal(
           <div
             ref={menuRef}
+            id={statusListboxId}
             role="listbox"
             aria-label="Durum seçin"
             className="fixed z-[300] min-w-[10rem] overflow-hidden rounded-md border border-slate-200 bg-white py-1 text-sm shadow-lg dark:border-slate-600 dark:bg-slate-800"
@@ -1278,6 +1480,7 @@ function StatusCell({
                 type="button"
                 role="option"
                 className="flex w-full cursor-pointer items-center px-3 py-2 text-left text-slate-800 hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-700"
+                aria-selected={s === value}
                 onClick={() => {
                   onSave(taskId, { status: s, last_updated_by: "anon" });
                   setMenuOpen(false);
@@ -1297,6 +1500,9 @@ function StatusCell({
         ref={anchorRef}
         type="button"
         title="Tek tık: Tamamlandı / varsayılana dön · Çift tık: tüm durumlar"
+        aria-haspopup="listbox"
+        aria-expanded={menuOpen}
+        aria-controls={menuOpen ? statusListboxId : undefined}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         onFocus={onFocus}
@@ -1367,7 +1573,7 @@ export function TasksTable() {
     fetchTasks,
     isLoading,
     error,
-    isRealtimeConnected,
+    realtimeConnection,
   } = useTasksWithRealtime();
   const { projects } = useProjects();
   const { user, hasPermission, isAdmin } = useAuth();
@@ -1411,7 +1617,9 @@ export function TasksTable() {
   const [quickFiltersOpen, setQuickFiltersOpen] = useState(false);
   const [draggedColumnId, setDraggedColumnId] = useState<string | null>(null);
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
+  const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  const [mutationBanner, setMutationBanner] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const [globalSearch, setGlobalSearch] = useState("");
   /** Varsayılan: sadece projeye bağlı görevler (standart tablo verisi gösterilmez) */
   const [projectLinkedFilter, setProjectLinkedFilter] = useState<"proje" | "tümü">("proje");
@@ -1435,6 +1643,12 @@ export function TasksTable() {
   const [advancedFilterRules, setAdvancedFilterRules] = useState<AdvancedFilterRule[]>([]);
   const [advancedFilterOpen, setAdvancedFilterOpen] = useState(false);
   const now = new Date();
+
+  useEffect(() => {
+    if (!mutationBanner) return;
+    const t = window.setTimeout(() => setMutationBanner(null), 7000);
+    return () => window.clearTimeout(t);
+  }, [mutationBanner]);
 
   /** Atanmamış projeler sadece admin görür; üye sadece kendisine atanmış projelerin görevlerini görür. */
   const visibleProjectIds = useMemo(
@@ -1482,8 +1696,20 @@ export function TasksTable() {
     }
   }, [assigneeFilter, assigneeFilterOptions]);
 
-  const extraDataKeys = useMemo(() => {
+  const projectSchemaExtraKeys = useMemo(() => {
     const set = new Set<string>();
+    projects
+      .filter((p) => canViewProject(p, isAdmin, currentUserEmail))
+      .forEach((p) => {
+        for (const k of p.extra_column_keys ?? []) {
+          if (k != null && String(k).trim() !== "") set.add(String(k).trim());
+        }
+      });
+    return Array.from(set).sort();
+  }, [projects, isAdmin, currentUserEmail]);
+
+  const extraDataKeys = useMemo(() => {
+    const set = new Set<string>(projectSchemaExtraKeys);
     tasksVisibleByProject.forEach((t) => {
       if (t.extra_data && typeof t.extra_data === "object") {
         Object.keys(t.extra_data).forEach((k) => {
@@ -1492,7 +1718,7 @@ export function TasksTable() {
       }
     });
     return Array.from(set).sort();
-  }, [tasksVisibleByProject]);
+  }, [tasksVisibleByProject, projectSchemaExtraKeys]);
 
   const advancedFilterFieldOptions = useMemo(() => {
     const opts: { id: string; label: string }[] = [
@@ -1518,6 +1744,8 @@ export function TasksTable() {
   const liveTableHydratedUserRef = useRef<string | null>(null);
   /** Sürükleyerek genişletilen sütunlar: bunlar veri değişince otomatik ölçeklenmez */
   const userSizedColumnsRef = useRef<Set<string>>(new Set());
+  const liveTableScrollRef = useRef<HTMLDivElement>(null);
+  const [liveTableViewportWidth, setLiveTableViewportWidth] = useState(0);
   const userIdForPrefs = user?.id ?? null;
 
   useEffect(() => {
@@ -1932,35 +2160,12 @@ export function TasksTable() {
     });
   }, []);
 
-  /** Sütun genişliklerini mevcut veri ve başlık metinlerine göre otomatik ayarlar; elle sürüklenen sütunları sıfırlayıp hepsini yeniden ölçekler */
-  const handleAutoSizeColumns = useCallback(() => {
-    userSizedColumnsRef.current.clear();
-    const next = computeAutoColumnWidths(filteredData, extraDataKeys);
-    setColumnSizing((prev) => ({ ...prev, ...next }));
-  }, [filteredData, extraDataKeys]);
-
-  /** Veri / ek sütunlar değişince içeriğe göre genişlik (kullanıcı o sütunu elle boyutlandırmadıysa). */
-  useEffect(() => {
-    const auto = computeAutoColumnWidths(filteredData, extraDataKeys);
-    setColumnSizing((prev) => {
-      const next = { ...prev };
-      let changed = false;
-      for (const id of Object.keys(auto)) {
-        if (userSizedColumnsRef.current.has(id)) continue;
-        const v = auto[id];
-        if (v !== undefined && next[id] !== v) {
-          next[id] = v;
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [filteredData, extraDataKeys]);
-
   const handleSave = useCallback(
     (taskId: string, patch: Partial<Task>) => {
       updateTaskOptimistic(taskId, patch);
-      saveTask(taskId, patch);
+      void saveTask(taskId, patch).then((r) => {
+        if (!r.ok) setMutationBanner({ kind: "error", message: r.message });
+      });
     },
     [updateTaskOptimistic, saveTask]
   );
@@ -2001,11 +2206,15 @@ export function TasksTable() {
         priority: data.priority ?? null,
         extra_data: data.extra_data ?? null,
       };
-      handleSave(editTask.id, patch);
-      await saveTask(editTask.id, patch);
+      updateTaskOptimistic(editTask.id, patch);
+      const r = await saveTask(editTask.id, patch);
+      if (!r.ok) {
+        setMutationBanner({ kind: "error", message: r.message });
+        return;
+      }
       setEditTask(null);
     },
-    [editTask, handleSave, saveTask]
+    [editTask, saveTask, updateTaskOptimistic]
   );
 
   const handleCopyTask = useCallback(
@@ -2024,6 +2233,15 @@ export function TasksTable() {
       setDeletingIds((prev) => new Set(prev).add(taskId));
       try {
         await deleteTask(taskId);
+        setMutationBanner({ kind: "success", message: "Görev silindi." });
+      } catch (e) {
+        const msg =
+          e instanceof Error
+            ? e.message
+            : typeof e === "object" && e !== null && "message" in e
+              ? String((e as { message: unknown }).message)
+              : "Görev silinemedi.";
+        setMutationBanner({ kind: "error", message: msg });
       } finally {
         setDeletingIds((prev) => {
           const next = new Set(prev);
@@ -2041,8 +2259,7 @@ export function TasksTable() {
     if (!task) return;
     const newExtraData = { ...(task.extra_data ?? {}), [key]: value };
     handleSave(taskId, { extra_data: newExtraData });
-    saveTask(taskId, { extra_data: newExtraData });
-  }, [tasks, handleSave, saveTask]);
+  }, [tasks, handleSave]);
 
   const columns: ColumnDef<Task, string | null>[] = useMemo(
     () => [
@@ -2360,6 +2577,70 @@ export function TasksTable() {
     pageCount: Math.ceil(filteredData.length / pagination.pageSize),
   });
 
+  const liveTableVisibleKey = useMemo(() => {
+    const vis = Object.keys(columnVisibility)
+      .sort()
+      .map((k) => `${k}:${columnVisibility[k] === false ? "0" : "1"}`)
+      .join(",");
+    return `${columnOrder.join(",")}|${vis}|${extraDataKeys.join(",")}`;
+  }, [columnOrder, columnVisibility, extraDataKeys]);
+
+  useLayoutEffect(() => {
+    if (isLoading || error) return;
+    const el = liveTableScrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const cr = entries[0]?.contentRect.width ?? 0;
+      setLiveTableViewportWidth(Math.floor(cr));
+    });
+    ro.observe(el);
+    setLiveTableViewportWidth(Math.floor(el.getBoundingClientRect().width));
+    return () => ro.disconnect();
+  }, [isLoading, error, isFullWidth]);
+
+  /** Sütunları görünür alana ve veriye göre orantılar; elle genişletilen sütunları sıfırlayıp tümünü yeniden ölçer */
+  const handleAutoSizeColumns = useCallback(() => {
+    userSizedColumnsRef.current.clear();
+    const visibleIds = table.getVisibleLeafColumns().map((c) => c.id);
+    const vw =
+      liveTableScrollRef.current?.clientWidth ??
+      liveTableViewportWidth ??
+      (typeof window !== "undefined" ? Math.floor(window.innerWidth * 0.88) : 1200);
+    const next = computeBalancedColumnSizing(
+      filteredData,
+      visibleIds,
+      Math.max(0, Math.floor(vw)),
+      tableDensity
+    );
+    setColumnSizing((prev) => ({ ...prev, ...next }));
+  }, [table, filteredData, tableDensity, liveTableViewportWidth]);
+
+  /** Veri, sütun görünümü veya genişlik değişince otomatik orantı (elle boyutlanan sütunlar hariç) */
+  useEffect(() => {
+    if (isLoading || error) return;
+    const visibleIds = table.getVisibleLeafColumns().map((c) => c.id);
+    const vw =
+      liveTableViewportWidth > 0
+        ? liveTableViewportWidth
+        : typeof window !== "undefined"
+          ? Math.floor(window.innerWidth * 0.85)
+          : 0;
+    const sized = computeBalancedColumnSizing(filteredData, visibleIds, vw, tableDensity);
+    setColumnSizing((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const id of Object.keys(sized)) {
+        if (userSizedColumnsRef.current.has(id)) continue;
+        const v = sized[id];
+        if (v !== undefined && next[id] !== v) {
+          next[id] = v;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [filteredData, liveTableVisibleKey, liveTableViewportWidth, tableDensity, isLoading, error, table]);
+
   const visibleColumnIds = table.getVisibleLeafColumns().map((c) => (c.id ?? (c as { accessorKey?: string }).accessorKey ?? "").toString()).filter(Boolean);
   const handleExportCSV = useCallback(
     (scope: "current" | "all") => {
@@ -2375,6 +2656,22 @@ export function TasksTable() {
     },
     [tasksVisibleByProject, filteredData, visibleColumnIds, settings.dateFormat]
   );
+  const handleExportPDF = useCallback(
+    async (scope: "current" | "all") => {
+      const rows = scope === "all" ? tasksVisibleByProject : filteredData;
+      try {
+        await downloadPDF(
+          rows,
+          visibleColumnIds,
+          settings.dateFormat,
+          `gorevler-${scope === "all" ? "tum" : "gorunum"}-${Date.now()}.pdf`
+        );
+      } catch (e) {
+        console.error("[Export] PDF oluşturulamadı:", e);
+      }
+    },
+    [tasksVisibleByProject, filteredData, visibleColumnIds, settings.dateFormat]
+  );
 
   const openColumnPicker = useCallback(() => {
     setColumnPickerSearch("");
@@ -2384,16 +2681,36 @@ export function TasksTable() {
     setColumnPickerOpen(true);
   }, [table]);
 
+  /** Sürüklenen sütun sırası ve sol/sağ sabitlemeleri varsayılana döner (görünürlük ve genişlik aynı kalır). */
+  const resetColumnOrderToDefault = useCallback(() => {
+    const dynamicIds = extraDataKeys.map((k) => `extra:${k}`);
+    setColumnOrder(mergeColumnOrderWithDynamics(undefined, dynamicIds));
+    setColumnPinning({ left: [], right: [] });
+  }, [extraDataKeys]);
+
   const selectedRows = table.getSelectedRowModel().rows;
   const selectedTasks = selectedRows.map((r) => r.original);
   const selectedIds = selectedTasks.map((t) => t.id);
 
-  const handleBulkDelete = useCallback(async () => {
+  const executeBulkDelete = useCallback(async () => {
     if (selectedIds.length === 0) return;
+    setBulkDeleteConfirmOpen(false);
     setDeletingIds((prev) => new Set([...Array.from(prev), ...selectedIds]));
     try {
       await deleteTasks(selectedIds);
       setRowSelection({});
+      setMutationBanner({
+        kind: "success",
+        message: `${selectedIds.length} görev silindi.`,
+      });
+    } catch (e) {
+      const msg =
+        e instanceof Error
+          ? e.message
+          : typeof e === "object" && e !== null && "message" in e
+            ? String((e as { message: unknown }).message)
+            : "Toplu silme başarısız.";
+      setMutationBanner({ kind: "error", message: msg });
     } finally {
       setDeletingIds((prev) => {
         const next = new Set(prev);
@@ -2406,20 +2723,33 @@ export function TasksTable() {
   const handleBulkStatusUpdate = useCallback(
     async (status: string) => {
       setBulkStatusOpen(false);
+      let fail = 0;
       for (const t of selectedTasks) {
-        handleSave(t.id, { status, last_updated_by: "anon" });
-        saveTask(t.id, { status, last_updated_by: "anon" });
+        updateTaskOptimistic(t.id, { status, last_updated_by: "anon" });
+        const r = await saveTask(t.id, { status, last_updated_by: "anon" });
+        if (!r.ok) fail += 1;
+      }
+      if (fail > 0) {
+        setMutationBanner({
+          kind: "error",
+          message: `${fail} görev güncellenemedi${fail < selectedTasks.length ? ` (${selectedTasks.length - fail} güncellendi)` : ""}.`,
+        });
+      } else if (selectedTasks.length > 0) {
+        setMutationBanner({
+          kind: "success",
+          message: `${selectedTasks.length} görevin durumu güncellendi.`,
+        });
       }
       setRowSelection({});
     },
-    [selectedTasks, handleSave, saveTask]
+    [selectedTasks, saveTask, updateTaskOptimistic]
   );
 
   if (isLoading) {
     const skeletonRows = 5;
     return (
       <div className="flex flex-col rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800 min-h-[280px]">
-        <div className="flex flex-col items-center justify-center gap-4 py-12 px-4">
+        <div className="flex flex-col items-center justify-center gap-4 py-12 px-4" aria-busy="true">
           <Loader2 className="h-10 w-10 animate-spin text-slate-400 dark:text-slate-500" aria-hidden />
           <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Veriler yükleniyor…</p>
         </div>
@@ -2463,6 +2793,8 @@ export function TasksTable() {
   const liveTableHeaderGroup = table.getHeaderGroups()[0];
   const liveTableSumPx =
     liveTableHeaderGroup?.headers.reduce((s, h) => s + Math.max(h.getSize(), 40), 0) ?? 0;
+  const liveTableNeedsHorizontalScroll =
+    liveTableViewportWidth > 0 && liveTableSumPx > liveTableViewportWidth + 2;
 
   const liveTableBody = (
     <>
@@ -2676,6 +3008,31 @@ export function TasksTable() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <div
+        className="empty:hidden px-2 sm:px-4"
+        role="status"
+        aria-live={mutationBanner?.kind === "error" ? "assertive" : "polite"}
+      >
+        {mutationBanner && (
+          <div
+            className={cn(
+              "mb-2 flex items-start justify-between gap-2 rounded-md border px-3 py-2 text-sm",
+              mutationBanner.kind === "error"
+                ? "border-red-200 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950/50 dark:text-red-100"
+                : "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100"
+            )}
+          >
+            <span>{mutationBanner.message}</span>
+            <button
+              type="button"
+              className="shrink-0 rounded px-1 text-xs font-medium underline underline-offset-2 hover:opacity-90"
+              onClick={() => setMutationBanner(null)}
+            >
+              Kapat
+            </button>
+          </div>
+        )}
+      </div>
       <div className="flex shrink-0 flex-col gap-3 px-2 py-3 sm:px-4">
         {/* Katman 1 — Hızlı filtreler (mobilde daraltılabilir) */}
         <div className="rounded-lg border border-slate-200/90 bg-slate-50/80 px-2 py-2 dark:border-slate-600/80 dark:bg-slate-800/45 sm:px-3 sm:py-2.5">
@@ -3223,7 +3580,7 @@ export function TasksTable() {
                 size="sm"
                 onClick={handleAutoSizeColumns}
                 className="text-slate-700 dark:text-slate-300"
-                title="Sütun genişliklerini başlık ve hücre içeriğine göre otomatik ayarla"
+                title="Sütunları görünür alana ve içeriğe göre orantılı ölçeklendir"
               >
                 <Shrink className="mr-2 h-4 w-4" />
                 İçeriğe göre ölçeklendir
@@ -3267,15 +3624,22 @@ export function TasksTable() {
       >
         <div className="flex flex-wrap items-center gap-3">
           <TaskStats tasks={tasksVisibleByProject} />
-          {isRealtimeConnected ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" title="Realtime bağlı">
+          {realtimeConnection === "live" && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" title="Realtime kanalı bağlı">
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500 animate-pulse" aria-hidden />
               Canlı
             </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-300" title="Bağlantı bekleniyor">
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden />
-              Yeniden bağlanıyor
+          )}
+          {realtimeConnection === "connecting" && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-300" title="Realtime aboneliği bekleniyor">
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-600" aria-hidden />
+              Bağlanıyor…
+            </span>
+          )}
+          {realtimeConnection === "disconnected" && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300" title="Anlık güncelleme doğrulanamadı veya kapalı; sekmeyi yenileyebilir veya Publication ayarını kontrol edebilirsiniz">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" aria-hidden />
+              Anlık senkron yok
             </span>
           )}
           {onlineUsers.length > 0 && (
@@ -3289,6 +3653,7 @@ export function TasksTable() {
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           {canManageColumns && (
+            <>
             <Dialog open={columnPickerOpen} onOpenChange={setColumnPickerOpen}>
               <Button
                 type="button"
@@ -3433,6 +3798,19 @@ export function TasksTable() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="text-slate-700 dark:text-slate-300"
+              onClick={resetColumnOrderToDefault}
+              title="Sütun sırasını ve sabitlemeleri varsayılan düzene alır (görünürlük / genişlik değişmez)"
+            >
+              <RotateCcw className="mr-2 h-4 w-4 shrink-0" aria-hidden />
+              <span className="hidden sm:inline">Varsayılan sıra</span>
+              <span className="sm:hidden">Sıra</span>
+            </Button>
+            </>
           )}
           {canImportCsv && (
             <Button
@@ -3457,9 +3835,11 @@ export function TasksTable() {
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => handleExportCSV("current")}>CSV indir (mevcut görünüm)</DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleExportExcel("current")}>Excel indir (mevcut görünüm)</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void handleExportPDF("current")}>PDF indir (mevcut görünüm)</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => handleExportCSV("all")}>CSV indir (tüm veri)</DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleExportExcel("all")}>Excel indir (tüm veri)</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void handleExportPDF("all")}>PDF indir (tüm veri)</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
           )}
@@ -3497,15 +3877,45 @@ export function TasksTable() {
             </DropdownMenuContent>
           </DropdownMenu>
           {canBulkDelete && (
-          <Button type="button" variant="outline" size="sm" className="text-red-600 hover:text-red-700" onClick={handleBulkDelete}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="text-red-600 hover:text-red-700"
+            onClick={() => setBulkDeleteConfirmOpen(true)}
+          >
             Seçilenleri sil
           </Button>
           )}
         </div>
       )}
+      <Dialog open={bulkDeleteConfirmOpen} onOpenChange={setBulkDeleteConfirmOpen}>
+        <DialogContent className="sm:max-w-md" showClose>
+          <DialogHeader>
+            <DialogTitle>Seçilen görevleri sil</DialogTitle>
+            <DialogDescription>
+              <strong>{selectedIds.length}</strong> görev kalıcı olarak silinecek. Bu işlem geri alınamaz.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={() => setBulkDeleteConfirmOpen(false)}>
+              İptal
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void executeBulkDelete()}
+              disabled={selectedIds.length === 0}
+            >
+              Sil
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <TooltipProvider delayDuration={200} skipDelayDuration={120}>
       <div
+        ref={liveTableScrollRef}
         className={cn(
           "flex-1 min-h-0 w-full min-w-0 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 bg-white isolate [overflow-anchor:none] dark:border-slate-700 dark:bg-slate-800",
           /* Sayfa düzeni flex’te bazen yükseklik sınırlanmıyor; viewport tavanı iç scroll + thead sticky’yi garanti eder (genişlet modunda portal zaten sınırlı). */
@@ -3517,12 +3927,18 @@ export function TasksTable() {
       >
         <table
           className={cn("border-separate border-spacing-0 min-w-full", dui.table)}
+          aria-describedby="live-table-caption"
           style={{
             tableLayout: "fixed",
-            width: liveTableSumPx > 0 ? `max(100%, ${liveTableSumPx}px)` : "100%",
-            minWidth: liveTableSumPx > 0 ? `max(100%, ${liveTableSumPx}px)` : "100%",
+            width:
+              liveTableSumPx > 0 ? (liveTableNeedsHorizontalScroll ? `${liveTableSumPx}px` : "100%") : "100%",
+            minWidth:
+              liveTableSumPx > 0 ? (liveTableNeedsHorizontalScroll ? `${liveTableSumPx}px` : "100%") : "100%",
           }}
         >
+          <caption id="live-table-caption" className="sr-only">
+            Canlı görev tablosu. Sütun başlıklarını sürükleyerek sırayı değiştirebilir, kenardan genişletebilirsiniz. Sütun menüsü ile sabitleme ve sıfırlama yapılabilir.
+          </caption>
           <thead>
             {table.getHeaderGroups().map((headerGroup) => {
               const headers = headerGroup.headers;
@@ -3542,6 +3958,15 @@ export function TasksTable() {
                       onDragOver={handleDragOver}
                       onDrop={(e) => handleDrop(e, col.id)}
                       onDragEnd={handleDragEnd}
+                      aria-sort={
+                        col.getCanSort?.() && col.getIsSorted() === "asc"
+                          ? "ascending"
+                          : col.getCanSort?.() && col.getIsSorted() === "desc"
+                            ? "descending"
+                            : col.getCanSort?.()
+                              ? "none"
+                              : undefined
+                      }
                       className={cn(
                         "relative sticky top-0 z-[15] select-none border-r border-b-2 border-slate-200 bg-slate-100 text-left font-medium text-slate-700 shadow-[0_2px_6px_-3px_rgba(15,23,42,0.12)] dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:shadow-[0_2px_6px_-3px_rgba(0,0,0,0.35)]",
                         dui.th,

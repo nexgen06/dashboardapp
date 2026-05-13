@@ -12,6 +12,12 @@ type ProjectChatPanelProps = {
   currentUserEmail: string;
   /** Sohbet yüklendi ve gönderim mümkün */
   chatReady: boolean;
+  /** Varsayılan: «Proje sohbeti» */
+  heading?: string;
+  hint?: string;
+  /** Mesaj listesi sarmalayıcı (yükseklik vb.), örn. max-h-[min(60vh,28rem)] */
+  messagesContainerClassName?: string;
+  className?: string;
 };
 
 function formatChatTime(at: number): string {
@@ -27,6 +33,10 @@ export function ProjectChatPanel({
   onSend,
   currentUserEmail,
   chatReady,
+  heading = "Proje sohbeti",
+  hint = "Supabase'de saklanır; tüm ekip üyeleri okuyabilir.",
+  messagesContainerClassName = "max-h-52 min-h-[4.5rem]",
+  className,
 }: ProjectChatPanelProps) {
   const [draft, setDraft] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
@@ -45,15 +55,18 @@ export function ProjectChatPanel({
   };
 
   return (
-    <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/90 dark:border-slate-600 dark:bg-slate-900/50 overflow-hidden">
+    <div
+      className={cn(
+        "mt-4 rounded-lg border border-slate-200 bg-slate-50/90 dark:border-slate-600 dark:bg-slate-900/50 overflow-hidden",
+        className
+      )}
+    >
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-slate-200 px-3 py-2 dark:border-slate-600">
         <MessageCircle className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden />
-        <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Proje sohbeti</span>
-        <span className="text-xs text-slate-500 dark:text-slate-400">
-          Supabase&apos;de saklanır; tüm ekip üyeleri okuyabilir.
-        </span>
+        <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{heading}</span>
+        <span className="text-xs text-slate-500 dark:text-slate-400">{hint}</span>
       </div>
-      <div className="max-h-52 overflow-y-auto px-3 py-2 space-y-2 min-h-[4.5rem]">
+      <div className={cn("overflow-y-auto px-3 py-2 space-y-2", messagesContainerClassName)}>
         {messages.length === 0 ? (
           <p className="text-xs text-slate-500 dark:text-slate-400 py-1">
             Aynı projedeki ekip ile mesajlaşın. Proje listesinde okunmamış sayısı görünür.

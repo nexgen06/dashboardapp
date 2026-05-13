@@ -9,8 +9,8 @@ export default function HomePage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { hasPermission, isLoaded } = useAuth();
-  const canProjects = hasPermission("area.projects");
-  const canLiveTable = hasPermission("area.liveTable");
+  const canProjects = hasPermission("area.projects") && hasPermission("projects.view");
+  const canLiveTable = hasPermission("area.liveTable") && hasPermission("liveTable.view");
 
   const tabParam = searchParams?.get("tab") ?? null;
 

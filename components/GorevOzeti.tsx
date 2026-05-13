@@ -29,13 +29,15 @@ function canViewProject(p: Project, isAdmin: boolean, currentUserEmail: string):
 }
 
 export function GorevOzeti() {
-  const { tasks, isLoading, error, isRealtimeConnected, saveTask } = useTasksWithRealtime();
+  const { tasks, isLoading, error, realtimeConnection, saveTask } = useTasksWithRealtime();
   const { projects } = useProjects();
   const { user, isAdmin } = useAuth();
   const { settings } = useSettings();
   const now = new Date();
   const [filterMode, setFilterMode] = useState<"all" | "mine" | "byAssignee">("all");
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
+
+  const [quickSaveError, setQuickSaveError] = useState<string | null>(null);
 
   const currentUserEmail = (user?.email ?? "").trim().toLowerCase();
 
@@ -169,11 +171,9 @@ export function GorevOzeti() {
   }
 
   async function handleQuickComplete(taskId: string) {
-    try {
-      await saveTask(taskId, { status: "Tamamlandı", last_updated_by: user?.email || "anon" });
-    } catch (e) {
-      console.error("Hızlı tamamlama hatası:", e);
-    }
+    setQuickSaveError(null);
+    const r = await saveTask(taskId, { status: "Tamamlandı", last_updated_by: user?.email || "anon" });
+    if (!r.ok) setQuickSaveError(r.message);
   }
 
   if (isLoading) {
@@ -194,6 +194,21 @@ export function GorevOzeti() {
 
   return (
     <div className="flex flex-col gap-4">
+      {quickSaveError && (
+        <div
+          role="alert"
+          className="flex items-start justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-100"
+        >
+          <span>{quickSaveError}</span>
+          <button
+            type="button"
+            className="shrink-0 underline"
+            onClick={() => setQuickSaveError(null)}
+          >
+            Kapat
+          </button>
+        </div>
+      )}
       {/* Atanmamış kullanıcı veya görünür proje yoksa istatistik/görev listesi gösterilmez */}
       {tasksVisibleByProject.length === 0 && (
         <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
@@ -446,9 +461,19 @@ export function GorevOzeti() {
         <div>
           <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
             Son güncellenen görevler
-            {isRealtimeConnected && (
+            {realtimeConnection === "live" && (
               <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-200">
                 Canlı
+              </span>
+            )}
+            {realtimeConnection === "connecting" && (
+              <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
+                Bağlanıyor…
+              </span>
+            )}
+            {realtimeConnection === "disconnected" && (
+              <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                Anlık yok
               </span>
             )}
           </h3>

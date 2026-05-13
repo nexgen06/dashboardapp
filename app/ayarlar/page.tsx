@@ -428,6 +428,9 @@ function GuvenlikAyarlar({ searchQuery }: { searchQuery: string }) {
 
   return (
     <div className="space-y-2">
+      <p className="rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+        <strong className="font-semibold">Önizleme:</strong> Aşağıdaki şifre, 2FA ve oturum örnekleri henüz Supabase ile bağlı değildir; arayüz demonstrasyonudur.
+      </p>
       {pwdMatch && (
       <SettingRow label="Şifre değiştir" description="Mevcut şifrenizi girip yeni şifre belirleyin.">
         <form onSubmit={handlePasswordSubmit} className="flex flex-col gap-3 max-w-sm">
@@ -652,6 +655,9 @@ function EntegrasyonlarAyarlar({ searchQuery }: { searchQuery: string }) {
 
   return (
     <div className="space-y-2">
+      <p className="rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+        <strong className="font-semibold">Önizleme:</strong> API anahtarları ve webhook yönetimi örnek veridir; gerçek entegrasyon için backend veya Edge Function gerekir.
+      </p>
       {apiMatch && (
       <SettingRow
         label="API anahtarları"
@@ -978,7 +984,10 @@ function GelismisAyarlar({ searchQuery, resetSection, resetToDefaults, canResetS
 
 export default function AyarlarPage() {
   const { isDirty, save, resetToDefaults, resetSection, lastSavedAt } = useSettings();
-  const { isAdmin } = useAuth();
+  const { isAdmin, hasPermission, isLoaded } = useAuth();
+  const canAccessSettings =
+    isLoaded && hasPermission("area.settings") && hasPermission("settings.view");
+  const canEditSettings = hasPermission("settings.edit");
   const [showToast, setShowToast] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -988,6 +997,31 @@ export default function AyarlarPage() {
     const t = setTimeout(() => setShowToast(false), 2000);
     return () => clearTimeout(t);
   }, [lastSavedAt]);
+
+  if (!isLoaded) {
+    return (
+      <div className="flex max-w-3xl flex-col items-center justify-center gap-3 py-16 text-slate-500 dark:text-slate-400">
+        <Loader2 className="h-10 w-10 animate-spin" aria-hidden />
+        <p className="text-sm">Yükleniyor…</p>
+      </div>
+    );
+  }
+
+  if (!canAccessSettings) {
+    return (
+      <div className="max-w-2xl rounded-lg border-2 border-amber-200 bg-amber-50 p-8 dark:border-amber-800 dark:bg-amber-950/40">
+        <div className="flex items-start gap-3">
+          <Shield className="h-10 w-10 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+          <div>
+            <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Ayarlar görüntülenemez</h1>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+              Bu sayfa için <code className="text-xs">area.settings</code> ve <code className="text-xs">settings.view</code> yetkileri gerekir.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl relative">
@@ -1002,6 +1036,14 @@ export default function AyarlarPage() {
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           Genel, görünüm, bildirim ve güvenlik tercihlerinizi sekmelerden yönetin. Değişiklikler otomatik kaydedilir; kritik ayarlar (şifre, 2FA) için forma özel Kaydet kullanın.
         </p>
+        {!canEditSettings && (
+          <p
+            role="status"
+            className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100"
+          >
+            Bu rol ile ayar değişikliği yapılamaz. Görüntüleme için yeterli yetkiniz var.
+          </p>
+        )}
       </div>
 
       <div className="relative mb-4 max-w-md">
@@ -1087,15 +1129,15 @@ export default function AyarlarPage() {
       <div className="mt-8 flex flex-wrap items-center gap-3 border-t border-slate-200 pt-6 dark:border-slate-700">
         <Button
           onClick={save}
-          disabled={!isDirty}
+          disabled={!isDirty || !canEditSettings}
           variant="outline"
           size="sm"
-          className={cn(isDirty && "border-blue-300 text-blue-700 dark:border-blue-600 dark:text-blue-300")}
+          className={cn(isDirty && canEditSettings && "border-blue-300 text-blue-700 dark:border-blue-600 dark:text-blue-300")}
         >
           <Settings2 className="mr-2 h-4 w-4" />
           Şimdi kaydet
         </Button>
-        {isAdmin && (
+        {isAdmin && canEditSettings && (
         <Button
           variant="outline"
           onClick={resetToDefaults}

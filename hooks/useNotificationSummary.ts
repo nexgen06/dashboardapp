@@ -6,6 +6,11 @@ import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import {
+  loadDerivedNotificationAck,
+  saveDerivedNotificationAck,
+  type DerivedNotificationAck,
+} from "@/lib/notificationAck";
 
 export type NotificationSummaryItem = {
   type: "project_assigned" | "task_assigned" | "overdue" | "admin_team_done";
@@ -19,8 +24,8 @@ export type NotificationSummary = {
   totalCount: number;
   items: NotificationSummaryItem[];
   isLoading: boolean;
-  /** Yönetici: bildirim paneli açıldığında çağrılır */
-  onPanelOpened?: () => void;
+  /** Bildirim paneli açıldığında: yönetici uyarıları + türetilmiş (proje/görev) okundu işaretleri */
+  onPanelOpened?: () => void | Promise<void>;
 };
 
 type AdminAlertRow = {
@@ -30,7 +35,8 @@ type AdminAlertRow = {
 };
 
 export function useNotificationSummary(): NotificationSummary {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, hasPermission } = useAuth();
+  const canAdminNotifications = isAdmin && hasPermission("notifications.send");
   const currentUserEmail = user?.email ?? null;
   const userId = user?.id ?? null;
   const { projects, isLoading: projectsLoading } = useProjects();
@@ -41,8 +47,22 @@ export function useNotificationSummary(): NotificationSummary {
   const adminUnreadRef = useRef<AdminAlertRow[]>([]);
   adminUnreadRef.current = adminUnread;
 
+  const [derivedAck, setDerivedAck] = useState<DerivedNotificationAck>({
+    projectIds: [],
+    taskIds: [],
+    overdueTaskIds: [],
+  });
+
+  useEffect(() => {
+    if (!userId) {
+      setDerivedAck({ projectIds: [], taskIds: [], overdueTaskIds: [] });
+      return;
+    }
+    setDerivedAck(loadDerivedNotificationAck(userId));
+  }, [userId]);
+
   const fetchAdminUnread = useCallback(async () => {
-    if (!isSupabaseConfigured() || !isAdmin || !userId || userId === "demo") {
+    if (!isSupabaseConfigured() || !canAdminNotifications || !userId || userId === "demo") {
       setAdminUnread([]);
       return;
     }
@@ -63,14 +83,14 @@ export function useNotificationSummary(): NotificationSummary {
     } finally {
       setAdminAlertsLoading(false);
     }
-  }, [isAdmin, userId]);
+  }, [canAdminNotifications, userId]);
 
   useEffect(() => {
     void fetchAdminUnread();
   }, [fetchAdminUnread]);
 
   useEffect(() => {
-    if (!isSupabaseConfigured() || !isAdmin || !userId || userId === "demo") return;
+    if (!isSupabaseConfigured() || !canAdminNotifications || !userId || userId === "demo") return;
     const ch: RealtimeChannel = supabase
       .channel("admin-alerts-notify")
       .on(
@@ -84,27 +104,46 @@ export function useNotificationSummary(): NotificationSummary {
     return () => {
       supabase.removeChannel(ch);
     };
-  }, [isAdmin, userId, fetchAdminUnread]);
+  }, [canAdminNotifications, userId, fetchAdminUnread]);
 
   const onPanelOpened = useCallback(async () => {
     const snapshot = adminUnreadRef.current;
-    if (!userId || userId === "demo" || snapshot.length === 0) return;
-    const rows = snapshot.map((a) => ({ alert_id: a.id, reader_id: userId }));
-    const { error } = await supabase.from("admin_alert_reads").upsert(rows, {
-      onConflict: "alert_id,reader_id",
-    });
-    if (error) {
-      console.warn("[Notifications] mark read:", error);
-      return;
+    if (userId && userId !== "demo" && canAdminNotifications && snapshot.length > 0) {
+      const rows = snapshot.map((a) => ({ alert_id: a.id, reader_id: userId }));
+      const { error } = await supabase.from("admin_alert_reads").upsert(rows, {
+        onConflict: "alert_id,reader_id",
+      });
+      if (error) console.warn("[Notifications] mark admin read:", error);
+      else setAdminUnread([]);
     }
-    setAdminUnread([]);
-  }, [userId]);
+
+    if (!userId) return;
+    const email = (currentUserEmail ?? "").trim().toLowerCase();
+    if (!email) return;
+
+    const assignedProjects = projects.filter((p) =>
+      (p.assigned_emails ?? []).some((e) => e.trim().toLowerCase() === email)
+    );
+    const myTasks = tasks.filter((t) => (t.assignee ?? "").trim().toLowerCase() === email);
+    const today = new Date().toISOString().split("T")[0];
+    const overdueTasks = myTasks.filter(
+      (t) => t.due_date && String(t.due_date).trim() && String(t.due_date) < today
+    );
+
+    const next: DerivedNotificationAck = {
+      projectIds: assignedProjects.map((p) => p.id),
+      taskIds: myTasks.map((t) => t.id),
+      overdueTaskIds: overdueTasks.map((t) => t.id),
+    };
+    saveDerivedNotificationAck(userId, next);
+    setDerivedAck(next);
+  }, [userId, canAdminNotifications, currentUserEmail, projects, tasks]);
 
   const summary = useMemo(() => {
     const email = (currentUserEmail ?? "").trim().toLowerCase();
     const items: NotificationSummaryItem[] = [];
 
-    if (isAdmin && adminUnread.length > 0) {
+    if (canAdminNotifications && adminUnread.length > 0) {
       for (const a of adminUnread) {
         items.push({
           type: "admin_team_done",
@@ -122,41 +161,58 @@ export function useNotificationSummary(): NotificationSummary {
       );
       const myTasks = tasks.filter((t) => (t.assignee ?? "").trim().toLowerCase() === email);
       const today = new Date().toISOString().split("T")[0];
-      const overdueTasks = myTasks.filter((t) => t.due_date && String(t.due_date).trim() && String(t.due_date) < today);
+      const overdueTasks = myTasks.filter(
+        (t) => t.due_date && String(t.due_date).trim() && String(t.due_date) < today
+      );
 
-      if (assignedProjects.length > 0) {
+      const seenProjects = new Set(derivedAck.projectIds);
+      const seenTasks = new Set(derivedAck.taskIds);
+      const seenOverdue = new Set(derivedAck.overdueTaskIds);
+
+      const newProjects = assignedProjects.filter((p) => !seenProjects.has(p.id));
+      const newTasks = myTasks.filter((t) => !seenTasks.has(t.id));
+      const newOverdue = overdueTasks.filter((t) => !seenOverdue.has(t.id));
+
+      if (newProjects.length > 0) {
         items.push({
           type: "project_assigned",
-          label: `Size ${assignedProjects.length} proje atandı`,
+          label:
+            newProjects.length === 1
+              ? "Size yeni bir proje atandı"
+              : `Size ${newProjects.length} yeni proje atandı`,
           href: "/projeler",
-          count: assignedProjects.length,
+          count: newProjects.length,
         });
       }
-      if (myTasks.length > 0) {
+      if (newTasks.length > 0) {
         items.push({
           type: "task_assigned",
-          label: `Size ${myTasks.length} görev atandı`,
+          label:
+            newTasks.length === 1 ? "Size yeni bir görev atandı" : `Size ${newTasks.length} yeni görev atandı`,
           href: "/canli-tablo",
-          count: myTasks.length,
+          count: newTasks.length,
         });
       }
-      if (overdueTasks.length > 0) {
+      if (newOverdue.length > 0) {
         items.push({
           type: "overdue",
-          label: `${overdueTasks.length} gecikmiş görev`,
+          label:
+            newOverdue.length === 1
+              ? "1 yeni gecikmiş görev"
+              : `${newOverdue.length} yeni gecikmiş görev`,
           href: "/canli-tablo",
-          count: overdueTasks.length,
+          count: newOverdue.length,
         });
       }
     }
 
     const totalCount = items.reduce((s, i) => s + i.count, 0);
     return { totalCount, items };
-  }, [currentUserEmail, projects, tasks, isAdmin, adminUnread]);
+  }, [currentUserEmail, projects, tasks, canAdminNotifications, adminUnread, derivedAck]);
 
   return {
     ...summary,
-    isLoading: projectsLoading || tasksLoading || (isAdmin && adminAlertsLoading),
-    onPanelOpened: isAdmin ? () => void onPanelOpened() : undefined,
+    isLoading: projectsLoading || tasksLoading || (canAdminNotifications && adminAlertsLoading),
+    onPanelOpened: userId ? () => void onPanelOpened() : undefined,
   };
 }

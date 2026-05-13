@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import type { User, RoleId, Permission } from "@/types/permissions";
 import { getEffectivePermissions, hasPermission as checkPermission, coerceRoleId } from "@/lib/permissions";
@@ -36,6 +37,8 @@ type AuthContextType = {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const pathname = usePathname();
   const [user, setUserState] = useState<User | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const authEnabled = isAuthEnabled();
@@ -145,10 +148,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (getAuthBackend() === "supabase") {
       await supabase.auth.signOut();
       setUserState(null);
+      if (pathname !== "/giris") {
+        router.replace("/giris");
+      }
       return;
     }
     setUserState(DEMO_USER);
-  }, []);
+  }, [pathname, router]);
 
   const permissions = React.useMemo(() => getEffectivePermissions(user), [user]);
   const hasPermission = useCallback(

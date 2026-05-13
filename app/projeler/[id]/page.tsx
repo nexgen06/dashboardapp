@@ -193,6 +193,7 @@ export default function ProjeDetayPage() {
   const [importRoundRobin, setImportRoundRobin] = useState(false);
   const [importDefaultAssignee, setImportDefaultAssignee] = useState("");
   const [importing, setImporting] = useState(false);
+  const [taskMutationError, setTaskMutationError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const projectTasks = useMemo(() => {
@@ -242,12 +243,14 @@ export default function ProjeDetayPage() {
 
   const handleAssignToMe = useCallback(
     async (taskId: string) => {
+      setTaskMutationError(null);
       setUpdatingId(taskId);
       try {
-        await saveTask(taskId, {
+        const r = await saveTask(taskId, {
           assignee: project?.strict_assignee_visibility ? (currentUserEmail || null) : ME_LABEL,
           last_updated_by: "anon",
         });
+        if (!r.ok) setTaskMutationError(r.message);
       } finally {
         setUpdatingId(null);
       }
@@ -257,9 +260,11 @@ export default function ProjeDetayPage() {
 
   const handleRemoveFromProject = useCallback(
     async (taskId: string) => {
+      setTaskMutationError(null);
       setUpdatingId(taskId);
       try {
-        await saveTask(taskId, { project_id: null });
+        const r = await saveTask(taskId, { project_id: null });
+        if (!r.ok) setTaskMutationError(r.message);
       } finally {
         setUpdatingId(null);
       }
@@ -367,9 +372,11 @@ export default function ProjeDetayPage() {
 
   const handleStatusChange = useCallback(
     async (taskId: string, status: string) => {
+      setTaskMutationError(null);
       setUpdatingId(taskId);
       try {
-        await saveTask(taskId, { status });
+        const r = await saveTask(taskId, { status });
+        if (!r.ok) setTaskMutationError(r.message);
       } finally {
         setUpdatingId(null);
       }
@@ -430,6 +437,23 @@ export default function ProjeDetayPage() {
     );
   }
 
+  if (!hasPermission("projectDetail.view")) {
+    return (
+      <div className="container max-w-4xl py-8">
+        <div className="rounded-lg border-2 border-amber-200 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30 p-8 text-center">
+          <ShieldCheck className="mx-auto h-12 w-12 text-amber-600 dark:text-amber-400 mb-3" />
+          <p className="font-medium text-slate-800 dark:text-slate-200">Proje detayını görüntüleme yetkiniz yok</p>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+            Bu sayfa için <code className="text-xs">projectDetail.view</code> yetkisi gerekir.
+          </p>
+          <Button variant="outline" asChild className="mt-4">
+            <Link href="/projeler">Projelere dön</Link>
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="container max-w-4xl py-6">
       <div className="mb-6">
@@ -440,6 +464,23 @@ export default function ProjeDetayPage() {
           </Link>
         </Button>
       </div>
+
+      {taskMutationError && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="mb-4 flex items-start justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/50 dark:text-red-100"
+        >
+          <span className="min-w-0">{taskMutationError}</span>
+          <button
+            type="button"
+            className="shrink-0 rounded px-1 font-medium underline underline-offset-2 hover:opacity-90"
+            onClick={() => setTaskMutationError(null)}
+          >
+            Kapat
+          </button>
+        </div>
+      )}
 
       <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm overflow-hidden">
         <div className="border-b border-slate-200 dark:border-slate-700 px-4 py-4">

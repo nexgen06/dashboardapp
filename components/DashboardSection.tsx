@@ -54,8 +54,8 @@ export function DashboardSection() {
   const { tasks, isLoading: tasksLoading } = useTasksWithRealtime();
   const currentUserEmail = (user?.email ?? "").toLowerCase();
 
-  const canProjects = hasPermission("area.projects");
-  const canLiveTable = hasPermission("area.liveTable");
+  const canProjects = hasPermission("area.projects") && hasPermission("projects.view");
+  const canLiveTable = hasPermission("area.liveTable") && hasPermission("liveTable.view");
   const canCreateProject = hasPermission("projects.create");
 
   const visibleProjects = useMemo(
@@ -136,6 +136,36 @@ export function DashboardSection() {
           </p>
         </div>
       </section>
+
+      {visibleProjects.length === 0 && canProjects && (
+        <section
+          className="rounded-xl border border-blue-200 bg-blue-50/60 p-4 dark:border-blue-800 dark:bg-blue-950/35"
+          aria-label="Başlangıç adımları"
+        >
+          <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Başlamak için</h2>
+          <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-slate-700 dark:text-slate-300">
+            <li>
+              {canCreateProject ? (
+                <>
+                  <Link href="/projeler" className="font-medium text-blue-700 underline underline-offset-2 hover:text-blue-800 dark:text-blue-300">
+                    Projeler
+                  </Link>{" "}
+                  sayfasında yeni proje oluşturun veya görev içe aktarın.
+                </>
+              ) : (
+                "Yöneticiden size proje atanmasını isteyebilirsiniz."
+              )}
+            </li>
+            <li>Görev ekleyin veya Canlı Tabloda paylaşılan liste üzerinde çalışın.</li>
+            {canLiveTable && (
+              <li>
+                İsteğe bağlı: proje formunda «Canlı tablo ek sütunları» ile CSV beklemeden sütun başlıklarını tanımlayın (veritabanında{" "}
+                <code className="rounded bg-white/80 px-1 text-xs dark:bg-slate-800">extra_column_keys</code> gerekir).
+              </li>
+            )}
+          </ol>
+        </section>
+      )}
 
       {/* KPI kartları */}
       <section>

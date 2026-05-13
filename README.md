@@ -49,8 +49,9 @@ Uygulama `http://localhost:3000` adresinde production modda çalışır. Supabas
 5. Görev–proje bağlantısı için `tasks` tablosuna `project_id` ekleyin: SQL Editor'da `scripts/add-project-id-to-tasks.sql` dosyasını çalıştırın.
 6. Son tarih (due date) için: `ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS due_date date;` (proje detayda "Son tarih" ve "Gecikmiş" vurgusu için).
 7. Proje atama (kullanıcıya proje atayınca o kullanıcının projeyi görmesi) için: SQL Editor'da `scripts/add-assigned-emails-to-projects.sql` dosyasını çalıştırın. Bu script `projects` tablosuna `assigned_emails` sütununu ekler; atanmamış projeleri sadece yönetici görür.
-8. Realtime için: Database > Publications > `supabase_realtime` içinde `tasks` tablosunu etkinleştirin.
-9. Giriş ve roller: Dashboard → Authentication’da kullanıcılar oluşturun ve `scripts/supabase-auth-profiles.sql` ile `profiles` tablosunu kurun (`NEXT_PUBLIC_ADMIN_EMAILS` isteğe bağlı tam yönetici listesi).
+8. (İsteğe bağlı) Proje formundan «Canlı tablo ek sütunları» kullanmak için: `scripts/add-extra-column-keys-to-projects.sql` ile `projects.extra_column_keys` jsonb sütununu ekleyin.
+9. Realtime için: Database > Publications > `supabase_realtime` içinde `tasks` tablosunu etkinleştirin.
+10. Giriş ve roller: Dashboard → Authentication’da kullanıcılar oluşturun ve `scripts/supabase-auth-profiles.sql` ile `profiles` tablosunu kurun (`NEXT_PUBLIC_ADMIN_EMAILS` isteğe bağlı tam yönetici listesi).
 
 ## CSV içe aktarma (Canlı Tablo)
 

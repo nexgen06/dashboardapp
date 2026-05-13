@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 
 export default function ProjelerPage() {
   const { hasPermission } = useAuth();
-  const canProjects = hasPermission("area.projects");
+  const canProjects = hasPermission("area.projects") && hasPermission("projects.view");
 
   if (!canProjects) {
     return (

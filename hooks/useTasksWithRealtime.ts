@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { Task } from "@/types/tasks";
@@ -39,6 +39,11 @@ function mapRowToTask(row: Record<string, unknown>): Task {
 
 let tasksRealtimeChannelSeq = 0;
 
+/** Realtime kanalı: yalnızca `live` gerçek abonelik; `connecting` bekleniyor; `disconnected` hata veya abonelik gelmedi. */
+export type RealtimeConnectionState = "connecting" | "live" | "disconnected";
+
+export type SaveTaskResult = { ok: true } | { ok: false; message: string };
+
 /**
  * tasks tablosunu Supabase'den çeker ve Realtime ile anlık senkronize eder.
  * Optimistic update için setTasks / updateTask kullanılır.
@@ -47,7 +52,9 @@ export function useTasksWithRealtime() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
+  const [realtimeConnection, setRealtimeConnection] = useState<RealtimeConnectionState>("connecting");
+  /** @deprecated `realtimeConnection === "live"` ile aynı; geriye uyumluluk için. */
+  const isRealtimeConnected = realtimeConnection === "live";
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -85,16 +92,21 @@ export function useTasksWithRealtime() {
   // Supabase Dashboard > Database > Replication bölümünde "tasks" tablosunun publication'a eklendiğinden emin olun.
   useEffect(() => {
     let channel: RealtimeChannel;
-    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    let subscribeTimeout: ReturnType<typeof setTimeout> | null = null;
     let syncTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
+
+    setRealtimeConnection("connecting");
+    subscribeTimeout = setTimeout(() => {
+      if (!cancelled) setRealtimeConnection((prev) => (prev === "live" ? "live" : "disconnected"));
+    }, 15000);
 
     const scheduleSync = () => {
       if (syncTimer) clearTimeout(syncTimer);
       syncTimer = setTimeout(() => {
         if (!cancelled) fetchTasks();
         syncTimer = null;
-      }, 400);
+      }, 650);
     };
 
     const channelTopic = `tasks-realtime-sync-${++tasksRealtimeChannelSeq}`;
@@ -157,39 +169,50 @@ export function useTasksWithRealtime() {
           statusStr === "closed";
 
         if (isSubscribed) {
-          setIsRealtimeConnected(true);
-          if (fallbackTimer) {
-            clearTimeout(fallbackTimer);
-            fallbackTimer = null;
+          if (subscribeTimeout) {
+            clearTimeout(subscribeTimeout);
+            subscribeTimeout = null;
           }
+          setRealtimeConnection("live");
         } else if (isFailed || err) {
-          setIsRealtimeConnected(false);
+          if (subscribeTimeout) {
+            clearTimeout(subscribeTimeout);
+            subscribeTimeout = null;
+          }
+          setRealtimeConnection("disconnected");
           if (err) console.warn("[Tasks] Realtime:", err);
         }
       });
 
-    // SUBSCRIBED bazen gecikmeli gelir veya publication yoksa hiç gelmez; React Strict Mode
-    // cleanup ile fallback iptal edilebiliyor. Kısa fallback (1.5s) ile "Canlı" göstergesinin
-    // takılı kalmaması sağlanır.
-    fallbackTimer = setTimeout(() => {
-      if (!cancelled) setIsRealtimeConnected(true);
-    }, 1500);
-
     return () => {
       cancelled = true;
-      if (fallbackTimer) clearTimeout(fallbackTimer);
+      if (subscribeTimeout) clearTimeout(subscribeTimeout);
       if (syncTimer) clearTimeout(syncTimer);
-      setIsRealtimeConnected(false);
+      setRealtimeConnection("disconnected");
       supabase.removeChannel(channel);
     };
   }, [fetchTasks]);
 
-  // Sekme tekrar odaklandığında veriyi tazele (Realtime kaçırsa diye)
+  // Sekme odağı / görünürlük: en fazla ~30 sn'de bir tam yenile (Realtime kaçırsa diye, ağ tasarrufu)
   useEffect(() => {
-    const onFocus = () => fetchTasks();
+    const lastRefetchAt = { current: 0 };
+    const throttleMs = 30_000;
+    const maybeFetch = () => {
+      const now = Date.now();
+      if (now - lastRefetchAt.current < throttleMs) return;
+      lastRefetchAt.current = now;
+      fetchTasks();
+    };
     if (typeof window === "undefined") return;
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") maybeFetch();
+    };
+    window.addEventListener("focus", maybeFetch);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", maybeFetch);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [fetchTasks]);
 
   const updateTaskOptimistic = useCallback((taskId: string, patch: Partial<Task>) => {
@@ -199,7 +222,7 @@ export function useTasksWithRealtime() {
   }, []);
 
   const saveTask = useCallback(
-    async (taskId: string, patch: Partial<Pick<Task, "content" | "status" | "assignee" | "last_updated_by" | "priority" | "project_id" | "due_date" | "extra_data">>) => {
+    async (taskId: string, patch: Partial<Pick<Task, "content" | "status" | "assignee" | "last_updated_by" | "priority" | "project_id" | "due_date" | "extra_data">>): Promise<SaveTaskResult> => {
       const payload: Record<string, unknown> = {
         ...(patch ?? {}),
         last_updated_by: patch?.last_updated_by ?? "anon",
@@ -215,8 +238,10 @@ export function useTasksWithRealtime() {
 
       if (updateError) {
         console.error("[Tasks] Update failed:", updateError);
+        const parts = [updateError.message, updateError.code, updateError.details, updateError.hint]
+          .filter((x) => x != null && String(x).trim() !== "");
         await fetchTasks();
-        return;
+        return { ok: false, message: parts.length > 0 ? parts.join(" — ") : "Güncelleme başarısız" };
       }
 
       if (isSupabaseConfigured() && patch.status !== undefined && patch.status !== null) {
@@ -231,6 +256,7 @@ export function useTasksWithRealtime() {
           }
         });
       }
+      return { ok: true };
     },
     [fetchTasks]
   );
@@ -320,5 +346,6 @@ export function useTasksWithRealtime() {
     isLoading,
     error,
     isRealtimeConnected,
+    realtimeConnection,
   };
 }

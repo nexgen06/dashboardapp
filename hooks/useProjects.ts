@@ -41,6 +41,16 @@ function mapRowToProject(row: Record<string, unknown>): Project {
     : null;
   const strict_assignee_visibility =
     row.strict_assignee_visibility === true || String(row.strict_assignee_visibility).toLowerCase() === "true";
+
+  let extra_column_keys: string[] | null = null;
+  const rawKeys = row.extra_column_keys;
+  if (Array.isArray(rawKeys)) {
+    const list = rawKeys
+      .filter((x): x is string => typeof x === "string")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    extra_column_keys = list.length > 0 ? list : null;
+  }
   return {
     id: String(row.id),
     name: String(row.name ?? ""),
@@ -52,6 +62,7 @@ function mapRowToProject(row: Record<string, unknown>): Project {
     due_date: dueDate ?? null,
     priority: priority ?? null,
     strict_assignee_visibility: strict_assignee_visibility,
+    extra_column_keys,
   };
 }
 
@@ -150,6 +161,7 @@ export function useProjects() {
       due_date?: string | null;
       priority?: ProjectPriority | null;
       strict_assignee_visibility?: boolean;
+      extra_column_keys?: string[] | null;
     }): Promise<string | null> => {
       const baseRow: Record<string, unknown> = {
         name: payload.name.trim() || "İsimsiz proje",
@@ -170,6 +182,9 @@ export function useProjects() {
       if (payload.strict_assignee_visibility !== undefined) {
         baseRow.strict_assignee_visibility = payload.strict_assignee_visibility;
       }
+      if (payload.extra_column_keys != null && payload.extra_column_keys.length > 0) {
+        baseRow.extra_column_keys = payload.extra_column_keys;
+      }
       let { data, error: insertError } = await supabase
         .from("projects")
         .insert(baseRow)
@@ -184,6 +199,7 @@ export function useProjects() {
         };
         if (baseRow.due_date != null) retryPayload.due_date = baseRow.due_date;
         if (baseRow.priority != null) retryPayload.priority = baseRow.priority;
+        if (baseRow.extra_column_keys != null) retryPayload.extra_column_keys = baseRow.extra_column_keys;
         const { data: retryData, error: retryError } = await supabase
           .from("projects")
           .insert(retryPayload)
@@ -201,7 +217,7 @@ export function useProjects() {
   );
 
   const updateProject = useCallback(
-    async (id: string, payload: Partial<Pick<Project, "name" | "description" | "status" | "assigned_emails" | "due_date" | "priority" | "strict_assignee_visibility">>) => {
+    async (id: string, payload: Partial<Pick<Project, "name" | "description" | "status" | "assigned_emails" | "due_date" | "priority" | "strict_assignee_visibility" | "extra_column_keys">>) => {
       const updateRow: Record<string, unknown> = { ...payload, updated_at: new Date().toISOString() };
       if (payload.assigned_emails !== undefined) {
         updateRow.assigned_emails =
@@ -214,6 +230,12 @@ export function useProjects() {
       if (payload.strict_assignee_visibility !== undefined) {
         updateRow.strict_assignee_visibility = payload.strict_assignee_visibility;
       }
+      if (payload.extra_column_keys !== undefined) {
+        updateRow.extra_column_keys =
+          payload.extra_column_keys == null || payload.extra_column_keys.length === 0
+            ? []
+            : payload.extra_column_keys.map((k) => String(k).trim()).filter(Boolean);
+      }
       const { error: updateError } = await supabase.from("projects").update(updateRow).eq("id", id);
       if (updateError) throw updateError;
       // Normalize assigned_emails in local state (DB'ye yazdığımız hali)
@@ -223,6 +245,12 @@ export function useProjects() {
           payload.assigned_emails == null || payload.assigned_emails.length === 0
             ? null
             : payload.assigned_emails.map((e) => e.trim().toLowerCase()).filter(Boolean);
+      }
+      if (payload.extra_column_keys !== undefined) {
+        normalizedPayload.extra_column_keys =
+          payload.extra_column_keys == null || payload.extra_column_keys.length === 0
+            ? null
+            : [...payload.extra_column_keys];
       }
       setProjects((prev) =>
         prev.map((p) => (p.id === id ? { ...p, ...normalizedPayload } : p))

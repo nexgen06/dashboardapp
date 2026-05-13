@@ -11,7 +11,7 @@ import ankaraHeader from "@/images/ankara.png";
 
 export default function CanliTabloPage() {
   const { hasPermission, isLoaded } = useAuth();
-  const canLiveTable = hasPermission("area.liveTable");
+  const canLiveTable = hasPermission("area.liveTable") && hasPermission("liveTable.view");
 
   if (!isLoaded) {
     return (

@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard,
   FolderKanban,
+  MessagesSquare,
   Table2,
   Settings,
   Shield,
@@ -16,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/contexts/sidebar-context";
 import { useAuth } from "@/contexts/auth-context";
+import type { Permission } from "@/types/permissions";
 import { useProjectChatUnread } from "@/contexts/project-chat-unread-context";
 import {
   Tooltip,
@@ -34,13 +36,25 @@ export function Sidebar() {
   const tab = searchParams?.get("tab") ?? "";
 
   const menuItems = [
-    { href: "/", label: "Dashboard", tooltip: "Özet ve hızlı erişim", icon: LayoutDashboard, permission: null as string | null },
-    { href: "/projeler", label: "Projeler", icon: FolderKanban, permission: "area.projects" },
-    { href: "/canli-tablo", label: "Canlı Tablo", icon: Table2, permission: "area.liveTable" },
-    { href: "/ayarlar", label: "Ayarlar", icon: Settings, permission: "area.settings" },
-    { href: "/yonetim/kullanici-yetkileri", label: "Kullanıcı yetkileri", icon: Shield, permission: "area.userManagement" },
-    { href: "/yonetim/gorev-istatistikleri", label: "Görev istatistikleri", icon: BarChart3, permission: "area.userManagement" },
-  ].filter((item) => !item.permission || hasPermission(item.permission as Parameters<typeof hasPermission>[0]));
+    { href: "/", label: "Dashboard", tooltip: "Özet ve hızlı erişim", icon: LayoutDashboard, permission: null as Permission | null, alsoRequire: null as Permission | null },
+    { href: "/projeler", label: "Projeler", icon: FolderKanban, permission: "area.projects" as const, alsoRequire: "projects.view" as const },
+    {
+      href: "/mesajlar",
+      label: "Mesajlar",
+      tooltip: "Proje sohbetleri ve okunmamışlar",
+      icon: MessagesSquare,
+      permission: "area.projects" as const,
+      alsoRequire: "projects.view" as const,
+    },
+    { href: "/canli-tablo", label: "Canlı Tablo", icon: Table2, permission: "area.liveTable" as const, alsoRequire: "liveTable.view" as const },
+    { href: "/ayarlar", label: "Ayarlar", icon: Settings, permission: "area.settings" as const, alsoRequire: "settings.view" as const },
+    { href: "/yonetim/kullanici-yetkileri", label: "Kullanıcı yetkileri", icon: Shield, permission: "area.userManagement" as const, alsoRequire: null },
+    { href: "/yonetim/gorev-istatistikleri", label: "Görev istatistikleri", icon: BarChart3, permission: "area.userManagement" as const, alsoRequire: null },
+  ].filter((item) => {
+    if (item.permission && !hasPermission(item.permission)) return false;
+    if (item.alsoRequire && !hasPermission(item.alsoRequire)) return false;
+    return true;
+  });
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -70,11 +84,13 @@ export function Sidebar() {
                     ? pathname === item.href
                     : item.href === "/projeler"
                       ? pathname.startsWith("/projeler")
-                      : item.href === "/canli-tablo"
-                        ? pathname === "/canli-tablo"
-                        : false;
+                      : item.href === "/mesajlar"
+                        ? pathname.startsWith("/mesajlar")
+                        : item.href === "/canli-tablo"
+                          ? pathname === "/canli-tablo"
+                          : false;
 
-            const chatUnread = item.href === "/projeler" && totalUnread > 0;
+            const chatUnread = (item.href === "/projeler" || item.href === "/mesajlar") && totalUnread > 0;
             const linkContent = (
               <Link
                 href={item.href}

@@ -51,6 +51,8 @@ export type NewProjectSubmitData = {
   priority?: ProjectPriority | null;
   /** Yalnızca yönetici: katı atanan görünürlüğü (RLS). */
   strictAssigneeVisibility?: boolean;
+  /** Canlı tabloda bu proje için önceden gösterilecek ek sütun adları (`extra_data` anahtarları). */
+  extraColumnKeys?: string[];
   /** Yeni proje + dosya: atanan e-posta listesine round-robin (en az 2 e-posta). */
   importRoundRobin?: boolean;
 };
@@ -76,6 +78,16 @@ function normalizeProjectPriority(v: string | ProjectPriority | null | undefined
   if (s === "medium") return "Medium";
   if (s === "low") return "Low";
   return null;
+}
+
+/** Form metninden ek sütun anahtarları: satır veya virgül ile ayrılmış. */
+function parseExtraColumnKeysFromForm(text: string): string[] {
+  const set = new Set<string>();
+  for (const part of text.split(/[\n,]+/)) {
+    const t = part.trim();
+    if (t !== "") set.add(t);
+  }
+  return Array.from(set);
 }
 
 /** Proje hedef tarihine göre "Gecikmiş" veya "Yaklaşan" etiketi. */
@@ -120,6 +132,7 @@ function ProjectFormModal({
   const [emailInput, setEmailInput] = useState("");
   const [strictAssigneeVisibility, setStrictAssigneeVisibility] = useState(false);
   const [importRoundRobin, setImportRoundRobin] = useState(false);
+  const [extraColumnKeysText, setExtraColumnKeysText] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isEdit = !!project;
@@ -138,6 +151,7 @@ function ProjectFormModal({
       setEmailInput("");
       setStrictAssigneeVisibility(project.strict_assignee_visibility ?? false);
       setImportRoundRobin(false);
+      setExtraColumnKeysText((project.extra_column_keys ?? []).join("\n"));
     } else if (open && !project) {
       setName("");
       setDescription("");
@@ -150,6 +164,7 @@ function ProjectFormModal({
       setEmailInput("");
       setStrictAssigneeVisibility(false);
       setImportRoundRobin(false);
+      setExtraColumnKeysText("");
     }
   }, [open, project]);
 
@@ -168,6 +183,7 @@ function ProjectFormModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const extraColumnKeys = parseExtraColumnKeysFromForm(extraColumnKeysText);
     await onSubmit({
       name: name.trim(),
       description: description.trim(),
@@ -179,6 +195,7 @@ function ProjectFormModal({
       assignedEmails: assignedEmails.length > 0 ? assignedEmails : undefined,
       strictAssigneeVisibility: isAdmin ? strictAssigneeVisibility : undefined,
       importRoundRobin: !isEdit ? importRoundRobin : undefined,
+      extraColumnKeys: extraColumnKeys.length > 0 ? extraColumnKeys : undefined,
     });
     onOpenChange(false);
     setName("");
@@ -192,6 +209,7 @@ function ProjectFormModal({
     setEmailInput("");
     setStrictAssigneeVisibility(false);
     setImportRoundRobin(false);
+    setExtraColumnKeysText("");
   };
 
   return (
@@ -280,6 +298,24 @@ function ProjectFormModal({
                 <option key={p} value={p}>{p}</option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <label htmlFor="project-extra-columns" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+              Canlı tablo ek sütunları (opsiyonel)
+            </label>
+            <textarea
+              id="project-extra-columns"
+              value={extraColumnKeysText}
+              onChange={(e) => setExtraColumnKeysText(e.target.value)}
+              placeholder={"Her satıra bir sütun adı\nÖrn: Sicil\nÖrn: Departman"}
+              rows={4}
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 resize-y font-mono"
+            />
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              CSV olmadan bu projeyle görünen görevlerde <code className="text-[0.7rem]">extra_data</code> sütunlarını önceden listelemek için. Supabase&apos;de{" "}
+              <code className="text-[0.7rem]">extra_column_keys</code> sütunu gerekir.
+            </p>
           </div>
 
           <div>
@@ -523,6 +559,8 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
           assigned_emails: data.assignedEmails ?? [],
           due_date: data.due_date ?? null,
           priority: data.priority ?? null,
+          extra_column_keys:
+            data.extraColumnKeys && data.extraColumnKeys.length > 0 ? data.extraColumnKeys : [],
           ...(isAdmin
             ? { strict_assignee_visibility: data.strictAssigneeVisibility ?? false }
             : {}),
@@ -540,6 +578,8 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
         due_date: data.due_date ?? undefined,
         priority: data.priority ?? undefined,
         strict_assignee_visibility: isAdmin ? (data.strictAssigneeVisibility ?? false) : false,
+        extra_column_keys:
+          data.extraColumnKeys && data.extraColumnKeys.length > 0 ? data.extraColumnKeys : undefined,
       });
       if (data.importFile && projectId) {
         const text = await data.importFile.text();

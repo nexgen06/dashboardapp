@@ -244,7 +244,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "liveTable.deleteTask": "Görev silme",
   "liveTable.bulkDelete": "Toplu silme",
   "liveTable.importCsv": "CSV içe aktarma",
-  "liveTable.exportCsv": "CSV/Excel dışa aktarma",
+  "liveTable.exportCsv": "CSV/Excel/PDF dışa aktarma",
   "liveTable.manageColumns": "Sütun sıralama / görünürlük",
   "liveTable.autoSizeColumns": "İçeriğe göre ölçeklendir",
   "settings.view": "Ayarları görüntüleme",
