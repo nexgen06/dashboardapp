@@ -2347,17 +2347,8 @@ export function TasksTable() {
     );
   }
 
-  return (
+  const liveTableBody = (
     <>
-      {isFullWidth && (
-        <div className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-[2px]" aria-hidden />
-      )}
-      <div
-        className={cn(
-          "flex min-h-0 flex-1 flex-col gap-2 rounded-lg border-0 bg-transparent shadow-none",
-          isFullWidth && "fixed inset-6 z-50 flex flex-col rounded-xl border-2 border-slate-300 bg-white p-4 shadow-2xl dark:border-slate-600 dark:bg-slate-800"
-        )}
-      >
       {canCreateTask && (
         <TaskFormDialog
           open={newTaskOpen}
@@ -3566,7 +3557,24 @@ export function TasksTable() {
           )}
         </div>
       )}
-    </div>
     </>
+  );
+
+  if (isFullWidth && typeof document !== "undefined") {
+    return createPortal(
+      <>
+        <div className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-[2px]" aria-hidden />
+        <div className="fixed inset-6 z-50 flex min-h-0 flex-col gap-2 overflow-hidden rounded-xl border-2 border-slate-300 bg-white p-4 shadow-2xl dark:border-slate-600 dark:bg-slate-800">
+          {liveTableBody}
+        </div>
+      </>,
+      document.body
+    );
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-2 rounded-lg border-0 bg-transparent shadow-none">
+      {liveTableBody}
+    </div>
   );
 }
