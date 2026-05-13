@@ -54,6 +54,11 @@ import { formatDate } from "@/lib/formatDate";
 import { parseCSV } from "@/lib/csvParser";
 import { parseJSON } from "@/lib/jsonParser";
 import { isSensitiveExtraColumnKey, maskSensitiveExtraValue } from "@/lib/extraColumnSensitiveDisplay";
+import {
+  loadLiveTablePrefs,
+  mergeColumnOrderWithDynamics,
+  saveLiveTablePrefs,
+} from "@/lib/liveTableColumnPersistence";
 import * as XLSX from "xlsx";
 import { Pencil, Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check } from "lucide-react";
 
@@ -1452,18 +1457,54 @@ export function TasksTable() {
     return Array.from(set).sort();
   }, [tasksVisibleByProject]);
 
+  /** Oturumdaki kullanıcı için tam tercih yüklendi (kayıt için beklenir) */
+  const liveTableSaveAllowedRef = useRef(false);
+  const liveTableHydratedUserRef = useRef<string | null>(null);
+  const userIdForPrefs = user?.id ?? null;
+
   useEffect(() => {
     const dynamicIds = extraDataKeys.map((k) => `extra:${k}`);
-    if (dynamicIds.length === 0) {
-      setColumnOrder(BASE_COLUMN_ORDER_STABLE);
+
+    if (!userIdForPrefs) {
+      liveTableHydratedUserRef.current = null;
+      liveTableSaveAllowedRef.current = false;
+      setColumnOrder((prev) => mergeColumnOrderWithDynamics(prev, dynamicIds));
       return;
     }
-    setColumnOrder((prev) => {
-      const existingDynamic = prev.filter((id) => String(id).startsWith("extra:"));
-      const newDynamic = dynamicIds.filter((id) => !existingDynamic.includes(id));
-      return ["select", "status", "content", ...existingDynamic, ...newDynamic, "actions"];
-    });
-  }, [extraDataKeys]);
+
+    if (liveTableHydratedUserRef.current !== userIdForPrefs) {
+      liveTableHydratedUserRef.current = userIdForPrefs;
+      liveTableSaveAllowedRef.current = false;
+      const saved = loadLiveTablePrefs(userIdForPrefs);
+      setColumnOrder(mergeColumnOrderWithDynamics(saved?.columnOrder, dynamicIds));
+      setColumnVisibility(saved?.columnVisibility ?? {});
+      setColumnPinning(saved?.columnPinning ?? { left: [], right: [] });
+      if (saved?.columnSizing && Object.keys(saved.columnSizing).length > 0) {
+        setColumnSizing((prev) => ({ ...prev, ...saved.columnSizing }));
+      }
+      if (saved?.sorting && saved.sorting.length > 0) {
+        setSorting(saved.sorting);
+      }
+      liveTableSaveAllowedRef.current = true;
+      return;
+    }
+
+    setColumnOrder((prev) => mergeColumnOrderWithDynamics(prev, dynamicIds));
+  }, [userIdForPrefs, extraDataKeys]);
+
+  useEffect(() => {
+    if (!userIdForPrefs || !liveTableSaveAllowedRef.current) return;
+    const t = window.setTimeout(() => {
+      saveLiveTablePrefs(userIdForPrefs, {
+        columnVisibility,
+        columnOrder,
+        columnPinning,
+        columnSizing,
+        sorting,
+      });
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [userIdForPrefs, columnVisibility, columnOrder, columnPinning, columnSizing, sorting]);
 
   const filteredData = useMemo(() => {
     let result = tasksVisibleByProject;
