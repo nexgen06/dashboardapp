@@ -1588,17 +1588,6 @@ function TaskStats({ tasks }: { tasks: Task[] }) {
   );
 }
 
-/** Projeyi kullanıcı görebilir mi: admin her zaman; atama varsa sadece atananlar, atama yoksa sadece admin. */
-function canViewProject(p: Project, isAdmin: boolean, currentUserEmail: string): boolean {
-  const email = currentUserEmail.trim().toLowerCase();
-  if (!email) return isAdmin;
-  return (
-    isAdmin ||
-    ((p.assigned_emails?.length ?? 0) > 0 &&
-      (p.assigned_emails ?? []).some((e) => String(e).trim().toLowerCase() === email))
-  );
-}
-
 export function TasksTable() {
   const {
     tasks,
@@ -1691,28 +1680,11 @@ export function TasksTable() {
     return () => window.clearTimeout(t);
   }, [mutationBanner]);
 
-  /** Atanmamış projeler sadece admin görür; üye sadece kendisine atanmış projelerin görevlerini görür. */
-  const visibleProjectIds = useMemo(
-    () =>
-      new Set(
-        projects
-          .filter((p) => canViewProject(p, isAdmin, currentUserEmail))
-          .map((p) => p.id)
-      ),
-    [projects, isAdmin, currentUserEmail]
-  );
-
-  /** Proje görünürlüğüne göre görünen görevler (istatistik ve tablo için temel). */
-  const tasksVisibleByProject = useMemo(
-    () =>
-      tasks.filter(
-        (t) =>
-          !t.project_id ||
-          String(t.project_id).trim() === "" ||
-          visibleProjectIds.has(t.project_id)
-      ),
-    [tasks, visibleProjectIds]
-  );
+  /**
+   * `projects` ve `tasks` artık Supabase RLS tarafından sunucu tarafında filtrelenmiş geliyor
+   * (scripts/supabase-rls-policies.sql). Bu yüzden burada ek istemci filtresi gerekmez.
+   * Aşağıdaki memo'lar doğrudan tüm fetch sonucu üzerinde çalışır.
+   */
 
   /** Proje id -> proje (Proje sütununda isim göstermek ve filtre etiketleri için). */
   const projectById = useMemo(() => {
@@ -1721,13 +1693,12 @@ export function TasksTable() {
     return map;
   }, [projects]);
 
-  /** Proje filtresi seçenekleri: kullanıcının görme yetkisi olan projeler, ada göre sıralı. */
+  /** Proje filtresi seçenekleri: RLS'ten gelen tüm görünür projeler, ada göre sıralı. */
   const projectFilterOptions = useMemo(() => {
     return projects
-      .filter((p) => visibleProjectIds.has(p.id))
       .map((p) => ({ id: p.id, name: (p.name ?? "").trim() || "(adsız proje)" }))
       .sort((a, b) => a.name.localeCompare(b.name, "tr"));
-  }, [projects, visibleProjectIds]);
+  }, [projects]);
 
   /** Görünmez olan projelerin filtre seçimini temizle (proje silinirse vb.). */
   useEffect(() => {
@@ -1737,19 +1708,17 @@ export function TasksTable() {
     if (valid.length !== projectFilter.length) setProjectFilter(valid);
   }, [projectFilter, projectFilterOptions]);
 
-  /** Atanan dropdown: sadece yöneticinin projeye atadığı kullanıcılar (assigned_emails); tablo hücrelerindeki Ünvan vb. değil. */
+  /** Atanan dropdown: tüm görünür projelerdeki atananlar. */
   const assigneeFilterOptions = useMemo(() => {
     const set = new Set<string>();
-    projects
-      .filter((p) => visibleProjectIds.has(p.id))
-      .forEach((p) => {
-        (p.assigned_emails ?? []).forEach((e) => {
-          const v = String(e).trim();
-          if (v) set.add(v);
-        });
+    projects.forEach((p) => {
+      (p.assigned_emails ?? []).forEach((e) => {
+        const v = String(e).trim();
+        if (v) set.add(v);
       });
+    });
     return Array.from(set).sort();
-  }, [projects, visibleProjectIds]);
+  }, [projects]);
 
   useEffect(() => {
     if (Array.isArray(assigneeFilter) && assigneeFilter.length > 0 && assigneeFilterOptions.length > 0) {
@@ -1762,19 +1731,17 @@ export function TasksTable() {
 
   const projectSchemaExtraKeys = useMemo(() => {
     const set = new Set<string>();
-    projects
-      .filter((p) => canViewProject(p, isAdmin, currentUserEmail))
-      .forEach((p) => {
-        for (const k of p.extra_column_keys ?? []) {
-          if (k != null && String(k).trim() !== "") set.add(String(k).trim());
-        }
-      });
+    projects.forEach((p) => {
+      for (const k of p.extra_column_keys ?? []) {
+        if (k != null && String(k).trim() !== "") set.add(String(k).trim());
+      }
+    });
     return Array.from(set).sort();
-  }, [projects, isAdmin, currentUserEmail]);
+  }, [projects]);
 
   const extraDataKeys = useMemo(() => {
     const set = new Set<string>(projectSchemaExtraKeys);
-    tasksVisibleByProject.forEach((t) => {
+    tasks.forEach((t) => {
       if (t.extra_data && typeof t.extra_data === "object") {
         Object.keys(t.extra_data).forEach((k) => {
           if (k != null && String(k).trim() !== "") set.add(k);
@@ -1782,7 +1749,7 @@ export function TasksTable() {
       }
     });
     return Array.from(set).sort();
-  }, [tasksVisibleByProject, projectSchemaExtraKeys]);
+  }, [tasks, projectSchemaExtraKeys]);
 
   const advancedFilterFieldOptions = useMemo(() => {
     const opts: { id: string; label: string }[] = [
@@ -1866,7 +1833,7 @@ export function TasksTable() {
   }, [userIdForPrefs, columnVisibility, columnOrder, columnPinning, columnSizing, sorting]);
 
   const filteredData = useMemo(() => {
-    let result = tasksVisibleByProject;
+    let result = tasks;
     if (projectLinkedFilter === "proje") {
       result = result.filter((t) => t.project_id != null && String(t.project_id).trim() !== "");
     }
@@ -1954,7 +1921,7 @@ export function TasksTable() {
     }
     return result;
   }, [
-    tasksVisibleByProject,
+    tasks,
     projectLinkedFilter,
     projectFilter,
     globalSearch,
@@ -2019,7 +1986,7 @@ export function TasksTable() {
   // Sütun için benzersiz değerleri hesapla
   const getUniqueValuesForColumn = useCallback((columnId: string): string[] => {
     const values = new Set<string>();
-    tasksVisibleByProject.forEach((t) => {
+    tasks.forEach((t) => {
       let cellValue: string = "";
       if (columnId === "content") cellValue = t.content ?? "";
       else if (columnId === "status") cellValue = t.status ?? "";
@@ -2035,7 +2002,7 @@ export function TasksTable() {
       }
     });
     return Array.from(values).sort((a, b) => a.localeCompare(b, "tr"));
-  }, [tasksVisibleByProject]);
+  }, [tasks]);
 
   // Sütun filtresi toggle
   const toggleColumnFilterValue = useCallback((columnId: string, value: string) => {
@@ -2170,35 +2137,35 @@ export function TasksTable() {
     haftaSonu.setDate(bugun.getDate() + 7);
     haftaSonu.setHours(23, 59, 59, 999);
 
-    const overdue = tasksVisibleByProject.filter((t) => {
+    const overdue = tasks.filter((t) => {
       if (!t.due_date) return false;
       const dueDate = new Date(t.due_date);
       const isCompleted = /tamamlandı|tamamlandi|done|completed/i.test(t.status ?? "");
       return dueDate < bugun && !isCompleted;
     }).length;
 
-    const thisWeek = tasksVisibleByProject.filter((t) => {
+    const thisWeek = tasks.filter((t) => {
       if (!t.due_date) return false;
       const dueDate = new Date(t.due_date);
       return dueDate >= bugun && dueDate <= haftaSonu;
     }).length;
 
-    const priority = tasksVisibleByProject.filter((t) => {
+    const priority = tasks.filter((t) => {
       const isHigh = (t.priority ?? "").toLowerCase() === "high";
       const isCompleted = /tamamlandı|tamamlandi|done|completed/i.test(t.status ?? "");
       return isHigh && !isCompleted;
     }).length;
 
-    const mine = tasksVisibleByProject.filter((t) => 
+    const mine = tasks.filter((t) => 
       (t.assignee ?? "").toLowerCase().includes(currentUserEmail.toLowerCase())
     ).length;
 
-    const unassigned = tasksVisibleByProject.filter((t) => 
+    const unassigned = tasks.filter((t) => 
       !t.assignee || t.assignee.trim() === ""
     ).length;
 
     return { overdue, thisWeek, priority, mine, unassigned };
-  }, [tasksVisibleByProject, currentUserEmail]);
+  }, [tasks, currentUserEmail]);
 
   const handleDragStart = useCallback((e: React.DragEvent, columnId: string) => {
     setDraggedColumnId(columnId);
@@ -2746,21 +2713,21 @@ export function TasksTable() {
   const visibleColumnIds = table.getVisibleLeafColumns().map((c) => (c.id ?? (c as { accessorKey?: string }).accessorKey ?? "").toString()).filter(Boolean);
   const handleExportCSV = useCallback(
     (scope: "current" | "all") => {
-      const rows = scope === "all" ? tasksVisibleByProject : filteredData;
+      const rows = scope === "all" ? tasks : filteredData;
       downloadCSV(rows, visibleColumnIds, settings.dateFormat, `gorevler-${scope === "all" ? "tum" : "gorunum"}-${Date.now()}.csv`, projectById);
     },
-    [tasksVisibleByProject, filteredData, visibleColumnIds, settings.dateFormat, projectById]
+    [tasks, filteredData, visibleColumnIds, settings.dateFormat, projectById]
   );
   const handleExportExcel = useCallback(
     (scope: "current" | "all") => {
-      const rows = scope === "all" ? tasksVisibleByProject : filteredData;
+      const rows = scope === "all" ? tasks : filteredData;
       downloadExcel(rows, visibleColumnIds, settings.dateFormat, `gorevler-${scope === "all" ? "tum" : "gorunum"}-${Date.now()}.xlsx`, projectById);
     },
-    [tasksVisibleByProject, filteredData, visibleColumnIds, settings.dateFormat, projectById]
+    [tasks, filteredData, visibleColumnIds, settings.dateFormat, projectById]
   );
   const handleExportPDF = useCallback(
     async (scope: "current" | "all") => {
-      const rows = scope === "all" ? tasksVisibleByProject : filteredData;
+      const rows = scope === "all" ? tasks : filteredData;
       try {
         await downloadPDF(
           rows,
@@ -2773,7 +2740,7 @@ export function TasksTable() {
         console.error("[Export] PDF oluşturulamadı:", e);
       }
     },
-    [tasksVisibleByProject, filteredData, visibleColumnIds, settings.dateFormat, projectById]
+    [tasks, filteredData, visibleColumnIds, settings.dateFormat, projectById]
   );
 
   const openColumnPicker = useCallback(() => {
@@ -3266,20 +3233,31 @@ export function TasksTable() {
         </div>
 
         {/* Katman 2 — Arama ve ayrıntılı filtreler */}
-        <div className="rounded-lg border border-slate-200/90 bg-white px-2 py-2 dark:border-slate-600/80 dark:bg-slate-900/25 sm:px-3 sm:py-2.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative flex-1 min-w-[200px] max-w-sm">
+        <div className="rounded-lg border border-slate-200/90 bg-white px-3 py-3 dark:border-slate-600/80 dark:bg-slate-900/25 sm:px-4 sm:py-3">
+        <div className="flex flex-col gap-3">
+          {/* Grup A — Arama */}
+          <div className="relative w-full max-w-md">
             <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
             <input
               type="text"
               placeholder="Görev veya atanan kişide ara"
               value={globalSearch}
               onChange={(e) => setGlobalSearch(e.target.value)}
-              className="w-full rounded-md border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+              className="w-full rounded-md border border-slate-300 bg-white py-2 pl-9 pr-3 text-ui-body text-slate-900 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             />
           </div>
-          <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400" title="Filtreler">
-            <Filter className="h-4 w-4 shrink-0" aria-hidden />
+
+          {/* Filtre satırı: Grup B (kapsam) ve Grup C (hızlı filtreler) */}
+          <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
+
+          {/* Grup B — Kapsam ve gelişmiş */}
+          <div className="flex flex-wrap items-center gap-2">
+          <span
+            className="flex items-center gap-1.5 text-ui-caption font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400"
+            title="Görüntüleme kapsamı"
+          >
+            <Filter className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            Kapsam
           </span>
           <select
             value={projectLinkedFilter}
@@ -3311,6 +3289,18 @@ export function TasksTable() {
               </span>
             )}
           </Button>
+          </div>
+          {/* /Grup B */}
+
+          {/* Grup C — Hızlı filtreler */}
+          <div className="flex flex-wrap items-center gap-2">
+          <span
+            className="flex items-center gap-1.5 text-ui-caption font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400"
+            title="Hızlı filtreler"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            Hızlı filtre
+          </span>
           {/* Çoklu Durum Seçimi */}
           <div className="relative">
             <button
@@ -3578,6 +3568,11 @@ export function TasksTable() {
               {dateFrom} → {dateTo}
             </span>
           )}
+          </div>
+          {/* /Grup C */}
+
+          </div>
+          {/* /Filtre satırı */}
         </div>
         </div>
         {/* Filtre Özeti Çubuğu - Aktif Filtre Badge'leri */}
@@ -3818,7 +3813,7 @@ export function TasksTable() {
         )}
       >
         <div className="flex flex-wrap items-center gap-3">
-          <TaskStats tasks={tasksVisibleByProject} />
+          <TaskStats tasks={tasks} />
           {realtimeConnection === "live" && (
             <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" title="Realtime kanalı bağlı">
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500 animate-pulse" aria-hidden />
@@ -3842,7 +3837,7 @@ export function TasksTable() {
               onlineUsers={onlineUsers}
               editorsByRowId={editorsByRowId}
               currentUserEmail={currentUserEmail}
-              tasks={tasksVisibleByProject}
+              tasks={tasks}
             />
           )}
         </div>

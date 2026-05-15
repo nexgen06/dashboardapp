@@ -10,6 +10,7 @@ import type { DateFormat } from "@/contexts/settings-context";
 import { formatDate } from "@/lib/formatDate";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { SectionHeader } from "@/components/ui/section-header";
 import {
   FolderKanban,
   ListTodo,
@@ -36,72 +37,51 @@ function isStatusTodo(s: string): boolean {
   return /yapılacak|yapilacak|todo/i.test((s ?? "").trim()) || (!isStatusDone(s) && !isStatusInProgress(s) && (s ?? "").trim() !== "");
 }
 
-/** Projeyi mevcut kullanıcı görebilir mi: admin her zaman; atama varsa sadece atananlar, atama yoksa kimse (sadece admin). */
-function canViewProject(p: Project, isAdmin: boolean, currentUserEmail: string): boolean {
-  const email = currentUserEmail.trim().toLowerCase();
-  if (!email) return isAdmin;
-  return (
-    isAdmin ||
-    ((p.assigned_emails?.length ?? 0) > 0 &&
-      (p.assigned_emails ?? []).some((e) => String(e).trim().toLowerCase() === email))
-  );
-}
-
 export function DashboardSection() {
-  const { user, hasPermission, isAdmin } = useAuth();
+  const { user, hasPermission } = useAuth();
   const { settings } = useSettings();
   const { projects, isLoading: projectsLoading } = useProjects();
   const { tasks, isLoading: tasksLoading } = useTasksWithRealtime();
-  const currentUserEmail = (user?.email ?? "").toLowerCase();
 
   const canProjects = hasPermission("area.projects") && hasPermission("projects.view");
   const canLiveTable = hasPermission("area.liveTable") && hasPermission("liveTable.view");
   const canCreateProject = hasPermission("projects.create");
 
-  const visibleProjects = useMemo(
-    () => projects.filter((p) => canViewProject(p, isAdmin, currentUserEmail)),
-    [projects, isAdmin, currentUserEmail]
-  );
-  const visibleProjectIds = useMemo(() => new Set(visibleProjects.map((p) => p.id)), [visibleProjects]);
-
+  // `projects` ve `tasks` Supabase RLS tarafından sunucuda filtrelenmiş geliyor.
   const projectById = useMemo(() => {
     const map: Record<string, Project> = {};
     projects.forEach((p) => { map[p.id] = p; });
     return map;
   }, [projects]);
 
-  const visibleTasks = useMemo(
-    () => tasks.filter((t) => !t.project_id || visibleProjectIds.has(t.project_id)),
-    [tasks, visibleProjectIds]
-  );
   const kpi = useMemo(() => {
-    const totalProjects = visibleProjects.length;
-    const totalTasks = visibleTasks.length;
-    const done = visibleTasks.filter((t) => isStatusDone(t.status)).length;
-    const inProgress = visibleTasks.filter((t) => isStatusInProgress(t.status)).length;
-    const todo = visibleTasks.filter((t) => isStatusTodo(t.status)).length;
+    const totalProjects = projects.length;
+    const totalTasks = tasks.length;
+    const done = tasks.filter((t) => isStatusDone(t.status)).length;
+    const inProgress = tasks.filter((t) => isStatusInProgress(t.status)).length;
+    const todo = tasks.filter((t) => isStatusTodo(t.status)).length;
     return { totalProjects, totalTasks, done, inProgress, todo };
-  }, [visibleProjects.length, visibleTasks]);
+  }, [projects.length, tasks]);
 
   const recentTasks = useMemo(() => {
-    return [...visibleTasks]
+    return [...tasks]
       .sort((a, b) => {
         const ta = a.updated_at ? new Date(a.updated_at).getTime() : 0;
         const tb = b.updated_at ? new Date(b.updated_at).getTime() : 0;
         return tb - ta;
       })
       .slice(0, 10);
-  }, [visibleTasks]);
+  }, [tasks]);
 
   const recentProjects = useMemo(() => {
-    return [...visibleProjects]
+    return [...projects]
       .sort((a, b) => {
         const ta = a.updated_at ? new Date(a.updated_at).getTime() : (a.created_at ? new Date(a.created_at).getTime() : 0);
         const tb = b.updated_at ? new Date(b.updated_at).getTime() : (b.created_at ? new Date(b.created_at).getTime() : 0);
         return tb - ta;
       })
       .slice(0, 5);
-  }, [visibleProjects]);
+  }, [projects]);
 
   const statusChartData = useMemo(() => {
     const { todo, inProgress, done } = kpi;
@@ -124,26 +104,26 @@ export function DashboardSection() {
   }
 
   return (
-    <div className="min-h-0 space-y-8">
+    <div className="min-h-0 space-y-6">
       {/* Hoş geldin + gradient alan */}
       <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-500/10 via-slate-50 to-emerald-500/10 dark:from-blue-600/20 dark:via-slate-800 dark:to-emerald-600/20 border border-slate-200/80 dark:border-slate-700/80 p-6 sm:p-8">
         <div className="relative z-10">
-          <h1 className="text-2xl font-semibold text-slate-800 dark:text-slate-100 sm:text-3xl">
+          <h1 className="text-ui-h1 tracking-tight text-slate-900 dark:text-slate-50 sm:text-3xl">
             Hoş geldin, {displayName}
           </h1>
-          <p className="mt-2 text-slate-600 dark:text-slate-400">
+          <p className="mt-2 text-ui-body text-slate-600 dark:text-slate-400">
             Özet ve hızlı erişim. Bugün neler yapmak istersiniz? Aşağıdan KPI özetinize, son projelere ve görevlere ulaşabilirsiniz.
           </p>
         </div>
       </section>
 
-      {visibleProjects.length === 0 && canProjects && (
+      {projects.length === 0 && canProjects && (
         <section
           className="rounded-xl border border-blue-200 bg-blue-50/60 p-4 dark:border-blue-800 dark:bg-blue-950/35"
           aria-label="Başlangıç adımları"
         >
-          <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Başlamak için</h2>
-          <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-slate-700 dark:text-slate-300">
+          <h2 className="text-ui-h3 text-slate-800 dark:text-slate-100">Başlamak için</h2>
+          <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-ui-body text-slate-700 dark:text-slate-300">
             <li>
               {canCreateProject ? (
                 <>
@@ -169,10 +149,11 @@ export function DashboardSection() {
 
       {/* KPI kartları */}
       <section>
-        <h2 className="text-lg font-medium text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
-          <LayoutGrid className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-          Özet
-        </h2>
+        <SectionHeader
+          level="section"
+          title="Özet"
+          icon={<LayoutGrid className="h-5 w-5 text-blue-600 dark:text-blue-400" />}
+        />
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800/80 transition-shadow hover:shadow-md">
             <div className="flex items-center gap-3">
@@ -180,7 +161,7 @@ export function DashboardSection() {
                 <FolderKanban className="h-5 w-5 text-blue-600 dark:text-blue-400" />
               </div>
               <div>
-                <p className="text-2xl font-semibold text-slate-800 dark:text-slate-100">{kpi.totalProjects}</p>
+                <p className="text-ui-display text-slate-900 dark:text-slate-50">{kpi.totalProjects}</p>
                 <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Toplam proje</p>
               </div>
             </div>
@@ -191,7 +172,7 @@ export function DashboardSection() {
                 <ListTodo className="h-5 w-5 text-slate-600 dark:text-slate-300" />
               </div>
               <div>
-                <p className="text-2xl font-semibold text-slate-800 dark:text-slate-100">{kpi.totalTasks}</p>
+                <p className="text-ui-display text-slate-900 dark:text-slate-50">{kpi.totalTasks}</p>
                 <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Toplam görev</p>
               </div>
             </div>
@@ -202,7 +183,7 @@ export function DashboardSection() {
                 <Circle className="h-5 w-5 text-slate-500 dark:text-slate-400" />
               </div>
               <div>
-                <p className="text-2xl font-semibold text-slate-800 dark:text-slate-100">{kpi.todo}</p>
+                <p className="text-ui-display text-slate-900 dark:text-slate-50">{kpi.todo}</p>
                 <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Yapılacak</p>
               </div>
             </div>
@@ -213,7 +194,7 @@ export function DashboardSection() {
                 <Clock className="h-5 w-5 text-amber-600 dark:text-amber-400" />
               </div>
               <div>
-                <p className="text-2xl font-semibold text-slate-800 dark:text-slate-100">{kpi.inProgress}</p>
+                <p className="text-ui-display text-slate-900 dark:text-slate-50">{kpi.inProgress}</p>
                 <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Devam eden</p>
               </div>
             </div>
@@ -224,7 +205,7 @@ export function DashboardSection() {
                 <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
               </div>
               <div>
-                <p className="text-2xl font-semibold text-slate-800 dark:text-slate-100">{kpi.done}</p>
+                <p className="text-ui-display text-slate-900 dark:text-slate-50">{kpi.done}</p>
                 <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Tamamlandı</p>
               </div>
             </div>
@@ -235,11 +216,11 @@ export function DashboardSection() {
       {/* Görev durum dağılımı (çubuk grafik) */}
       {kpi.totalTasks > 0 && (
         <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800/80">
-          <h2 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">Görev durum dağılımı</h2>
+          <SectionHeader level="card" title="Görev durum dağılımı" spacing="sm" />
           <div className="space-y-2">
             {statusChartData.map(({ label, value, pct, color }) => (
               <div key={label} className="flex items-center gap-3">
-                <span className="w-24 text-xs text-slate-500 dark:text-slate-400">{label}</span>
+                <span className="w-24 text-ui-caption text-slate-500 dark:text-slate-400">{label}</span>
                 <div className="flex-1 h-6 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
                   <div
                     className={cn("h-full rounded-full transition-all", color)}
@@ -255,10 +236,11 @@ export function DashboardSection() {
 
       {/* Hızlı aksiyonlar */}
       <section>
-        <h2 className="text-lg font-medium text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
-          <ArrowRight className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-          Hızlı aksiyonlar
-        </h2>
+        <SectionHeader
+          level="section"
+          title="Hızlı aksiyonlar"
+          icon={<ArrowRight className="h-5 w-5 text-blue-600 dark:text-blue-400" />}
+        />
         <div className="flex flex-wrap gap-3">
           {canProjects && (
             <Button asChild variant="outline" size="sm" className="rounded-lg border-slate-200 dark:border-slate-600">
@@ -287,19 +269,23 @@ export function DashboardSection() {
         </div>
       </section>
 
-      <div className="grid gap-8 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-2">
         {/* Son aktiviteler */}
         <section className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800/80 overflow-hidden">
-          <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-700 flex items-center justify-between">
-            <h2 className="text-lg font-medium text-slate-800 dark:text-slate-100 flex items-center gap-2">
-              <Activity className="h-5 w-5 text-amber-500 dark:text-amber-400" />
-              Son aktiviteler
-            </h2>
-            {canLiveTable && (
-              <Button asChild variant="ghost" size="sm">
-                <Link href="/canli-tablo">Tümünü gör</Link>
-              </Button>
-            )}
+          <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+            <SectionHeader
+              level="section"
+              title="Son aktiviteler"
+              spacing="none"
+              icon={<Activity className="h-5 w-5 text-amber-500 dark:text-amber-400" />}
+              actions={
+                canLiveTable ? (
+                  <Button asChild variant="ghost" size="sm">
+                    <Link href="/canli-tablo">Tümünü gör</Link>
+                  </Button>
+                ) : null
+              }
+            />
           </div>
           <div className="divide-y divide-slate-100 dark:divide-slate-700 max-h-72 overflow-y-auto">
             {recentTasks.length === 0 ? (
@@ -321,16 +307,20 @@ export function DashboardSection() {
 
         {/* Son projeler */}
         <section className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800/80 overflow-hidden">
-          <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-700 flex items-center justify-between">
-            <h2 className="text-lg font-medium text-slate-800 dark:text-slate-100 flex items-center gap-2">
-              <FolderKanban className="h-5 w-5 text-blue-500 dark:text-blue-400" />
-              Son projeler
-            </h2>
-            {canProjects && (
-              <Button asChild variant="ghost" size="sm">
-                <Link href="/projeler">Tümünü gör</Link>
-              </Button>
-            )}
+          <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+            <SectionHeader
+              level="section"
+              title="Son projeler"
+              spacing="none"
+              icon={<FolderKanban className="h-5 w-5 text-blue-500 dark:text-blue-400" />}
+              actions={
+                canProjects ? (
+                  <Button asChild variant="ghost" size="sm">
+                    <Link href="/projeler">Tümünü gör</Link>
+                  </Button>
+                ) : null
+              }
+            />
           </div>
           <div className="p-4 grid gap-3 sm:grid-cols-2">
             {recentProjects.length === 0 ? (

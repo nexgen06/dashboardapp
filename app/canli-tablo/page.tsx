@@ -7,6 +7,8 @@ import { GorevOzeti } from "@/components/GorevOzeti";
 import { Shield, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { Section } from "@/components/ui/section";
+import { SectionHeader } from "@/components/ui/section-header";
 import ankaraHeader from "@/images/ankara.png";
 
 export default function CanliTabloPage() {
@@ -43,10 +45,10 @@ export default function CanliTabloPage() {
       <header className="mb-3 shrink-0 border-b border-slate-200/80 pb-3 dark:border-slate-700/80">
         <div className="flex flex-col items-stretch gap-3 md:flex-row md:items-stretch md:gap-3 lg:gap-5">
           <div className="flex min-w-0 shrink-0 flex-col justify-center md:max-w-[min(100%,22rem)] lg:max-w-[24rem]">
-            <h1 className="text-xl font-semibold tracking-tight text-slate-800 dark:text-slate-100 sm:text-2xl">
+            <h1 className="text-ui-h1 tracking-tight text-slate-900 dark:text-slate-50">
               Canlı Tablo
             </h1>
-            <p className="mt-0.5 text-xs leading-snug text-slate-500 dark:text-slate-400 sm:text-sm">
+            <p className="mt-1 text-ui-body text-slate-500 dark:text-slate-400">
               Google Tablolar benzeri: CSV içe aktarın, birlikte düzenleyin.
             </p>
           </div>
@@ -70,36 +72,40 @@ export default function CanliTabloPage() {
 
       {/* Mobilde tablo önce (üstte), özet altta; xl'de sol özet + sağ tablo */}
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 [grid-template-rows:minmax(0,1fr)_auto] sm:[grid-template-rows:minmax(0,1fr)_auto] xl:grid-cols-[minmax(260px,300px)_minmax(0,1fr)] xl:[grid-template-rows:minmax(0,1fr)] xl:gap-4">
-        <section className="flex h-full min-h-0 max-h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md dark:border-slate-700 dark:bg-slate-800 xl:col-start-2 xl:row-start-1">
-          <div className="shrink-0 border-b border-slate-200 px-3 py-2 dark:border-slate-700 sm:px-4 sm:py-2.5">
-            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-              <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100 sm:text-lg">
-                Tüm görevler
-              </h2>
-              <p
-                className="max-w-xl text-[11px] text-slate-500 dark:text-slate-400 sm:text-xs"
-                title="Canlı senkronizasyon; başka biri satırı düzenliyorsa mor vurgu görebilirsiniz."
-              >
-                Gerçek zamanlı senkron · Satırda mor = başka kullanıcı odakta
-              </p>
-            </div>
+        <Section
+          variant="flush"
+          className="flex h-full min-h-0 max-h-full flex-col overflow-hidden shadow-md xl:col-start-2 xl:row-start-1"
+        >
+          <div className="shrink-0 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+            <SectionHeader
+              level="section"
+              title="Tüm görevler"
+              subtitle="Gerçek zamanlı senkron · Satırda mor = başka kullanıcı odakta"
+              spacing="none"
+            />
           </div>
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <TasksTable />
           </div>
-        </section>
+        </Section>
 
-        <aside className="flex max-h-[min(42vh,320px)] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 sm:max-h-[min(38vh,360px)] xl:sticky xl:top-14 xl:col-start-1 xl:row-start-1 xl:max-h-[calc(100dvh-4.5rem)] xl:self-start">
-          <div className="shrink-0 border-b border-slate-200 px-3 py-2 dark:border-slate-700 sm:px-4">
-            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Görev özeti</h2>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 sm:text-xs">
-              Son güncellenen görevler
-            </p>
+        <Section
+          as="aside"
+          variant="flush"
+          className="flex max-h-[min(42vh,320px)] min-h-0 flex-col overflow-hidden sm:max-h-[min(38vh,360px)] xl:sticky xl:top-14 xl:col-start-1 xl:row-start-1 xl:max-h-[calc(100dvh-4.5rem)] xl:self-start"
+        >
+          <div className="shrink-0 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+            <SectionHeader
+              level="card"
+              title="Görev özeti"
+              subtitle="Son güncellenen görevler"
+              spacing="none"
+            />
           </div>
-          <div className="min-h-0 flex-1 overflow-auto px-3 pb-3 pt-2 sm:px-4">
+          <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
             <GorevOzeti />
           </div>
-        </aside>
+        </Section>
       </div>
     </div>
   );
