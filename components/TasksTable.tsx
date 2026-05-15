@@ -67,7 +67,8 @@ import {
   type AdvancedFilterRule,
 } from "@/lib/liveTableAdvancedFilters";
 import * as XLSX from "xlsx";
-import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter } from "lucide-react";
+import Link from "next/link";
+import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
 const STATUS_FILTER_OPTIONS = ["Tümü", "Yapılacak", "Devam ediyor", "Devam", "Tamamlandı"] as const;
@@ -79,6 +80,7 @@ const COLUMN_LABELS: Record<string, string> = {
   status: "Durum",
   assignee: "Atanan",
   priority: "Öncelik",
+  project: "Proje",
   updated: "Son güncelleme",
 };
 
@@ -87,12 +89,13 @@ const COLUMN_VISIBILITY_LABELS: Record<string, string> = {
   select: "Seçim",
   status: "Durum",
   content: "Açıklama",
+  project: "Proje",
   actions: "İşlemler",
 };
 
-const CANLI_TABLO_COLUMN_ORDER: ColumnOrderState = ["select", "status", "assignee", "priority", "updated", "detay", "actions", "presence"];
+const CANLI_TABLO_COLUMN_ORDER: ColumnOrderState = ["select", "status", "assignee", "priority", "updated", "project", "detay", "actions", "presence"];
 /** Sabit sütun sırası (dinamik sütun yokken); component dışında referans sabit kalsın diye */
-const BASE_COLUMN_ORDER_STABLE: ColumnOrderState = ["select", "status", "content", "actions"];
+const BASE_COLUMN_ORDER_STABLE: ColumnOrderState = ["select", "status", "content", "project", "actions"];
 
 /** İlk açılışta İşlemler sütunu gizli; «Kolonları göster» ile açılabilir. Daha önce kaydedilmiş tercih varsa o kullanılır. */
 const DEFAULT_LIVE_TABLE_COLUMN_VISIBILITY: VisibilityState = { actions: false };
@@ -156,6 +159,7 @@ const COLUMN_SIZE_BOUNDS: Record<string, { min: number; max: number }> = {
   select: { min: 36, max: 80 },
   status: { min: 100, max: 220 },
   content: { min: 180, max: 480 },
+  project: { min: 120, max: 280 },
   actions: { min: 44, max: 80 },
 };
 const DEFAULT_EXTRA_BOUNDS = { min: 100, max: 400 };
@@ -340,7 +344,12 @@ function computeBalancedColumnSizing(
   return balanceColumnWidthsToTarget(intrinsic, ordered, target);
 }
 
-function getExportValue(columnId: string, task: Task, dateFormat: DateFormat): string {
+function getExportValue(
+  columnId: string,
+  task: Task,
+  dateFormat: DateFormat,
+  projectById?: Map<string, Project>
+): string {
   const t = task as Record<string, unknown>;
   switch (columnId) {
     case "content":
@@ -351,6 +360,12 @@ function getExportValue(columnId: string, task: Task, dateFormat: DateFormat): s
       return String(t.assignee ?? task.assignee ?? "");
     case "priority":
       return String(t.priority ?? task.priority ?? "");
+    case "project": {
+      const pid = task.project_id != null ? String(task.project_id) : "";
+      if (!pid) return "";
+      const p = projectById?.get(pid);
+      return (p?.name ?? "").trim() || pid;
+    }
     case "updated":
     case "updated_at":
       const ut = t.updated_at ?? task.updated_at;
@@ -373,9 +388,14 @@ const EXPORT_SKIP_IDS = new Set(["select", "actions", "presence"]);
 const EXPORT_DEFAULT_COLUMNS = ["status", "content", "assignee", "priority", "updated", "due_date"];
 
 /** CSV ve Excel için ortak: sütun listesi, başlıklar ve satır değerleri (string[][]) */
-function getExportData(rows: Task[], visibleColumnIds: string[], dateFormat: DateFormat) {
+function getExportData(
+  rows: Task[],
+  visibleColumnIds: string[],
+  dateFormat: DateFormat,
+  projectById?: Map<string, Project>
+) {
   let dataColumns = visibleColumnIds.filter(
-    (id) => !EXPORT_SKIP_IDS.has(id) && (COLUMN_LABELS[id] != null || id.startsWith("extra:") || id === "due_date" || id === "updated" || id === "updated_at" || id === "assignee" || id === "priority" || id === "content" || id === "status" || id === "detay")
+    (id) => !EXPORT_SKIP_IDS.has(id) && (COLUMN_LABELS[id] != null || id.startsWith("extra:") || id === "due_date" || id === "updated" || id === "updated_at" || id === "assignee" || id === "priority" || id === "content" || id === "status" || id === "project" || id === "detay")
   );
   if (dataColumns.length === 0 && rows.length > 0) {
     const first = rows[0];
@@ -386,13 +406,19 @@ function getExportData(rows: Task[], visibleColumnIds: string[], dateFormat: Dat
     COLUMN_LABELS[id] ?? (id === "due_date" ? "Son tarih" : id === "updated_at" ? "Son güncelleme" : id.startsWith("extra:") ? id.replace(/^extra:/, "") : id === "detay" ? "Detay" : id)
   );
   const rowArrays = rows.map((task) =>
-    dataColumns.map((id) => getExportValue(id, task, dateFormat))
+    dataColumns.map((id) => getExportValue(id, task, dateFormat, projectById))
   );
   return { headers, rowArrays };
 }
 
-function downloadCSV(rows: Task[], visibleColumnIds: string[], dateFormat: DateFormat, filename: string) {
-  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat);
+function downloadCSV(
+  rows: Task[],
+  visibleColumnIds: string[],
+  dateFormat: DateFormat,
+  filename: string,
+  projectById?: Map<string, Project>
+) {
+  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById);
   const lines = [headers.map((h) => `"${String(h).replace(/"/g, '""')}"`).join(",")];
   for (const values of rowArrays) {
     lines.push(values.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
@@ -406,8 +432,14 @@ function downloadCSV(rows: Task[], visibleColumnIds: string[], dateFormat: DateF
   URL.revokeObjectURL(a.href);
 }
 
-function downloadExcel(rows: Task[], visibleColumnIds: string[], dateFormat: DateFormat, filename: string) {
-  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat);
+function downloadExcel(
+  rows: Task[],
+  visibleColumnIds: string[],
+  dateFormat: DateFormat,
+  filename: string,
+  projectById?: Map<string, Project>
+) {
+  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById);
   const sheetData: string[][] = [headers, ...rowArrays];
   const ws = XLSX.utils.aoa_to_sheet(sheetData);
   const wb = XLSX.utils.book_new();
@@ -425,8 +457,14 @@ function downloadExcel(rows: Task[], visibleColumnIds: string[], dateFormat: Dat
 }
 
 /** CSV/Excel ile aynı veri; Roboto ile Türkçe uyumlu tablo PDF (tarayıcıda üretilir). */
-async function downloadPDF(rows: Task[], visibleColumnIds: string[], dateFormat: DateFormat, filename: string) {
-  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat);
+async function downloadPDF(
+  rows: Task[],
+  visibleColumnIds: string[],
+  dateFormat: DateFormat,
+  filename: string,
+  projectById?: Map<string, Project>
+) {
+  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById);
   const [{ default: pdfMake }, vfsMod] = await Promise.all([
     import("pdfmake/build/pdfmake"),
     import("pdfmake/build/vfs_fonts"),
@@ -1625,8 +1663,11 @@ export function TasksTable() {
   const [projectLinkedFilter, setProjectLinkedFilter] = useState<"proje" | "tümü">("proje");
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
+  /** Çoklu proje filtresi (görev hangi projeye bağlı): proje id listesi */
+  const [projectFilter, setProjectFilter] = useState<string[]>([]);
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [assigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false);
+  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   // Excel tarzı sütun filtreleri
@@ -1672,6 +1713,29 @@ export function TasksTable() {
       ),
     [tasks, visibleProjectIds]
   );
+
+  /** Proje id -> proje (Proje sütununda isim göstermek ve filtre etiketleri için). */
+  const projectById = useMemo(() => {
+    const map = new Map<string, Project>();
+    projects.forEach((p) => map.set(p.id, p));
+    return map;
+  }, [projects]);
+
+  /** Proje filtresi seçenekleri: kullanıcının görme yetkisi olan projeler, ada göre sıralı. */
+  const projectFilterOptions = useMemo(() => {
+    return projects
+      .filter((p) => visibleProjectIds.has(p.id))
+      .map((p) => ({ id: p.id, name: (p.name ?? "").trim() || "(adsız proje)" }))
+      .sort((a, b) => a.name.localeCompare(b.name, "tr"));
+  }, [projects, visibleProjectIds]);
+
+  /** Görünmez olan projelerin filtre seçimini temizle (proje silinirse vb.). */
+  useEffect(() => {
+    if (projectFilter.length === 0) return;
+    const validIds = new Set(projectFilterOptions.map((p) => p.id));
+    const valid = projectFilter.filter((id) => validIds.has(id));
+    if (valid.length !== projectFilter.length) setProjectFilter(valid);
+  }, [projectFilter, projectFilterOptions]);
 
   /** Atanan dropdown: sadece yöneticinin projeye atadığı kullanıcılar (assigned_emails); tablo hücrelerindeki Ünvan vb. değil. */
   const assigneeFilterOptions = useMemo(() => {
@@ -1806,6 +1870,12 @@ export function TasksTable() {
     if (projectLinkedFilter === "proje") {
       result = result.filter((t) => t.project_id != null && String(t.project_id).trim() !== "");
     }
+    // Çoklu proje seçimi
+    const projectArr = Array.isArray(projectFilter) ? projectFilter : [];
+    if (projectArr.length > 0) {
+      const selected = new Set(projectArr);
+      result = result.filter((t) => t.project_id != null && selected.has(String(t.project_id)));
+    }
     const q = globalSearch.trim().toLowerCase();
     if (q) {
       result = result.filter((t) => {
@@ -1886,6 +1956,7 @@ export function TasksTable() {
   }, [
     tasksVisibleByProject,
     projectLinkedFilter,
+    projectFilter,
     globalSearch,
     statusFilter,
     assigneeFilter,
@@ -1913,6 +1984,7 @@ export function TasksTable() {
     if (globalSearch.trim()) n++;
     if (Array.isArray(statusFilter) && statusFilter.length > 0) n++;
     if (Array.isArray(assigneeFilter) && assigneeFilter.length > 0) n++;
+    if (Array.isArray(projectFilter) && projectFilter.length > 0) n++;
     if (dateFrom || dateTo || datePreset !== "custom") n++;
     // Sütun filtreleri
     const columnFilterCount = Object.values(columnFilters).filter((arr) => arr.length > 0).length;
@@ -1923,6 +1995,7 @@ export function TasksTable() {
     globalSearch,
     statusFilter,
     assigneeFilter,
+    projectFilter,
     dateFrom,
     dateTo,
     datePreset,
@@ -1935,6 +2008,7 @@ export function TasksTable() {
     setGlobalSearch("");
     setStatusFilter([]);
     setAssigneeFilter([]);
+    setProjectFilter([]);
     setDateFrom("");
     setDateTo("");
     setDatePreset("custom");
@@ -2403,6 +2477,33 @@ export function TasksTable() {
       maxSize: 480,
       enableResizing: true,
     }),
+    columnHelper.display({
+      id: "project",
+      header: "Proje",
+      cell: ({ row }) => {
+        const pid = row.original.project_id;
+        if (!pid) {
+          return <span className="text-xs text-slate-400 dark:text-slate-500">—</span>;
+        }
+        const p = projectById.get(String(pid));
+        const name = (p?.name ?? "").trim() || "(adsız proje)";
+        return (
+          <Link
+            href={`/projeler/${pid}`}
+            className="inline-flex max-w-full items-center gap-1.5 truncate rounded px-1.5 py-0.5 text-xs font-medium text-blue-700 hover:bg-blue-50 hover:underline dark:text-blue-300 dark:hover:bg-blue-900/30"
+            title={name}
+          >
+            <ListTodo className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
+            <span className="truncate">{name}</span>
+          </Link>
+        );
+      },
+      size: 160,
+      minSize: 120,
+      maxSize: 280,
+      enableResizing: true,
+      enableSorting: true,
+    }),
     ...extraDataKeys.map((key) =>
       columnHelper.display({
         id: `extra:${key}`,
@@ -2541,6 +2642,7 @@ export function TasksTable() {
       setEditingRow,
       setEditTask,
       settings.defaultTaskStatus,
+      projectById,
     ]
   );
 
@@ -2645,16 +2747,16 @@ export function TasksTable() {
   const handleExportCSV = useCallback(
     (scope: "current" | "all") => {
       const rows = scope === "all" ? tasksVisibleByProject : filteredData;
-      downloadCSV(rows, visibleColumnIds, settings.dateFormat, `gorevler-${scope === "all" ? "tum" : "gorunum"}-${Date.now()}.csv`);
+      downloadCSV(rows, visibleColumnIds, settings.dateFormat, `gorevler-${scope === "all" ? "tum" : "gorunum"}-${Date.now()}.csv`, projectById);
     },
-    [tasksVisibleByProject, filteredData, visibleColumnIds, settings.dateFormat]
+    [tasksVisibleByProject, filteredData, visibleColumnIds, settings.dateFormat, projectById]
   );
   const handleExportExcel = useCallback(
     (scope: "current" | "all") => {
       const rows = scope === "all" ? tasksVisibleByProject : filteredData;
-      downloadExcel(rows, visibleColumnIds, settings.dateFormat, `gorevler-${scope === "all" ? "tum" : "gorunum"}-${Date.now()}.xlsx`);
+      downloadExcel(rows, visibleColumnIds, settings.dateFormat, `gorevler-${scope === "all" ? "tum" : "gorunum"}-${Date.now()}.xlsx`, projectById);
     },
-    [tasksVisibleByProject, filteredData, visibleColumnIds, settings.dateFormat]
+    [tasksVisibleByProject, filteredData, visibleColumnIds, settings.dateFormat, projectById]
   );
   const handleExportPDF = useCallback(
     async (scope: "current" | "all") => {
@@ -2664,13 +2766,14 @@ export function TasksTable() {
           rows,
           visibleColumnIds,
           settings.dateFormat,
-          `gorevler-${scope === "all" ? "tum" : "gorunum"}-${Date.now()}.pdf`
+          `gorevler-${scope === "all" ? "tum" : "gorunum"}-${Date.now()}.pdf`,
+          projectById
         );
       } catch (e) {
         console.error("[Export] PDF oluşturulamadı:", e);
       }
     },
-    [tasksVisibleByProject, filteredData, visibleColumnIds, settings.dateFormat]
+    [tasksVisibleByProject, filteredData, visibleColumnIds, settings.dateFormat, projectById]
   );
 
   const openColumnPicker = useCallback(() => {
@@ -3357,6 +3460,75 @@ export function TasksTable() {
               </>
             )}
           </div>
+
+          {/* Çoklu Proje Seçimi */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
+              className={cn(
+                "flex items-center gap-2 rounded-md border px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500",
+                Array.isArray(projectFilter) && projectFilter.length > 0
+                  ? "border-sky-400 bg-sky-50 text-sky-800 dark:border-sky-600 dark:bg-sky-900/30 dark:text-sky-300"
+                  : "border-slate-300 bg-white text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+              )}
+              title="Görevleri ait oldukları projeye göre filtrele"
+            >
+              <FolderKanban className="h-4 w-4" />
+              {!Array.isArray(projectFilter) || projectFilter.length === 0 ? "Proje" : `Proje (${projectFilter.length})`}
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+            {projectDropdownOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setProjectDropdownOpen(false)} />
+                <div className="absolute left-0 top-full z-50 mt-1 max-h-[320px] min-w-[240px] overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                  <div className="mb-2 flex items-center justify-between border-b border-slate-100 pb-2 dark:border-slate-700">
+                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Proje seç</span>
+                    {Array.isArray(projectFilter) && projectFilter.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setProjectFilter([])}
+                        className="text-xs text-red-500 hover:text-red-700"
+                      >
+                        Temizle
+                      </button>
+                    )}
+                  </div>
+                  {projectFilterOptions.length === 0 ? (
+                    <div className="px-2 py-3 text-xs text-slate-500 dark:text-slate-400">
+                      Görüntülenebilir proje yok.
+                    </div>
+                  ) : (
+                    projectFilterOptions.map((p) => (
+                      <label
+                        key={p.id}
+                        className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-slate-50 dark:hover:bg-slate-700"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={Array.isArray(projectFilter) && projectFilter.includes(p.id)}
+                          onChange={(e) => {
+                            const current = Array.isArray(projectFilter) ? projectFilter : [];
+                            if (e.target.checked) {
+                              setProjectFilter([...current, p.id]);
+                            } else {
+                              setProjectFilter(current.filter((id) => id !== p.id));
+                            }
+                          }}
+                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
+                          <FolderKanban className="h-3.5 w-3.5" />
+                          {p.name.length > 28 ? p.name.slice(0, 28) + "..." : p.name}
+                        </span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
           <select
             value={datePreset}
             onChange={(e) => applyDatePreset(e.target.value)}
@@ -3471,6 +3643,29 @@ export function TasksTable() {
                 </button>
               </span>
             ))}
+
+            {/* Proje Filtreleri - Çoklu */}
+            {(Array.isArray(projectFilter) ? projectFilter : []).map((pid) => {
+              const p = projectById.get(pid);
+              const name = (p?.name ?? "").trim() || "(adsız proje)";
+              return (
+                <span
+                  key={pid}
+                  className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-800 dark:border-sky-700 dark:bg-sky-900/40 dark:text-sky-300"
+                >
+                  <FolderKanban className="h-3 w-3" />
+                  {name.length > 18 ? name.slice(0, 18) + "..." : name}
+                  <button
+                    type="button"
+                    onClick={() => setProjectFilter((Array.isArray(projectFilter) ? projectFilter : []).filter((id) => id !== pid))}
+                    className="ml-0.5 rounded-full p-0.5 hover:bg-sky-200 dark:hover:bg-sky-800"
+                    title={`"${name}" projesini filtre dışı bırak`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              );
+            })}
 
             {/* Tarih Filtresi */}
             {(dateFrom || dateTo || datePreset !== "custom") && (
