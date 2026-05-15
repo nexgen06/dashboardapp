@@ -5,7 +5,6 @@
 import type { SupabaseClient, User as SupabaseUser } from "@supabase/supabase-js";
 import type { RoleId } from "@/types/permissions";
 import { coerceRoleId } from "@/lib/permissions";
-import { getFullAdminEmailSet } from "@/lib/full-admin-emails";
 import { pickMetadataDisplayName } from "@/lib/userDisplayName";
 
 export type DirectoryUserProfile = {
@@ -26,18 +25,25 @@ function mapRowToProfile(uid: string, row: Record<string, unknown>): DirectoryUs
   };
 }
 
-/** Oturum açılmış kullanıcı için profili oluşturur/günceller; rol ve profildeki görünen adı döndürür */
+/**
+ * Oturum açılmış kullanıcı için DB profilini okur; gerekiyorsa display_name'i günceller.
+ *
+ * Önemli: Rol (role_id) burada ASLA değiştirilmez. Admin atama yalnızca
+ * sunucu tarafında (`scripts/seed-admin-roles.sql` veya `admin_set_role` RPC)
+ * yapılır. İstemci kodu hiç bir kullanıcıyı admin olarak işaretleyemez.
+ *
+ * Profil yoksa `auth.users` INSERT trigger'ı tarafından oluşturulmuş olmalıdır
+ * (`scripts/supabase-auto-create-profile.sql`). Yoksa varsayılan olarak
+ * 'member' döner ve uyarı loglanır.
+ */
 export async function ensureSupabaseProfileAndRole(
   client: SupabaseClient,
   sbUser: SupabaseUser
 ): Promise<{ roleId: RoleId; profileDisplayName: string | null }> {
   const uid = sbUser.id;
   const email = (sbUser.email ?? "").trim();
-  const lower = email.toLowerCase();
   const metaName = pickMetadataDisplayName(sbUser.user_metadata as Record<string, unknown>);
   const display_name: string | null = metaName ?? null;
-
-  const fullAdmins = getFullAdminEmailSet();
 
   const { data: existing, error: readErr } = await client
     .from("profiles")
@@ -49,30 +55,34 @@ export async function ensureSupabaseProfileAndRole(
     console.warn("[supabaseProfiles] profiles read:", readErr);
   }
 
-  const prev = existing != null ? coerceRoleId((existing as Record<string, unknown>).role_id) : null;
-  const existingDisplay =
-    existing != null && (existing as { display_name?: string | null }).display_name != null
-      ? String((existing as { display_name?: string | null }).display_name)
-      : null;
-
-  const roleId: RoleId = fullAdmins.has(lower) ? "admin" : prev ?? "member";
-
-  const payload = {
-    id: uid,
-    email,
-    display_name: display_name ?? existingDisplay ?? (email || null),
-    role_id: roleId,
-    updated_at: new Date().toISOString(),
-  };
-
-  const { error: upErr } = await client.from("profiles").upsert(payload, { onConflict: "id" });
-
-  if (upErr) {
-    console.warn("[supabaseProfiles] profiles upsert:", upErr);
-    return { roleId: coerceRoleId(roleId), profileDisplayName: payload.display_name };
+  if (existing == null) {
+    // Trigger henüz çalışmamış olabilir (yeni hesap, replikasyon gecikmesi).
+    // En kısıtlı rolle dön; sonraki oturum açma denemesinde DB'den okunur.
+    console.warn("[supabaseProfiles] profil bulunamadı; member varsayılanıyla devam ediliyor (uid:", uid, ")");
+    return { roleId: "member", profileDisplayName: display_name ?? (email || null) };
   }
 
-  return { roleId: coerceRoleId(roleId), profileDisplayName: payload.display_name };
+  const row = existing as Record<string, unknown>;
+  const dbRoleId = coerceRoleId(row.role_id);
+  const existingDisplay = row.display_name != null ? String(row.display_name) : null;
+  const desiredDisplayName = display_name ?? existingDisplay ?? (email || null);
+
+  // Sadece display_name veya email değiştiyse güncelle; role_id'ye dokunma.
+  if (existingDisplay !== desiredDisplayName || String(row.email ?? "") !== email) {
+    const { error: upErr } = await client
+      .from("profiles")
+      .update({
+        email,
+        display_name: desiredDisplayName,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", uid);
+    if (upErr) {
+      console.warn("[supabaseProfiles] profiles update:", upErr);
+    }
+  }
+
+  return { roleId: dbRoleId, profileDisplayName: desiredDisplayName };
 }
 
 export async function listDirectoryUsers(client: SupabaseClient): Promise<DirectoryUserProfile[]> {
