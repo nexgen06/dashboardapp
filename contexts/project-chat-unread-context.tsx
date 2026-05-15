@@ -4,7 +4,6 @@ import { createContext, useContext, useCallback, useEffect, useMemo, useState } 
 import { useAuth } from "@/contexts/auth-context";
 import { useProjects } from "@/hooks/useProjects";
 import { supabase } from "@/lib/supabaseClient";
-import { getAccessibleProjectIds } from "@/lib/projectAccess";
 import { fetchUnreadCounts } from "@/lib/projectChatApi";
 
 type ProjectChatUnreadContextValue = {
@@ -17,14 +16,13 @@ type ProjectChatUnreadContextValue = {
 const ProjectChatUnreadContext = createContext<ProjectChatUnreadContextValue | null>(null);
 
 export function ProjectChatUnreadProvider({ children }: { children: React.ReactNode }) {
-  const { user, isAdmin } = useAuth();
+  const { user } = useAuth();
   const { projects } = useProjects();
   const email = (user?.email ?? "").trim().toLowerCase();
 
-  const projectIds = useMemo(
-    () => getAccessibleProjectIds(projects, email || null, isAdmin),
-    [projects, email, isAdmin]
-  );
+  // `projects` Supabase RLS tarafından sunucuda filtrelenmiş geliyor;
+  // kullanıcının erişebildiği projeler bunlarla aynıdır.
+  const projectIds = useMemo(() => projects.map((p) => p.id), [projects]);
 
   const [unreadByProjectId, setUnreadByProjectId] = useState<Record<string, number>>({});
 
@@ -48,7 +46,7 @@ export function ProjectChatUnreadProvider({ children }: { children: React.ReactN
 
   useEffect(() => {
     const ch = supabase
-      .channel("pcm-unread-inserts")
+      .channel("pcm-unread-inserts", { config: { private: true } })
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "project_chat_messages" },
@@ -64,7 +62,7 @@ export function ProjectChatUnreadProvider({ children }: { children: React.ReactN
 
   useEffect(() => {
     const ch = supabase
-      .channel("pcr-unread-reads")
+      .channel("pcr-unread-reads", { config: { private: true } })
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "project_chat_reads" },

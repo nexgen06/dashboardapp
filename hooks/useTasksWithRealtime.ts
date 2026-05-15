@@ -110,8 +110,10 @@ export function useTasksWithRealtime() {
     };
 
     const channelTopic = `tasks-realtime-sync-${++tasksRealtimeChannelSeq}`;
+    // `private: true` → Realtime postgres_changes payloadlarına `tasks` tablosu
+    // RLS politikaları uygulanır; yetkisiz kullanıcıya değişiklik sızmaz.
     channel = supabase
-      .channel(channelTopic)
+      .channel(channelTopic, { config: { private: true } })
       .on(
         "postgres_changes",
         {

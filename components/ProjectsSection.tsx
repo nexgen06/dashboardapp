@@ -478,19 +478,6 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
   const currentUserEmail = (user?.email ?? "").toLowerCase();
   const isPageVariant = variant === "page";
   const canEditProject = hasPermission("projects.edit");
-  /** Projeyi gösterebilir mi: admin her zaman; atama varsa sadece atananlar, atama yoksa kimse (sadece admin). */
-  const canViewProject = useCallback(
-    (p: Project) => {
-      const email = currentUserEmail.trim().toLowerCase();
-      if (!email) return isAdmin;
-      return (
-        isAdmin ||
-        ((p.assigned_emails?.length ?? 0) > 0 &&
-          (p.assigned_emails ?? []).some((e) => String(e).trim().toLowerCase() === email))
-      );
-    },
-    [isAdmin, currentUserEmail]
-  );
   const canDeleteProject = hasPermission("projects.delete");
   const canArchiveProject = hasPermission("projects.archive");
   const {
@@ -519,7 +506,8 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
   const [formError, setFormError] = useState<string | null>(null);
 
   const filteredProjects = useMemo(() => {
-    let result = projects.filter(canViewProject);
+    // `projects` Supabase RLS tarafından sunucuda filtrelenmiş geliyor.
+    let result = projects;
     const q = search.trim().toLowerCase();
     if (q) {
       result = result.filter(
@@ -545,7 +533,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
       });
     }
     return result;
-  }, [projects, canViewProject, search, statusFilter, assignedToMeOnly, currentUserEmail, dateFrom, dateTo]);
+  }, [projects, search, statusFilter, assignedToMeOnly, currentUserEmail, dateFrom, dateTo]);
 
   const handleFormSubmit = async (data: NewProjectSubmitData) => {
     setIsSubmitting(true);

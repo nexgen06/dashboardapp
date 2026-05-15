@@ -31,7 +31,7 @@ export function useTaskCountByProject(): Record<string, number> {
 
   useEffect(() => {
     const channel = supabase
-      .channel("task-count-by-project")
+      .channel("task-count-by-project", { config: { private: true } })
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "tasks" },

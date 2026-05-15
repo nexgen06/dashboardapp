@@ -92,7 +92,7 @@ export function useNotificationSummary(): NotificationSummary {
   useEffect(() => {
     if (!isSupabaseConfigured() || !canAdminNotifications || !userId || userId === "demo") return;
     const ch: RealtimeChannel = supabase
-      .channel("admin-alerts-notify")
+      .channel("admin-alerts-notify", { config: { private: true } })
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "admin_alerts" },

@@ -97,8 +97,9 @@ export function useProjects() {
   useEffect(() => {
     let channel: RealtimeChannel;
     const channelTopic = `projects-realtime-sync-${++projectsRealtimeChannelSeq}`;
+    // `private: true` → Realtime payloadlarına `projects` tablosu RLS uygulanır.
     channel = supabase
-      .channel(channelTopic)
+      .channel(channelTopic, { config: { private: true } })
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "projects" },
