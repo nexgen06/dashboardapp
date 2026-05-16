@@ -1730,27 +1730,43 @@ export function TasksTable() {
     }
   }, [assigneeFilter, assigneeFilterOptions]);
 
-  const projectSchemaExtraKeys = useMemo(() => {
-    const set = new Set<string>();
-    projects.forEach((p) => {
-      for (const k of p.extra_column_keys ?? []) {
-        if (k != null && String(k).trim() !== "") set.add(String(k).trim());
-      }
-    });
-    return Array.from(set).sort();
-  }, [projects]);
+  /**
+   * Extra (dinamik) sütun kapsamı — Canlı Tablo karmaşası fix'i:
+   *
+   *  - Proje filtresi aktifse, sütun seti yalnızca seçili projeler içindeki
+   *    görevlerden gelir (Öneri 1: filtreye duyarlı sütunlar).
+   *  - Schema-only ama hiç değeri olmayan anahtarlar dahil edilmez; bir
+   *    sütun ancak en az bir görevde gerçek (boş olmayan) bir değer
+   *    içerdiğinde Canlı Tabloda görünür (Öneri 2: boş sütunları gizle).
+   *
+   *  Sonuç: yeni bir projenin schema tanımı, içinde görev yoksa diğer
+   *  projelerin tablosunu kirletmez; veri girilince sütun belirir.
+   */
+  const scopedProjectIdSet = useMemo(
+    () => (projectFilter.length > 0 ? new Set(projectFilter) : null),
+    [projectFilter]
+  );
+
+  const scopedTasksForSchema = useMemo(() => {
+    if (scopedProjectIdSet == null) return tasks;
+    return tasks.filter(
+      (t) => t.project_id != null && scopedProjectIdSet.has(String(t.project_id))
+    );
+  }, [tasks, scopedProjectIdSet]);
 
   const extraDataKeys = useMemo(() => {
-    const set = new Set<string>(projectSchemaExtraKeys);
-    tasks.forEach((t) => {
+    const populated = new Set<string>();
+    scopedTasksForSchema.forEach((t) => {
       if (t.extra_data && typeof t.extra_data === "object") {
-        Object.keys(t.extra_data).forEach((k) => {
-          if (k != null && String(k).trim() !== "") set.add(k);
-        });
+        for (const [k, v] of Object.entries(t.extra_data)) {
+          if (k != null && String(k).trim() !== "" && String(v ?? "").trim() !== "") {
+            populated.add(k);
+          }
+        }
       }
     });
-    return Array.from(set).sort();
-  }, [tasks, projectSchemaExtraKeys]);
+    return Array.from(populated).sort();
+  }, [scopedTasksForSchema]);
 
   const advancedFilterFieldOptions = useMemo(() => {
     const opts: { id: string; label: string }[] = [
