@@ -54,6 +54,7 @@ import { formatDate } from "@/lib/formatDate";
 import { parseCSV } from "@/lib/csvParser";
 import { parseJSON } from "@/lib/jsonParser";
 import { isSensitiveExtraColumnKey, maskSensitiveExtraValue } from "@/lib/extraColumnSensitiveDisplay";
+import { isStatusDone, isStatusInProgress, getStatusKind } from "@/lib/statusKind";
 import {
   loadLiveTablePrefs,
   mergeColumnOrderWithDynamics,
@@ -1568,8 +1569,8 @@ const PRIORITY_STYLES: Record<string, string> = {
 
 function TaskStats({ tasks }: { tasks: Task[] }) {
   const total = tasks.length;
-  const tamamlandi = tasks.filter((t) => /tamamlandı|tamamlandi|done|completed/i.test(t.status)).length;
-  const devamEden = tasks.filter((t) => /devam|sürüyor|in progress|progress/i.test(t.status)).length;
+  const tamamlandi = tasks.filter((t) => isStatusDone(t.status)).length;
+  const devamEden = tasks.filter((t) => isStatusInProgress(t.status)).length;
   const diger = total - tamamlandi - devamEden;
 
   return (
@@ -1749,14 +1750,15 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   /**
    * Extra (dinamik) sütun kapsamı — Canlı Tablo karmaşası fix'i:
    *
-   *  - Proje filtresi aktifse, sütun seti yalnızca seçili projeler içindeki
-   *    görevlerden gelir (Öneri 1: filtreye duyarlı sütunlar).
-   *  - Schema-only ama hiç değeri olmayan anahtarlar dahil edilmez; bir
-   *    sütun ancak en az bir görevde gerçek (boş olmayan) bir değer
-   *    içerdiğinde Canlı Tabloda görünür (Öneri 2: boş sütunları gizle).
+   *  - Proje filtresi aktifse, sütun seti seçili projelerin görev verilerinden
+   *    + seçili projelerin schema'larından (extra_column_keys) oluşur:
+   *    kullanıcı bilinçli olarak o projeye odaklanmıştır, schema'sını proaktif
+   *    görmek faydalıdır (Öneri 1 + #4).
+   *  - Filtre yokken: yalnızca en az bir görevde değeri olan anahtarlar
+   *    görünür (Öneri 2: schema-only kalabalık küresel tabloyu kirletmesin).
    *
-   *  Sonuç: yeni bir projenin schema tanımı, içinde görev yoksa diğer
-   *  projelerin tablosunu kirletmez; veri girilince sütun belirir.
+   *  Sonuç: yeni bir projenin schema tanımı diğer projeleri kirletmez, ama
+   *  o projeyi filtreleyince schema'sı görünür.
    */
   const scopedProjectIdSet = useMemo(
     () => (projectFilter.length > 0 ? new Set(projectFilter) : null),
@@ -1770,19 +1772,36 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     );
   }, [tasks, scopedProjectIdSet]);
 
+  /** Filtre aktifken seçili projelerin schema'sı (proje formundaki "Canlı tablo ek sütunları"). */
+  const scopedProjectSchemaKeys = useMemo(() => {
+    if (scopedProjectIdSet == null) return new Set<string>();
+    const out = new Set<string>();
+    projects.forEach((p) => {
+      if (!scopedProjectIdSet.has(p.id)) return;
+      for (const k of p.extra_column_keys ?? []) {
+        const key = String(k ?? "").trim();
+        if (key) out.add(key);
+      }
+    });
+    return out;
+  }, [projects, scopedProjectIdSet]);
+
   const extraDataKeys = useMemo(() => {
-    const populated = new Set<string>();
+    const keys = new Set<string>(scopedProjectSchemaKeys);
     scopedTasksForSchema.forEach((t) => {
       if (t.extra_data && typeof t.extra_data === "object") {
         for (const [k, v] of Object.entries(t.extra_data)) {
-          if (k != null && String(k).trim() !== "" && String(v ?? "").trim() !== "") {
-            populated.add(k);
+          if (k == null || String(k).trim() === "") continue;
+          // Filtre yoksa: sadece değer içeren anahtarlar (küresel tablo temizliği)
+          // Filtre varsa: tüm anahtarlar dahil (kullanıcı projeye odaklı)
+          if (scopedProjectIdSet != null || String(v ?? "").trim() !== "") {
+            keys.add(k);
           }
         }
       }
     });
-    return Array.from(populated).sort();
-  }, [scopedTasksForSchema]);
+    return Array.from(keys).sort();
+  }, [scopedTasksForSchema, scopedProjectSchemaKeys, scopedProjectIdSet]);
 
   const advancedFilterFieldOptions = useMemo(() => {
     const opts: { id: string; label: string }[] = [
@@ -1841,6 +1860,23 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       if (saved?.sorting && saved.sorting.length > 0) {
         setSorting(saved.sorting);
       }
+      // Filtre state'lerini de hydrate et (sayfa yenileme sonrası korunsun)
+      const f = saved?.filters;
+      if (f) {
+        setGlobalSearch(f.globalSearch);
+        setProjectLinkedFilter(f.projectLinkedFilter);
+        setStatusFilter(f.statusFilter);
+        setAssigneeFilter(f.assigneeFilter);
+        setDateFrom(f.dateFrom);
+        setDateTo(f.dateTo);
+        setDatePreset(f.datePreset);
+        setColumnFilters(f.columnFilters);
+        setAdvancedFilterRules(f.advancedFilterRules as AdvancedFilterRule[]);
+        // projectFilter controlled prop ile parent'a syncle (parent localStorage'dan değil bizden öğreniyor)
+        if (f.projectFilter.length > 0 && projectFilter.length === 0) {
+          setProjectFilter(f.projectFilter);
+        }
+      }
       return;
     }
 
@@ -1860,10 +1896,39 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         columnPinning,
         columnSizing,
         sorting,
+        filters: {
+          globalSearch,
+          projectLinkedFilter,
+          statusFilter,
+          assigneeFilter,
+          projectFilter,
+          dateFrom,
+          dateTo,
+          datePreset,
+          columnFilters,
+          advancedFilterRules,
+        },
       });
     }, 400);
     return () => window.clearTimeout(t);
-  }, [userIdForPrefs, columnVisibility, columnOrder, columnPinning, columnSizing, sorting]);
+  }, [
+    userIdForPrefs,
+    columnVisibility,
+    columnOrder,
+    columnPinning,
+    columnSizing,
+    sorting,
+    globalSearch,
+    projectLinkedFilter,
+    statusFilter,
+    assigneeFilter,
+    projectFilter,
+    dateFrom,
+    dateTo,
+    datePreset,
+    columnFilters,
+    advancedFilterRules,
+  ]);
 
   const filteredData = useMemo(() => {
     let result = tasks;

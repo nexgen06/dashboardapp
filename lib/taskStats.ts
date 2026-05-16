@@ -1,23 +1,16 @@
 /**
- * Görev durumu sınıflandırma ve atanan bazlı istatistik (GorevOzeti / yönetici özetleri ile uyumlu).
+ * Görev durumu sınıflandırma ve atanan bazlı istatistik.
+ * Status sınıflandırması artık `lib/statusKind.ts` üzerinden tek noktada yönetilir.
  */
 import type { Task } from "@/types/tasks";
+import { isStatusDone, isStatusInProgress } from "@/lib/statusKind";
 
 export function isTaskCompleted(task: Pick<Task, "status">): boolean {
-  const s = (task.status ?? "").toLowerCase();
-  return (
-    s === "tamamlandı" ||
-    s === "tamamlandi" ||
-    s === "yapıldı" ||
-    s === "yapildi" ||
-    s === "done" ||
-    s === "completed"
-  );
+  return isStatusDone(task.status);
 }
 
 export function isTaskInProgress(task: Pick<Task, "status">): boolean {
-  const s = (task.status ?? "").toLowerCase();
-  return s === "devam" || s === "devam ediyor" || s === "in progress";
+  return isStatusInProgress(task.status);
 }
 
 export type AssigneeStatsRow = {

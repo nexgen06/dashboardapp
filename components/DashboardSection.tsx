@@ -29,15 +29,7 @@ import { cn } from "@/lib/utils";
 import type { Task } from "@/types/tasks";
 import type { Project } from "@/types/project";
 
-function isStatusDone(s: string): boolean {
-  return /tamamlandı|tamamlandi|done|completed/i.test((s ?? "").trim());
-}
-function isStatusInProgress(s: string): boolean {
-  return /devam|sürüyor|in progress|progress/i.test((s ?? "").trim());
-}
-function isStatusTodo(s: string): boolean {
-  return /yapılacak|yapilacak|todo/i.test((s ?? "").trim()) || (!isStatusDone(s) && !isStatusInProgress(s) && (s ?? "").trim() !== "");
-}
+import { isStatusDone, isStatusInProgress, isStatusTodo } from "@/lib/statusKind";
 
 export function DashboardSection() {
   const { user, hasPermission } = useAuth();
