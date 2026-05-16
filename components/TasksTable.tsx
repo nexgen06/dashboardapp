@@ -3953,7 +3953,7 @@ export function TasksTable() {
                             />
                             <span className="min-w-0 flex-1 text-sm text-slate-800 dark:text-slate-200">{label}</span>
                             {!canHide && (
-                              <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                              <span className="shrink-0 text-ui-caption font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
                                 zorunlu
                               </span>
                             )}

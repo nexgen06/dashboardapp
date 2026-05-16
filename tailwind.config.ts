@@ -9,6 +9,21 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        // Geist Sans (next/font), system fallback'ler ile.
+        sans: [
+          "var(--font-geist-sans)",
+          "ui-sans-serif",
+          "system-ui",
+          "-apple-system",
+          "BlinkMacSystemFont",
+          "Segoe UI",
+          "Roboto",
+          "Helvetica Neue",
+          "Arial",
+          "sans-serif",
+        ],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

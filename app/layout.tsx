@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { GeistSans } from "geist/font/sans";
 import { AuthProvider } from "@/contexts/auth-context";
 import { AuthGuard } from "@/components/AuthGuard";
 import { AppLayout } from "@/components/AppLayout";
@@ -16,7 +17,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="tr" suppressHydrationWarning>
+    <html lang="tr" suppressHydrationWarning className={GeistSans.variable}>
       <body className="min-h-screen bg-slate-50 font-sans antialiased dark:bg-slate-900 dark:text-slate-100">
         <script
           dangerouslySetInnerHTML={{

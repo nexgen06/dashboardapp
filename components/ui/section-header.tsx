@@ -52,7 +52,7 @@ export function SectionHeader({
         <div className="min-w-0">
           <h2 className={cn("font-semibold tracking-tight", TITLE_CLASS[level])}>{title}</h2>
           {subtitle && (
-            <p className="mt-1 text-ui-body text-slate-500 dark:text-slate-400">{subtitle}</p>
+            <p className="mt-1 text-ui-body text-slate-600 dark:text-slate-300">{subtitle}</p>
           )}
         </div>
       </div>

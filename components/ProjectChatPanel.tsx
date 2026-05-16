@@ -85,13 +85,13 @@ export function ProjectChatPanel({
                     : "mr-6 bg-white text-slate-800 border border-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600"
                 )}
               >
-                <div className="flex flex-wrap items-baseline justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                <div className="flex flex-wrap items-baseline justify-between gap-2 text-ui-caption text-slate-600 dark:text-slate-300">
                   <span className={cn("font-medium", mine && "text-blue-800 dark:text-blue-200")}>
                     {mine ? "Sen" : label}
                   </span>
                   <span>{formatChatTime(m.at)}</span>
                 </div>
-                <p className="mt-0.5 whitespace-pre-wrap break-words text-slate-800 dark:text-slate-100">{m.text}</p>
+                <p className="mt-1 whitespace-pre-wrap break-words text-ui-body text-slate-800 dark:text-slate-100">{m.text}</p>
               </div>
             );
           })
