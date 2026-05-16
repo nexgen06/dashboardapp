@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useCallback } from "react";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
+import { useProjects } from "@/hooks/useProjects";
 import { useAuth } from "@/contexts/auth-context";
 import { useSettings, parseListOptionString } from "@/contexts/settings-context";
 import { cn } from "@/lib/utils";
@@ -9,6 +10,7 @@ import { getRelativeTime } from "@/lib/relativeTime";
 import { getTaskDisplayLabel } from "@/lib/taskDisplayLabel";
 import { isTaskCompleted, isTaskInProgress } from "@/lib/taskStats";
 import { urgentPrioritySetFromCsv, isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
+import { isTaskAssignedToMe } from "@/lib/taskAssignment";
 import type { Task } from "@/types/tasks";
 import { Loader2, CheckCircle2, Clock, Circle, AlertCircle, AlertTriangle, Flame, User, Users, TrendingUp, X, ListTodo } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,8 +19,17 @@ import { EmptyState } from "@/components/ui/empty-state";
 
 const GECMIS_GOREV_SAYISI = 12;
 
-export function GorevOzeti() {
+type GorevOzetiProps = {
+  /**
+   * Üst seviyeden (Canlı Tablo sayfası) gelen proje filtresi.
+   * Boş dizi = tüm projeler. TasksTable ile aynı state'i paylaşır.
+   */
+  projectFilter?: string[];
+};
+
+export function GorevOzeti({ projectFilter = [] }: GorevOzetiProps = {}) {
   const { tasks, isLoading, error, realtimeConnection, saveTask } = useTasksWithRealtime();
+  const { projects } = useProjects();
   const { user } = useAuth();
   const { settings } = useSettings();
   const now = new Date();
@@ -44,13 +55,30 @@ export function GorevOzeti() {
 
   // `projects` ve `tasks` Supabase RLS tarafından sunucu tarafında filtrelenmiş geliyor.
 
-  // Filtrelenmiş görevler (kullanıcı filtresine göre)
+  // Önce proje filtresine göre kapsamlandır — KPI ve listeler artık bu kapsama göre hesaplanır
+  const projectScopedTasks = useMemo(() => {
+    if (projectFilter.length === 0) return tasks;
+    const selected = new Set(projectFilter);
+    return tasks.filter((t) => t.project_id != null && selected.has(String(t.project_id)));
+  }, [tasks, projectFilter]);
+
+  // Kapsamı insan-okunabilir etiketle ifade et (başlık için)
+  const scopeLabel = useMemo(() => {
+    if (projectFilter.length === 0) return "Tüm projeler";
+    if (projectFilter.length === 1) {
+      const p = projects.find((x) => x.id === projectFilter[0]);
+      return (p?.name ?? "").trim() || "1 proje";
+    }
+    return `${projectFilter.length} proje seçili`;
+  }, [projectFilter, projects]);
+
+  // Kullanıcı filtresine göre alt-kapsam ("Tümü" veya "Bana atanan")
   const filteredTasks = useMemo(() => {
     if (filterMode === "mine") {
-      return tasks.filter((t) => (t.assignee ?? "").toLowerCase().includes(currentUserEmail) || (t.assignee ?? "").toLowerCase() === currentUserEmail);
+      return projectScopedTasks.filter((t) => isTaskAssignedToMe(t.assignee, currentUserEmail));
     }
-    return tasks;
-  }, [tasks, filterMode, currentUserEmail]);
+    return projectScopedTasks;
+  }, [projectScopedTasks, filterMode, currentUserEmail]);
 
   // Takım üyelerine göre gruplandırma
   const tasksByAssignee = useMemo(() => {
@@ -184,6 +212,15 @@ export function GorevOzeti() {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Scope label: hangi proje(ler) için sayım yapılıyor */}
+      <div className="flex items-center gap-1.5 text-ui-caption text-slate-600 dark:text-slate-300">
+        <Users className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
+        <span className="truncate">
+          <span className="font-medium">{scopeLabel}</span>
+          <span className="mx-1.5 text-slate-400 dark:text-slate-500">·</span>
+          <span>{projectScopedTasks.length} görev</span>
+        </span>
+      </div>
       {quickSaveError && (
         <div
           role="alert"
@@ -199,14 +236,16 @@ export function GorevOzeti() {
           </button>
         </div>
       )}
-      {/* Atanmamış kullanıcı veya görünür proje yoksa istatistik/görev listesi gösterilmez */}
-      {tasks.length === 0 && (
+      {/* Atanmamış kullanıcı veya kapsamda görev yoksa istatistik/görev listesi gösterilmez */}
+      {projectScopedTasks.length === 0 && (
         <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
-          Size atanmış bir proje bulunmuyor. Görev özeti ve istatistikler yalnızca atandığınız projelerin görevlerini gösterir.
+          {projectFilter.length > 0
+            ? "Seçili projelerde görev yok. Üstteki proje filtresini değiştirebilirsiniz."
+            : "Size atanmış bir proje bulunmuyor. Görev özeti yalnızca atandığınız projelerin görevlerini gösterir."}
         </div>
       )}
       {/* Filtre Butonları - sadece görünür projelere ait görev varsa göster */}
-      {tasks.length > 0 && (
+      {projectScopedTasks.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
           <Button
             variant={filterMode === "all" ? "default" : "outline"}
@@ -215,7 +254,7 @@ export function GorevOzeti() {
             className="text-xs"
           >
             <Users className="mr-1.5 h-3.5 w-3.5" />
-            Tümü ({tasks.length})
+            Tümü ({projectScopedTasks.length})
           </Button>
           {currentUserEmail && (
             <Button
@@ -225,7 +264,7 @@ export function GorevOzeti() {
               className="text-xs"
             >
               <User className="mr-1.5 h-3.5 w-3.5" />
-              Bana atanan ({tasks.filter((t) => (t.assignee ?? "").toLowerCase().includes(currentUserEmail)).length})
+              Bana atanan ({projectScopedTasks.filter((t) => isTaskAssignedToMe(t.assignee, currentUserEmail)).length})
             </Button>
           )}
           <Button
@@ -280,7 +319,7 @@ export function GorevOzeti() {
       )}
 
       {/* İstatistik kartları — dar sütunda da okunaklı olsun (viewport lg değil panel genişliği); filtre boşken 0 göster */}
-      {tasks.length > 0 && (
+      {projectScopedTasks.length > 0 && (
         <div className="grid min-w-0 grid-cols-2 gap-2">
           <div className="min-w-0 rounded-lg border border-emerald-200 bg-emerald-50 p-2.5 transition-all hover:shadow-sm dark:border-emerald-700 dark:bg-emerald-900/20">
             <div className="flex items-center gap-2">

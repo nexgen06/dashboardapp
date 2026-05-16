@@ -10,6 +10,8 @@ import { useAuth } from "@/contexts/auth-context";
 import { formatDate } from "@/lib/formatDate";
 import { parseCSV } from "@/lib/csvParser";
 import { parseJSON } from "@/lib/jsonParser";
+import { urgentPrioritySetFromCsv } from "@/lib/urgentTaskPriority";
+import { PriorityBadge } from "@/components/ui/priority-badge";
 import {
   findAssigneeColumnIndex,
   findAssigneeJsonKey,
@@ -113,6 +115,10 @@ export default function ProjeDetayPage() {
   const params = useParams();
   const id = typeof params?.id === "string" ? params.id : "";
   const { settings } = useSettings();
+  const urgentPrioritySet = useMemo(
+    () => urgentPrioritySetFromCsv(settings.urgentPriorityTokens),
+    [settings.urgentPriorityTokens]
+  );
   const statusOptions = getStatusOptions(settings);
   const priorityOptions = getPriorityOptions(settings);
   const { user, hasPermission, isAdmin } = useAuth();
@@ -718,11 +724,7 @@ export default function ProjeDetayPage() {
                   ) : (
                     <span className="text-xs text-slate-400 dark:text-slate-500">—</span>
                   )}
-                  {task.priority && (
-                    <Badge variant="outline" className={cn("text-xs font-normal", PRIORITY_STYLES[task.priority] ?? "")}>
-                      {task.priority}
-                    </Badge>
-                  )}
+                  <PriorityBadge priority={task.priority} urgentSet={urgentPrioritySet} />
                   {task.updated_at && (
                     <span className="text-xs text-slate-400 dark:text-slate-500">
                       {formatDate(new Date(task.updated_at), settings.dateFormat)}
