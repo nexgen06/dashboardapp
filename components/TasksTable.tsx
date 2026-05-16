@@ -68,6 +68,7 @@ import {
 } from "@/lib/liveTableAdvancedFilters";
 import * as XLSX from "xlsx";
 import Link from "next/link";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
@@ -4550,32 +4551,49 @@ export function TasksTable() {
         </div>
       )}
       {filteredData.length === 0 && (
-        <div className="flex flex-col items-center justify-center gap-4 py-12 px-4 text-center">
-          <div className="rounded-full bg-slate-100 p-4 dark:bg-slate-700">
-            <ListTodo className="h-12 w-12 text-slate-400 dark:text-slate-500" aria-hidden />
-          </div>
-          <div>
-            <p className="text-base font-medium text-slate-700 dark:text-slate-300">
-              {tasks.length === 0 ? "Henüz görev yok" : "Filtreye uyan görev yok"}
-            </p>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              {tasks.length === 0
-                ? "İlk görevinizi ekleyerek başlayın."
-                : "Arama veya filtreleri değiştirerek tekrar deneyin."}
-            </p>
-          </div>
-          {canCreateTask && (
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => setNewTaskOpen(true)}
-              className="bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-500 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus-visible:ring-blue-400"
-            >
-              <PlusCircle className="mr-2 h-4 w-4 shrink-0" aria-hidden />
-              Yeni görev ekle
-            </Button>
-          )}
-        </div>
+        tasks.length === 0 ? (
+          <EmptyState
+            icon={<ListTodo className="h-10 w-10" />}
+            title="Henüz görev yok"
+            description="İlk görevinizi ekleyerek ya da CSV ile toplu içe aktararak başlayın."
+            action={
+              canCreateTask ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setNewTaskOpen(true)}
+                  className="bg-blue-600 text-white hover:bg-blue-700"
+                >
+                  <PlusCircle className="mr-2 h-4 w-4 shrink-0" aria-hidden />
+                  Yeni görev ekle
+                </Button>
+              ) : undefined
+            }
+            secondaryAction={
+              canImportCsv ? (
+                <Button type="button" size="sm" variant="outline" onClick={() => setImportOpen(true)}>
+                  <Upload className="mr-2 h-4 w-4" />
+                  CSV içe aktar
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <EmptyState
+            variant="compact"
+            icon={<Search className="h-8 w-8" />}
+            title="Filtreye uyan görev yok"
+            description="Arama, durum veya proje filtrelerinizi değiştirerek tekrar deneyin."
+            action={
+              activeFilterCount > 0 ? (
+                <Button type="button" variant="outline" size="sm" onClick={clearFilters}>
+                  <X className="mr-2 h-4 w-4" />
+                  Filtreleri temizle
+                </Button>
+              ) : undefined
+            }
+          />
+        )
       )}
       </div>
     </>

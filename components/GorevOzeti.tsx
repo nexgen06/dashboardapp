@@ -10,8 +10,10 @@ import { getTaskDisplayLabel } from "@/lib/taskDisplayLabel";
 import { isTaskCompleted, isTaskInProgress } from "@/lib/taskStats";
 import { urgentPrioritySetFromCsv, isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
 import type { Task } from "@/types/tasks";
-import { Loader2, CheckCircle2, Clock, Circle, AlertCircle, AlertTriangle, Flame, User, Users, TrendingUp, X } from "lucide-react";
+import { Loader2, CheckCircle2, Clock, Circle, AlertCircle, AlertTriangle, Flame, User, Users, TrendingUp, X, ListTodo } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
 
 const GECMIS_GOREV_SAYISI = 12;
 
@@ -143,8 +145,31 @@ export function GorevOzeti() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-[180px] items-center justify-center py-8">
-        <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+      <div className="flex flex-col gap-4" aria-busy="true" aria-label="Görev özeti yükleniyor">
+        {/* İstatistik bar */}
+        <div className="grid grid-cols-3 gap-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="rounded-md border border-slate-200 p-2 dark:border-slate-700">
+              <Skeleton className="h-3 w-12" />
+              <Skeleton className="mt-2 h-5 w-8" />
+            </div>
+          ))}
+        </div>
+        {/* Filtre butonları */}
+        <div className="flex gap-2">
+          <Skeleton className="h-7 w-20" />
+          <Skeleton className="h-7 w-28" />
+        </div>
+        {/* Görev satırları */}
+        <div className="space-y-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-2 rounded-md border border-slate-200 px-2 py-2 dark:border-slate-700">
+              <Skeleton variant="circle" className="h-4 w-4" />
+              <Skeleton className="h-3 flex-1" />
+              <Skeleton className="h-3 w-14" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

@@ -11,6 +11,8 @@ import { formatDate } from "@/lib/formatDate";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SectionHeader } from "@/components/ui/section-header";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   FolderKanban,
   ListTodo,
@@ -97,8 +99,43 @@ export function DashboardSection() {
 
   if (projectsLoading && tasksLoading) {
     return (
-      <div className="flex items-center justify-center py-24 text-slate-500 dark:text-slate-400">
-        <div className="animate-pulse">Yükleniyor…</div>
+      <div className="min-h-0 space-y-6" aria-busy="true" aria-label="Dashboard yükleniyor">
+        {/* Hoş geldin band */}
+        <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-blue-500/5 to-emerald-500/5 p-6 dark:border-slate-700/80 sm:p-8">
+          <Skeleton className="h-8 w-2/3 max-w-md" />
+          <Skeleton className="mt-3 h-4 w-full max-w-xl" />
+        </div>
+        {/* KPI grid */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800/80">
+              <div className="flex items-center gap-3">
+                <Skeleton variant="circle" className="h-10 w-10" />
+                <div className="min-w-0 flex-1">
+                  <Skeleton className="h-7 w-16" />
+                  <Skeleton className="mt-1 h-3 w-20" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        {/* İki sütun kart */}
+        <div className="grid gap-6 lg:grid-cols-2">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <div key={i} className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800/80">
+              <Skeleton className="h-5 w-40" />
+              <div className="mt-4 space-y-3">
+                {Array.from({ length: 4 }).map((_, j) => (
+                  <div key={j} className="flex items-center gap-3">
+                    <Skeleton variant="circle" className="h-6 w-6" />
+                    <Skeleton className="h-3 flex-1" />
+                    <Skeleton className="h-3 w-16" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -289,9 +326,12 @@ export function DashboardSection() {
           </div>
           <div className="divide-y divide-slate-100 dark:divide-slate-700 max-h-72 overflow-y-auto">
             {recentTasks.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
-                Henüz görev yok.
-              </div>
+              <EmptyState
+                variant="inline"
+                icon={<ListTodo className="h-8 w-8" />}
+                title="Henüz aktivite yok"
+                description="Görev oluşturuldukça son aktiviteler burada listelenir."
+              />
             ) : (
               recentTasks.map((task) => (
                 <RecentTaskRow
@@ -324,8 +364,25 @@ export function DashboardSection() {
           </div>
           <div className="p-4 grid gap-3 sm:grid-cols-2">
             {recentProjects.length === 0 ? (
-              <div className="col-span-full py-8 text-center text-sm text-slate-500 dark:text-slate-400">
-                Henüz proje yok.
+              <div className="col-span-full">
+                <EmptyState
+                  variant="inline"
+                  icon={<FolderKanban className="h-8 w-8" />}
+                  title="Henüz proje yok"
+                  description={
+                    canCreateProject ? "Projeler sayfasından ilk projenizi oluşturun." : undefined
+                  }
+                  action={
+                    canCreateProject ? (
+                      <Button asChild size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
+                        <Link href="/projeler">
+                          <PlusCircle className="mr-2 h-4 w-4" />
+                          Yeni proje
+                        </Link>
+                      </Button>
+                    ) : undefined
+                  }
+                />
               </div>
             ) : (
               recentProjects.map((project) => (
