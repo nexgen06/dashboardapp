@@ -31,6 +31,89 @@ import type { Project } from "@/types/project";
 
 import { isStatusDone, isStatusInProgress, isStatusTodo } from "@/lib/statusKind";
 
+/** Saate göre selamlama. */
+function greetingByHour(): string {
+  const h = new Date().getHours();
+  if (h < 5) return "İyi geceler";
+  if (h < 12) return "Günaydın";
+  if (h < 18) return "İyi günler";
+  return "İyi akşamlar";
+}
+
+/** Banner alt metni: kullanıcının duruma göre tek cümlelik özet. */
+function buildInsightSentence(insight: { myOpenCount: number; dueSoonCount: number; completedThisWeek: number }): string {
+  const { myOpenCount, dueSoonCount, completedThisWeek } = insight;
+  if (myOpenCount === 0 && completedThisWeek === 0) {
+    return "Henüz size atanmış aktif görev yok. Yeni bir proje oluşturup başlayabilirsiniz.";
+  }
+  const parts: string[] = [];
+  if (dueSoonCount > 0) {
+    parts.push(`Bugün veya öncesine ait ${dueSoonCount} son tarihli görev`);
+  } else if (myOpenCount > 0) {
+    parts.push(`${myOpenCount} aktif görev`);
+  }
+  if (completedThisWeek > 0) {
+    parts.push(`bu hafta ${completedThisWeek} tamamlanan`);
+  }
+  if (parts.length === 0) return "Bugün neler yapmak istersiniz?";
+  return parts.join(" · ") + ".";
+}
+
+/** KPI grid'inde primary kartın yanında duran küçük secondary kart. */
+function SecondaryKpi({
+  icon,
+  tone,
+  value,
+  label,
+}: {
+  icon: React.ReactNode;
+  tone: "blue" | "slate" | "amber" | "emerald";
+  value: number;
+  label: string;
+}) {
+  const toneCls = {
+    blue: "bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400",
+    slate: "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300",
+    amber: "bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400",
+    emerald: "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400",
+  }[tone];
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition-shadow hover:shadow-md dark:border-slate-700 dark:bg-slate-800/80">
+      <div className="flex items-center gap-2">
+        <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${toneCls}`}>{icon}</div>
+        <div className="min-w-0">
+          <p className="text-2xl font-semibold leading-none text-slate-900 dark:text-slate-50">{value}</p>
+          <p className="mt-1 text-ui-caption text-slate-500 dark:text-slate-400">{label}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Banner sağındaki üç küçük sayım kartı. */
+function InsightStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "blue" | "emerald" | "red" | "slate";
+}) {
+  const toneCls = {
+    blue: "border-blue-300/60 bg-white/70 text-blue-700 dark:border-blue-600/50 dark:bg-slate-900/40 dark:text-blue-200",
+    emerald: "border-emerald-300/60 bg-white/70 text-emerald-700 dark:border-emerald-600/50 dark:bg-slate-900/40 dark:text-emerald-200",
+    red: "border-red-300/60 bg-white/70 text-red-700 dark:border-red-600/50 dark:bg-slate-900/40 dark:text-red-200",
+    slate: "border-slate-300/60 bg-white/70 text-slate-700 dark:border-slate-600/50 dark:bg-slate-900/40 dark:text-slate-200",
+  }[tone];
+  return (
+    <div className={`min-w-[5rem] rounded-xl border px-3 py-2 ${toneCls}`}>
+      <div className="text-ui-display leading-none">{value}</div>
+      <div className="mt-1 text-ui-caption leading-tight opacity-80">{label}</div>
+    </div>
+  );
+}
+
 export function DashboardSection() {
   const { user, hasPermission } = useAuth();
   const { settings } = useSettings();
@@ -87,6 +170,35 @@ export function DashboardSection() {
     ];
   }, [kpi]);
 
+  /** Kişisel içgörü: bana atanan açık, son tarihli, bu hafta tamamlanan görev sayıları. */
+  const personalInsight = useMemo(() => {
+    const me = (user?.email ?? "").trim().toLowerCase();
+    const nowMs = Date.now();
+    const sevenDaysAgo = nowMs - 7 * 24 * 60 * 60 * 1000;
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const myOpen = tasks.filter(
+      (t) => !isStatusDone(t.status) && (t.assignee ?? "").trim().toLowerCase() === me
+    );
+    const dueSoon = myOpen.filter((t) => {
+      if (!t.due_date) return false;
+      const d = new Date(t.due_date).getTime();
+      return d <= todayEnd.getTime();
+    });
+    const completedThisWeek = tasks.filter((t) => {
+      if (!isStatusDone(t.status)) return false;
+      if (!t.updated_at) return false;
+      const ts = new Date(t.updated_at).getTime();
+      return ts >= sevenDaysAgo;
+    }).length;
+    return {
+      myOpenCount: myOpen.length,
+      dueSoonCount: dueSoon.length,
+      completedThisWeek,
+    };
+  }, [tasks, user?.email]);
+
   const displayName = user?.displayName || user?.email || "Kullanıcı";
 
   if (projectsLoading && tasksLoading) {
@@ -134,15 +246,35 @@ export function DashboardSection() {
 
   return (
     <div className="min-h-0 space-y-6">
-      {/* Hoş geldin + gradient alan */}
+      {/* Hoş geldin + kişisel içgörü */}
       <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-500/10 via-slate-50 to-emerald-500/10 dark:from-blue-600/20 dark:via-slate-800 dark:to-emerald-600/20 border border-slate-200/80 dark:border-slate-700/80 p-6 sm:p-8">
-        <div className="relative z-10">
-          <h1 className="text-ui-h1 tracking-tight text-slate-900 dark:text-slate-50 sm:text-3xl">
-            Hoş geldin, {displayName}
-          </h1>
-          <p className="mt-2 text-ui-body text-slate-600 dark:text-slate-400">
-            Özet ve hızlı erişim. Bugün neler yapmak istersiniz? Aşağıdan KPI özetinize, son projelere ve görevlere ulaşabilirsiniz.
-          </p>
+        <div className="relative z-10 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-ui-h1 tracking-tight text-slate-900 dark:text-slate-50 sm:text-3xl">
+              {greetingByHour()}, {displayName}
+            </h1>
+            <p className="mt-2 text-ui-body text-slate-700 dark:text-slate-200">
+              {buildInsightSentence(personalInsight)}
+            </p>
+          </div>
+          {/* Hızlı sayım kartı: bana atanan açık görev / son tarihli */}
+          <div className="flex shrink-0 gap-2 md:gap-3">
+            <InsightStat
+              label="Bana atanan açık"
+              value={personalInsight.myOpenCount}
+              tone="blue"
+            />
+            <InsightStat
+              label="Son tarihli"
+              value={personalInsight.dueSoonCount}
+              tone={personalInsight.dueSoonCount > 0 ? "red" : "slate"}
+            />
+            <InsightStat
+              label="Bu hafta biten"
+              value={personalInsight.completedThisWeek}
+              tone="emerald"
+            />
+          </div>
         </div>
       </section>
 
@@ -176,69 +308,46 @@ export function DashboardSection() {
         </section>
       )}
 
-      {/* KPI kartları */}
+      {/* KPI kartları — 1 dominant tamamlanma + 4 secondary */}
       <section>
         <SectionHeader
           level="section"
           title="Özet"
           icon={<LayoutGrid className="h-5 w-5 text-blue-600 dark:text-blue-400" />}
         />
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800/80 transition-shadow hover:shadow-md">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/40">
-                <FolderKanban className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-              </div>
-              <div>
-                <p className="text-ui-display text-slate-900 dark:text-slate-50">{kpi.totalProjects}</p>
-                <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Toplam proje</p>
-              </div>
-            </div>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800/80 transition-shadow hover:shadow-md">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-700">
-                <ListTodo className="h-5 w-5 text-slate-600 dark:text-slate-300" />
-              </div>
-              <div>
-                <p className="text-ui-display text-slate-900 dark:text-slate-50">{kpi.totalTasks}</p>
-                <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Toplam görev</p>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+          {/* Primary: Tamamlanma % */}
+          <div className="rounded-xl border border-emerald-200/60 bg-gradient-to-br from-emerald-50/80 via-white to-white p-5 shadow-sm transition-shadow hover:shadow-md dark:border-emerald-700/40 dark:from-emerald-900/20 dark:via-slate-800/60 dark:to-slate-800/40 sm:col-span-2 lg:col-span-2">
+            <div className="flex items-center justify-between">
+              <span className="text-ui-caption font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                Tamamlanma oranı
+              </span>
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/40">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               </div>
             </div>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800/80 transition-shadow hover:shadow-md">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-700">
-                <Circle className="h-5 w-5 text-slate-500 dark:text-slate-400" />
-              </div>
-              <div>
-                <p className="text-ui-display text-slate-900 dark:text-slate-50">{kpi.todo}</p>
-                <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Yapılacak</p>
-              </div>
+            <div className="mt-3 flex items-baseline gap-2">
+              <span className="text-5xl font-bold leading-none tracking-tight text-emerald-700 dark:text-emerald-300">
+                {kpi.totalTasks > 0 ? Math.round((kpi.done / kpi.totalTasks) * 100) : 0}
+              </span>
+              <span className="text-2xl font-semibold text-emerald-600 dark:text-emerald-400">%</span>
+              <span className="ml-auto text-ui-caption text-slate-500 dark:text-slate-400">
+                {kpi.done} / {kpi.totalTasks} görev
+              </span>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-emerald-100 dark:bg-emerald-900/30">
+              <div
+                className="h-full rounded-full bg-emerald-500 transition-all dark:bg-emerald-400"
+                style={{ width: `${kpi.totalTasks > 0 ? Math.max(2, Math.round((kpi.done / kpi.totalTasks) * 100)) : 0}%` }}
+              />
             </div>
           </div>
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800/80 transition-shadow hover:shadow-md">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-100 dark:bg-amber-900/40">
-                <Clock className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-              </div>
-              <div>
-                <p className="text-ui-display text-slate-900 dark:text-slate-50">{kpi.inProgress}</p>
-                <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Devam eden</p>
-              </div>
-            </div>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800/80 transition-shadow hover:shadow-md">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/40">
-                <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-              </div>
-              <div>
-                <p className="text-ui-display text-slate-900 dark:text-slate-50">{kpi.done}</p>
-                <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Tamamlandı</p>
-              </div>
-            </div>
-          </div>
+
+          {/* Secondary: 4 küçük kart */}
+          <SecondaryKpi icon={<FolderKanban className="h-4 w-4" />} tone="blue" value={kpi.totalProjects} label="Proje" />
+          <SecondaryKpi icon={<ListTodo className="h-4 w-4" />} tone="slate" value={kpi.totalTasks} label="Toplam görev" />
+          <SecondaryKpi icon={<Circle className="h-4 w-4" />} tone="slate" value={kpi.todo} label="Yapılacak" />
+          <SecondaryKpi icon={<Clock className="h-4 w-4" />} tone="amber" value={kpi.inProgress} label="Devam eden" />
         </div>
       </section>
 

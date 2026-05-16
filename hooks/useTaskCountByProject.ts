@@ -2,27 +2,36 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { isStatusDone } from "@/lib/statusKind";
 
-/** Proje id → o projeye ait görev sayısı. */
-export function useTaskCountByProject(): Record<string, number> {
-  const [counts, setCounts] = useState<Record<string, number>>({});
+export type ProjectTaskStats = {
+  /** Toplam görev sayısı (RLS ile görünür olanlar). */
+  total: number;
+  /** Tamamlanmış görev sayısı. */
+  done: number;
+};
+
+/** Proje id → toplam ve tamamlanmış görev sayıları. */
+export function useTaskCountByProject(): Record<string, ProjectTaskStats> {
+  const [stats, setStats] = useState<Record<string, ProjectTaskStats>>({});
 
   const fetchCounts = useCallback(async () => {
     const { data, error } = await supabase
       .from("tasks")
-      .select("project_id");
+      .select("project_id, status");
     if (error) {
-      setCounts({});
+      setStats({});
       return;
     }
-    const map: Record<string, number> = {};
-    (data ?? []).forEach((row: { project_id: string | null }) => {
+    const map: Record<string, ProjectTaskStats> = {};
+    (data ?? []).forEach((row: { project_id: string | null; status: string | null }) => {
       const id = row.project_id;
-      if (id) {
-        map[id] = (map[id] ?? 0) + 1;
-      }
+      if (!id) return;
+      if (!map[id]) map[id] = { total: 0, done: 0 };
+      map[id].total += 1;
+      if (isStatusDone(row.status)) map[id].done += 1;
     });
-    setCounts(map);
+    setStats(map);
   }, []);
 
   useEffect(() => {
@@ -43,5 +52,5 @@ export function useTaskCountByProject(): Record<string, number> {
     };
   }, [fetchCounts]);
 
-  return counts;
+  return stats;
 }

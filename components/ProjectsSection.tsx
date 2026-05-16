@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
+import { AvatarStack } from "@/components/ui/avatar-stack";
 import {
   Dialog,
   DialogContent,
@@ -913,7 +914,10 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {filteredProjects.map((project) => {
-              const taskCount = taskCountByProject[project.id] ?? 0;
+              const taskStats = taskCountByProject[project.id] ?? { total: 0, done: 0 };
+              const taskCount = taskStats.total;
+              const taskDone = taskStats.done;
+              const taskProgressPct = taskCount > 0 ? Math.round((taskDone / taskCount) * 100) : 0;
               const chatUnread = unreadByProjectId[project.id] ?? 0;
               return (
                 <article
@@ -1017,30 +1021,25 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
                     )}
                     <span
                       className={cn(
-                        "inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium",
+                        "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium",
                         isPageVariant
                           ? "border-slate-300 bg-white text-slate-700 dark:border-slate-500 dark:bg-slate-700 dark:text-slate-200"
                           : "border-slate-200 bg-white text-slate-600 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300"
                       )}
-                      title={`${taskCount} görev`}
+                      title={taskCount > 0 ? `${taskDone} / ${taskCount} görev tamamlandı (${taskProgressPct}%)` : "Görev yok"}
                     >
-                      {taskCount} görev
+                      {taskCount === 0
+                        ? "0 görev"
+                        : <>{taskDone}<span className="opacity-60">/{taskCount}</span> görev</>}
                     </span>
                     {(project.assigned_emails?.length ?? 0) > 0 && (
-                      <span
-                        className={cn(
-                          "inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium",
-                          (project.assigned_emails ?? []).some((e) => e.toLowerCase() === currentUserEmail)
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200"
-                            : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300"
-                        )}
-                        title={(project.assigned_emails ?? []).join(", ")}
-                      >
-                        <UserPlus className="mr-1 h-3 w-3" />
-                        {(project.assigned_emails ?? []).some((e) => e.toLowerCase() === currentUserEmail)
-                          ? "Atandınız"
-                          : `${project.assigned_emails!.length} kişi`}
-                      </span>
+                      <AvatarStack
+                        emails={project.assigned_emails ?? []}
+                        highlightEmail={currentUserEmail}
+                        max={4}
+                        size={24}
+                        className="pointer-events-auto"
+                      />
                     )}
                     {(project.updated_at || project.created_at) && (
                       <span className="text-xs text-slate-400 dark:text-slate-500">
@@ -1048,6 +1047,38 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
                       </span>
                     )}
                   </div>
+                  {/* Tamamlanma progress bar — sıfır görev yoksa görünür */}
+                  {taskCount > 0 && (
+                    <div className="relative z-10 mt-3 pointer-events-none">
+                      <div className="flex items-center justify-between text-ui-caption text-slate-500 dark:text-slate-400">
+                        <span>İlerleme</span>
+                        <span className={cn(
+                          "font-medium",
+                          taskProgressPct === 100 && "text-emerald-700 dark:text-emerald-300",
+                          taskProgressPct > 0 && taskProgressPct < 100 && "text-amber-700 dark:text-amber-300",
+                          taskProgressPct === 0 && "text-slate-500 dark:text-slate-400"
+                        )}>
+                          %{taskProgressPct}
+                        </span>
+                      </div>
+                      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-all",
+                            taskProgressPct === 100
+                              ? "bg-emerald-500 dark:bg-emerald-400"
+                              : taskProgressPct >= 50
+                                ? "bg-blue-500 dark:bg-blue-400"
+                                : taskProgressPct > 0
+                                  ? "bg-amber-500 dark:bg-amber-400"
+                                  : "bg-slate-300 dark:bg-slate-600"
+                          )}
+                          style={{ width: `${Math.max(2, taskProgressPct)}%` }}
+                          aria-hidden
+                        />
+                      </div>
+                    </div>
+                  )}
                 </article>
               );
             })}
