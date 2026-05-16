@@ -1589,7 +1589,13 @@ function TaskStats({ tasks }: { tasks: Task[] }) {
   );
 }
 
-export function TasksTable() {
+type TasksTableProps = {
+  /** Üst seviyeden kontrol edilen proje filtresi. Verilmezse internal state kullanılır. */
+  projectFilter?: string[];
+  onProjectFilterChange?: (next: string[]) => void;
+};
+
+export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterChange }: TasksTableProps = {}) {
   const {
     tasks,
     updateTaskOptimistic,
@@ -1653,8 +1659,18 @@ export function TasksTable() {
   const [projectLinkedFilter, setProjectLinkedFilter] = useState<"proje" | "tümü">("proje");
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
-  /** Çoklu proje filtresi (görev hangi projeye bağlı): proje id listesi */
-  const [projectFilter, setProjectFilter] = useState<string[]>([]);
+  /** Çoklu proje filtresi (görev hangi projeye bağlı): proje id listesi.
+   *  Controlled: dışarıdan prop verilirse onu kullan, değilse internal state. */
+  const [internalProjectFilter, setInternalProjectFilter] = useState<string[]>([]);
+  const projectFilter = extProjectFilter ?? internalProjectFilter;
+  const setProjectFilter = useCallback(
+    (next: string[] | ((prev: string[]) => string[])) => {
+      const value = typeof next === "function" ? next(projectFilter) : next;
+      if (onProjectFilterChange) onProjectFilterChange(value);
+      else setInternalProjectFilter(value);
+    },
+    [projectFilter, onProjectFilterChange]
+  );
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [assigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false);
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
@@ -3850,12 +3866,16 @@ export function TasksTable() {
             </span>
           )}
           {onlineUsers.length > 0 && (
-            <OnlineUsersPanel
-              onlineUsers={onlineUsers}
-              editorsByRowId={editorsByRowId}
-              currentUserEmail={currentUserEmail}
-              tasks={tasks}
-            />
+            <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+              <User className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span className="sr-only sm:not-sr-only">Şu an çevrimiçi:</span>
+              <OnlineUsersPanel
+                onlineUsers={onlineUsers}
+                editorsByRowId={editorsByRowId}
+                currentUserEmail={currentUserEmail}
+                tasks={tasks}
+              />
+            </span>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0">

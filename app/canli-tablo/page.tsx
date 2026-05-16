@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import { useAuth } from "@/contexts/auth-context";
 import { TasksTable } from "@/components/TasksTable";
@@ -14,6 +15,11 @@ import ankaraHeader from "@/images/ankara.png";
 export default function CanliTabloPage() {
   const { hasPermission, isLoaded } = useAuth();
   const canLiveTable = hasPermission("area.liveTable") && hasPermission("liveTable.view");
+  /**
+   * Canlı Tablo ve Görev Özeti arasında paylaşılan proje filtresi.
+   * TasksTable toolbar'dan değiştirildiğinde GorevOzeti otomatik aynı kapsama döner.
+   */
+  const [projectFilter, setProjectFilter] = useState<string[]>([]);
 
   if (!isLoaded) {
     return (
@@ -85,7 +91,7 @@ export default function CanliTabloPage() {
             />
           </div>
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <TasksTable />
+            <TasksTable projectFilter={projectFilter} onProjectFilterChange={setProjectFilter} />
           </div>
         </Section>
 
@@ -103,7 +109,7 @@ export default function CanliTabloPage() {
             />
           </div>
           <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
-            <GorevOzeti />
+            <GorevOzeti projectFilter={projectFilter} />
           </div>
         </Section>
       </div>
