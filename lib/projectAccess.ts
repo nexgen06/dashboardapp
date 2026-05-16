@@ -1,24 +1,12 @@
 import type { Project } from "@/types/project";
 
-/** Proje listesinden kullanıcının erişebileceği proje id'leri (proje detay / sohbet ile aynı mantık). */
-export function getAccessibleProjectIds(
-  projects: Project[],
-  userEmail: string | null | undefined,
-  isAdmin: boolean
-): string[] {
-  const e = (userEmail ?? "").trim().toLowerCase();
-  if (!e) return [];
-  return projects
-    .filter((p) => {
-      if (isAdmin) return true;
-      const assigned = p.assigned_emails ?? [];
-      if (assigned.length === 0) return false;
-      return assigned.some((a) => String(a).trim().toLowerCase() === e);
-    })
-    .map((p) => p.id);
-}
-
-/** Proje sohbeti / presence ile aynı: admin veya projeye atanmış üye. */
+/**
+ * Proje sohbeti / presence için UI gating: admin veya projeye atanmış üye.
+ *
+ * Not: Asıl veri erişim kontrolü Supabase RLS politikalarında yapılır
+ * (scripts/supabase-rls-policies.sql > pcm_select, pcm_insert). Bu fonksiyon
+ * yalnızca chat input alanını gösterip gizlemek gibi UI kararları için kullanılır.
+ */
 export function canAccessProjectChat(
   project: Project,
   userEmail: string | null | undefined,

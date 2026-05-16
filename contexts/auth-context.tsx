@@ -5,13 +5,10 @@ import { usePathname, useRouter } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import type { User, RoleId, Permission } from "@/types/permissions";
 import { getEffectivePermissions, hasPermission as checkPermission, coerceRoleId } from "@/lib/permissions";
-import { getFullAdminEmailSet } from "@/lib/full-admin-emails";
 import { getAuthBackend, isAuthEnabled } from "@/lib/authConfig";
 import { supabase } from "@/lib/supabaseClient";
 import { adminSetRoleForUid, ensureSupabaseProfileAndRole } from "@/lib/supabaseProfiles";
 import { resolveAuthDisplayName } from "@/lib/userDisplayName";
-
-const FULL_ADMIN_EMAILS = getFullAdminEmailSet();
 
 /** Supabase yapılandırması yokken kullanılan sabit demo kullanıcı */
 const DEMO_USER: User = {
@@ -72,9 +69,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           roleId = ensured.roleId;
           profileDisplayName = ensured.profileDisplayName;
         } catch (profErr) {
-          console.warn("[Auth] Supabase profil güncellenemedi; üye varsayılanı kullanılacak:", profErr);
-          const mail = (sbUser.email ?? "").toLowerCase();
-          roleId = FULL_ADMIN_EMAILS.has(mail) ? "admin" : "member";
+          // Profil okunamazsa varsayılan olarak en kısıtlı rol uygulanır.
+          // Admin yetkisi yalnızca DB'deki profiles.role_id ile verilir.
+          console.warn("[Auth] Supabase profil okunamadı; member varsayılanı uygulanıyor:", profErr);
+          roleId = "member";
         }
 
         roleId = coerceRoleId(roleId);
@@ -89,12 +87,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error("[Auth] Supabase oturum senkronu:", err);
         const su = session?.user;
         if (su) {
-          const mail = (su.email ?? "").toLowerCase();
+          // Hata durumunda en kısıtlı rolle devam et; admin yetkisi sadece
+          // başarılı DB profili okumasıyla verilebilir.
           setUserState({
             id: su.id,
             email: su.email ?? "",
             displayName: resolveAuthDisplayName(su, null),
-            roleId: FULL_ADMIN_EMAILS.has(mail) ? "admin" : "member",
+            roleId: "member",
           });
         } else {
           setUserState(null);

@@ -2,7 +2,6 @@
 
 import { useMemo, useState, useCallback } from "react";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
-import { useProjects } from "@/hooks/useProjects";
 import { useAuth } from "@/contexts/auth-context";
 import { useSettings, parseListOptionString } from "@/contexts/settings-context";
 import { cn } from "@/lib/utils";
@@ -11,27 +10,16 @@ import { getTaskDisplayLabel } from "@/lib/taskDisplayLabel";
 import { isTaskCompleted, isTaskInProgress } from "@/lib/taskStats";
 import { urgentPrioritySetFromCsv, isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
 import type { Task } from "@/types/tasks";
-import type { Project } from "@/types/project";
-import { Loader2, CheckCircle2, Clock, Circle, AlertCircle, AlertTriangle, Flame, User, Users, TrendingUp, X } from "lucide-react";
+import { Loader2, CheckCircle2, Clock, Circle, AlertCircle, AlertTriangle, Flame, User, Users, TrendingUp, X, ListTodo } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
 
 const GECMIS_GOREV_SAYISI = 12;
 
-/** Projeyi kullanıcı görebilir mi: admin her zaman; atama varsa sadece atananlar, atama yoksa sadece admin. */
-function canViewProject(p: Project, isAdmin: boolean, currentUserEmail: string): boolean {
-  const email = currentUserEmail.trim().toLowerCase();
-  if (!email) return isAdmin;
-  return (
-    isAdmin ||
-    ((p.assigned_emails?.length ?? 0) > 0 &&
-      (p.assigned_emails ?? []).some((e) => String(e).trim().toLowerCase() === email))
-  );
-}
-
 export function GorevOzeti() {
   const { tasks, isLoading, error, realtimeConnection, saveTask } = useTasksWithRealtime();
-  const { projects } = useProjects();
-  const { user, isAdmin } = useAuth();
+  const { user } = useAuth();
   const { settings } = useSettings();
   const now = new Date();
   const [filterMode, setFilterMode] = useState<"all" | "mine" | "byAssignee">("all");
@@ -54,36 +42,15 @@ export function GorevOzeti() {
     [summaryExtraKeys]
   );
 
-  /** Atanmamış kullanıcılar sadece kendisine atanmış projelerin görevlerini görür; admin tüm projeleri görür. */
-  const visibleProjectIds = useMemo(
-    () =>
-      new Set(
-        projects
-          .filter((p) => canViewProject(p, isAdmin, currentUserEmail))
-          .map((p) => p.id)
-      ),
-    [projects, isAdmin, currentUserEmail]
-  );
+  // `projects` ve `tasks` Supabase RLS tarafından sunucu tarafında filtrelenmiş geliyor.
 
-  /** Görev özetinde gösterilecek görevler: sadece görünür projelere ait olanlar (veya projesi olmayanlar). */
-  const tasksVisibleByProject = useMemo(
-    () =>
-      tasks.filter(
-        (t) =>
-          !t.project_id ||
-          String(t.project_id).trim() === "" ||
-          visibleProjectIds.has(t.project_id)
-      ),
-    [tasks, visibleProjectIds]
-  );
-
-  // Filtrelenmiş görevler (görünür projelere göre + kullanıcı filtresi)
+  // Filtrelenmiş görevler (kullanıcı filtresine göre)
   const filteredTasks = useMemo(() => {
     if (filterMode === "mine") {
-      return tasksVisibleByProject.filter((t) => (t.assignee ?? "").toLowerCase().includes(currentUserEmail) || (t.assignee ?? "").toLowerCase() === currentUserEmail);
+      return tasks.filter((t) => (t.assignee ?? "").toLowerCase().includes(currentUserEmail) || (t.assignee ?? "").toLowerCase() === currentUserEmail);
     }
-    return tasksVisibleByProject;
-  }, [tasksVisibleByProject, filterMode, currentUserEmail]);
+    return tasks;
+  }, [tasks, filterMode, currentUserEmail]);
 
   // Takım üyelerine göre gruplandırma
   const tasksByAssignee = useMemo(() => {
@@ -178,8 +145,31 @@ export function GorevOzeti() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-[180px] items-center justify-center py-8">
-        <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+      <div className="flex flex-col gap-4" aria-busy="true" aria-label="Görev özeti yükleniyor">
+        {/* İstatistik bar */}
+        <div className="grid grid-cols-3 gap-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="rounded-md border border-slate-200 p-2 dark:border-slate-700">
+              <Skeleton className="h-3 w-12" />
+              <Skeleton className="mt-2 h-5 w-8" />
+            </div>
+          ))}
+        </div>
+        {/* Filtre butonları */}
+        <div className="flex gap-2">
+          <Skeleton className="h-7 w-20" />
+          <Skeleton className="h-7 w-28" />
+        </div>
+        {/* Görev satırları */}
+        <div className="space-y-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-2 rounded-md border border-slate-200 px-2 py-2 dark:border-slate-700">
+              <Skeleton variant="circle" className="h-4 w-4" />
+              <Skeleton className="h-3 flex-1" />
+              <Skeleton className="h-3 w-14" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -210,13 +200,13 @@ export function GorevOzeti() {
         </div>
       )}
       {/* Atanmamış kullanıcı veya görünür proje yoksa istatistik/görev listesi gösterilmez */}
-      {tasksVisibleByProject.length === 0 && (
+      {tasks.length === 0 && (
         <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
           Size atanmış bir proje bulunmuyor. Görev özeti ve istatistikler yalnızca atandığınız projelerin görevlerini gösterir.
         </div>
       )}
       {/* Filtre Butonları - sadece görünür projelere ait görev varsa göster */}
-      {tasksVisibleByProject.length > 0 && (
+      {tasks.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
           <Button
             variant={filterMode === "all" ? "default" : "outline"}
@@ -225,7 +215,7 @@ export function GorevOzeti() {
             className="text-xs"
           >
             <Users className="mr-1.5 h-3.5 w-3.5" />
-            Tümü ({tasksVisibleByProject.length})
+            Tümü ({tasks.length})
           </Button>
           {currentUserEmail && (
             <Button
@@ -235,7 +225,7 @@ export function GorevOzeti() {
               className="text-xs"
             >
               <User className="mr-1.5 h-3.5 w-3.5" />
-              Bana atanan ({tasksVisibleByProject.filter((t) => (t.assignee ?? "").toLowerCase().includes(currentUserEmail)).length})
+              Bana atanan ({tasks.filter((t) => (t.assignee ?? "").toLowerCase().includes(currentUserEmail)).length})
             </Button>
           )}
           <Button
@@ -290,7 +280,7 @@ export function GorevOzeti() {
       )}
 
       {/* İstatistik kartları — dar sütunda da okunaklı olsun (viewport lg değil panel genişliği); filtre boşken 0 göster */}
-      {tasksVisibleByProject.length > 0 && (
+      {tasks.length > 0 && (
         <div className="grid min-w-0 grid-cols-2 gap-2">
           <div className="min-w-0 rounded-lg border border-emerald-200 bg-emerald-50 p-2.5 transition-all hover:shadow-sm dark:border-emerald-700 dark:bg-emerald-900/20">
             <div className="flex items-center gap-2">

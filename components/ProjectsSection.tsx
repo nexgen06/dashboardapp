@@ -20,6 +20,8 @@ import {
 import type { Project, ProjectStatus, ProjectPriority } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   Dialog,
   DialogContent,
@@ -34,7 +36,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Search, PlusCircle, MoreVertical, Pencil, Archive, Trash2, RotateCw, Upload, FileText, UserPlus, X, Calendar, Flag } from "lucide-react";
+import { Search, PlusCircle, MoreVertical, Pencil, Archive, Trash2, RotateCw, Upload, FileText, UserPlus, X, Calendar, Flag, FolderKanban } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type NewProjectSubmitData = {
@@ -478,19 +480,6 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
   const currentUserEmail = (user?.email ?? "").toLowerCase();
   const isPageVariant = variant === "page";
   const canEditProject = hasPermission("projects.edit");
-  /** Projeyi gösterebilir mi: admin her zaman; atama varsa sadece atananlar, atama yoksa kimse (sadece admin). */
-  const canViewProject = useCallback(
-    (p: Project) => {
-      const email = currentUserEmail.trim().toLowerCase();
-      if (!email) return isAdmin;
-      return (
-        isAdmin ||
-        ((p.assigned_emails?.length ?? 0) > 0 &&
-          (p.assigned_emails ?? []).some((e) => String(e).trim().toLowerCase() === email))
-      );
-    },
-    [isAdmin, currentUserEmail]
-  );
   const canDeleteProject = hasPermission("projects.delete");
   const canArchiveProject = hasPermission("projects.archive");
   const {
@@ -519,7 +508,8 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
   const [formError, setFormError] = useState<string | null>(null);
 
   const filteredProjects = useMemo(() => {
-    let result = projects.filter(canViewProject);
+    // `projects` Supabase RLS tarafından sunucuda filtrelenmiş geliyor.
+    let result = projects;
     const q = search.trim().toLowerCase();
     if (q) {
       result = result.filter(
@@ -545,7 +535,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
       });
     }
     return result;
-  }, [projects, canViewProject, search, statusFilter, assignedToMeOnly, currentUserEmail, dateFrom, dateTo]);
+  }, [projects, search, statusFilter, assignedToMeOnly, currentUserEmail, dateFrom, dateTo]);
 
   const handleFormSubmit = async (data: NewProjectSubmitData) => {
     setIsSubmitting(true);
@@ -686,8 +676,28 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
 
   if (isLoading) {
     return (
-      <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-12 text-center text-slate-500 dark:text-slate-400">
-        Projeler yükleniyor…
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true" aria-label="Projeler yükleniyor">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div
+            key={i}
+            className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <Skeleton className="h-5 w-3/5" />
+              <Skeleton variant="circle" className="h-6 w-6" />
+            </div>
+            <Skeleton className="mt-3 h-3 w-full" />
+            <Skeleton className="mt-2 h-3 w-4/5" />
+            <div className="mt-4 flex items-center gap-2">
+              <Skeleton className="h-5 w-16" />
+              <Skeleton className="h-5 w-20" />
+            </div>
+            <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 dark:border-slate-700">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+          </div>
+        ))}
       </div>
     );
   }
@@ -782,24 +792,48 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
         </div>
 
         {filteredProjects.length === 0 ? (
-          <div className={cn("text-center", isPageVariant ? "py-16" : "py-12")}>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              {projects.length === 0
-                ? (isPageVariant ? "İlk projenizi oluşturun." : "Henüz proje yok.")
-                : "Arama veya filtreye uyan proje yok."}
-            </p>
-            {projects.length === 0 && canCreateProject && (
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => setFormOpen(true)}
-                className={cn("mt-3", isPageVariant ? "bg-slate-700 hover:bg-slate-800 dark:bg-slate-600 dark:hover:bg-slate-500" : "bg-blue-600 hover:bg-blue-700")}
-              >
-                <PlusCircle className="mr-2 h-4 w-4" />
-                Yeni proje
-              </Button>
-            )}
-          </div>
+          projects.length === 0 ? (
+            <EmptyState
+              icon={<FolderKanban className="h-10 w-10" />}
+              title="Henüz proje yok"
+              description={
+                canCreateProject
+                  ? "İlk projenizi oluşturarak başlayın. Aynı modal'dan CSV/JSON ile toplu görev de aktarabilirsiniz."
+                  : "Bir yöneticinizden size proje atanmasını isteyebilirsiniz."
+              }
+              action={
+                canCreateProject ? (
+                  <Button type="button" size="sm" onClick={() => setFormOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white">
+                    <PlusCircle className="mr-2 h-4 w-4" />
+                    Yeni proje
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <EmptyState
+              variant="compact"
+              icon={<Search className="h-8 w-8" />}
+              title="Eşleşen proje yok"
+              description="Arama veya filtre kriterlerinize uyan proje bulunamadı."
+              action={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSearch("");
+                    setStatusFilter("Tümü");
+                    setAssignedToMeOnly(false);
+                    setDateFrom("");
+                    setDateTo("");
+                  }}
+                >
+                  Filtreleri temizle
+                </Button>
+              }
+            />
+          )
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {filteredProjects.map((project) => {

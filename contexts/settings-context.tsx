@@ -196,7 +196,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
     const filterKey = LIVE_TABLE_DENSITY_APP_SETTINGS_KEY;
     const channel = supabase
-      .channel(`app_settings_${filterKey}`)
+      .channel(`app_settings_${filterKey}`, { config: { private: true } })
       .on(
         "postgres_changes",
         {

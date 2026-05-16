@@ -38,7 +38,8 @@
     --secondary: 217 33% 17%;
     --secondary-foreground: 210 40% 98%;
     --muted: 217 33% 17%;
-    --muted-foreground: 215 20% 65%;
+    /* WCAG AA için lightness 65 → 75: slate-300 seviyesi (kontrast oranı ~7.1:1) */
+    --muted-foreground: 215 20% 75%;
     --accent: 217 33% 17%;
     --accent-foreground: 210 40% 98%;
     --border: 217 33% 17%;
