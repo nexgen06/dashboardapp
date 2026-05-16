@@ -186,19 +186,25 @@ function ProjectFormModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const extraColumnKeys = parseExtraColumnKeysFromForm(extraColumnKeysText);
-    await onSubmit({
-      name: name.trim(),
-      description: description.trim(),
-      status,
-      due_date: dueDate.trim() || undefined,
-      priority: priority ? (priority as ProjectPriority) : undefined,
-      importFile: isEdit ? undefined : importFile ?? undefined,
-      assignee: isEdit ? undefined : (assignee.trim() || undefined),
-      assignedEmails: assignedEmails.length > 0 ? assignedEmails : undefined,
-      strictAssigneeVisibility: isAdmin ? strictAssigneeVisibility : undefined,
-      importRoundRobin: !isEdit ? importRoundRobin : undefined,
-      extraColumnKeys: extraColumnKeys.length > 0 ? extraColumnKeys : undefined,
-    });
+    try {
+      await onSubmit({
+        name: name.trim(),
+        description: description.trim(),
+        status,
+        due_date: dueDate.trim() || undefined,
+        priority: priority ? (priority as ProjectPriority) : undefined,
+        importFile: isEdit ? undefined : importFile ?? undefined,
+        assignee: isEdit ? undefined : (assignee.trim() || undefined),
+        // Boş dizi de göndermeli ki "tüm atananları kaldır" işlemi kaydedilebilsin
+        assignedEmails: assignedEmails,
+        strictAssigneeVisibility: isAdmin ? strictAssigneeVisibility : undefined,
+        importRoundRobin: !isEdit ? importRoundRobin : undefined,
+        extraColumnKeys: extraColumnKeys.length > 0 ? extraColumnKeys : undefined,
+      });
+    } catch {
+      // onSubmit içinde formError zaten set ediliyor; modal kapanmasın.
+      return;
+    }
     onOpenChange(false);
     setName("");
     setDescription("");
@@ -652,8 +658,18 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
       setFormError(null);
     } catch (e) {
       console.error("[Projects] Form submit failed:", e);
-      const message = e instanceof Error ? e.message : String(e);
+      // Supabase hatası genelde { code, message, details, hint } yapısındadır.
+      const supaErr = e as { code?: string; message?: string; details?: string; hint?: string };
+      const parts = [supaErr?.message, supaErr?.details, supaErr?.hint, supaErr?.code]
+        .filter((x) => x != null && String(x).trim() !== "");
+      const message = parts.length > 0
+        ? parts.join(" — ")
+        : e instanceof Error
+          ? e.message
+          : String(e);
       setFormError(message || "Proje oluşturulurken veya güncellenirken bir hata oluştu.");
+      // Form'un yakalayıp modal'ı açık tutması için re-throw et
+      throw e;
     } finally {
       setIsSubmitting(false);
     }
