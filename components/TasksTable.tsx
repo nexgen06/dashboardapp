@@ -383,10 +383,20 @@ function getExportValue(
     default:
       if (columnId.startsWith("extra:")) {
         const key = columnId.replace(/^extra:/, "");
-        return String(task.extra_data?.[key] ?? (t.extra_data as Record<string, string>)?.[key] ?? "");
+        const raw = String(task.extra_data?.[key] ?? (t.extra_data as Record<string, string>)?.[key] ?? "");
+        // GIZLILIK: TCKN/sicil/personel no gibi hassas sütunlar export'ta da maskeli kalır.
+        // Tam değer hiçbir CSV/Excel/PDF'ye sızmaz — UI'de gördüğü maskeli haliyle dışa çıkar.
+        return isSensitiveExtraColumnKey(key) ? maskSensitiveExtraValue(raw) : raw;
       }
       if (columnId === "detay") {
-        return task.extra_data ? JSON.stringify(task.extra_data) : "";
+        // Hassas alanları maskele — sonra JSON üret
+        if (!task.extra_data) return "";
+        const safe: Record<string, string> = {};
+        for (const [k, v] of Object.entries(task.extra_data)) {
+          const raw = String(v ?? "");
+          safe[k] = isSensitiveExtraColumnKey(k) ? maskSensitiveExtraValue(raw) : raw;
+        }
+        return JSON.stringify(safe);
       }
       return t[columnId] != null ? String(t[columnId]) : "";
   }
