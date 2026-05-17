@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import { useAuth } from "@/contexts/auth-context";
 import { TasksTable } from "@/components/TasksTable";
@@ -12,14 +12,58 @@ import { Section } from "@/components/ui/section";
 import { SectionHeader } from "@/components/ui/section-header";
 import ankaraHeader from "@/images/ankara.png";
 
+/** Proje filtresinin tutulduğu localStorage anahtarı (kullanıcı id bazlı). */
+const projectFilterStorageKey = (userId: string) =>
+  `dashboardapp.canli-tablo.projectFilter.v1:${userId}`;
+
+function readProjectFilter(userId: string | null): string[] {
+  if (typeof window === "undefined" || !userId) return [];
+  try {
+    const raw = localStorage.getItem(projectFilterStorageKey(userId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((x): x is string => typeof x === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeProjectFilter(userId: string | null, value: string[]) {
+  if (typeof window === "undefined" || !userId) return;
+  try {
+    localStorage.setItem(projectFilterStorageKey(userId), JSON.stringify(value));
+  } catch {
+    /* localStorage devre dışı veya dolu */
+  }
+}
+
 export default function CanliTabloPage() {
-  const { hasPermission, isLoaded } = useAuth();
+  const { hasPermission, isLoaded, user } = useAuth();
   const canLiveTable = hasPermission("area.liveTable") && hasPermission("liveTable.view");
+  const userId = user?.id ?? null;
   /**
    * Canlı Tablo ve Görev Özeti arasında paylaşılan proje filtresi.
-   * TasksTable toolbar'dan değiştirildiğinde GorevOzeti otomatik aynı kapsama döner.
+   * - SSR uyumu için initial state boş; mount sonrası localStorage'tan hydrate olur.
+   * - setProjectFilter çağrıldığında ANINDA (debounce yok) localStorage'a yazılır.
+   *   Böylece kullanıcı seçim yapıp hemen sayfa değiştirir/yenilerse kayıt korunur.
    */
-  const [projectFilter, setProjectFilter] = useState<string[]>([]);
+  const [projectFilter, setProjectFilterState] = useState<string[]>([]);
+
+  // Hydrate from localStorage after mount (user.id known).
+  useEffect(() => {
+    if (!userId) return;
+    setProjectFilterState(readProjectFilter(userId));
+  }, [userId]);
+
+  const setProjectFilter = useCallback(
+    (next: string[]) => {
+      setProjectFilterState(next);
+      writeProjectFilter(userId, next);
+    },
+    [userId]
+  );
 
   if (!isLoaded) {
     return (

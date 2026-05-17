@@ -76,7 +76,11 @@ export function loadLiveTablePrefs(userId: string): LiveTablePersistedPrefs | nu
         right: Array.isArray(right) ? right : [],
       },
       columnSizing: p.columnSizing && typeof p.columnSizing === "object" ? p.columnSizing : {},
-      sorting: Array.isArray(p.sorting) && p.sorting.length > 0 ? p.sorting : [{ id: "updated", desc: true }],
+      // Geçersiz/kaldırılmış sütun id'lerini ("updated" gibi) filtrele;
+      // boş kalırsa default sort'u uygula
+      sorting: Array.isArray(p.sorting)
+        ? p.sorting.filter((s) => s && typeof s.id === "string" && s.id !== "updated" && s.id !== "updated_at")
+        : [],
       filters: normalizeFilters(p.filters),
     };
   } catch {
