@@ -575,6 +575,18 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  /** Komut paletinden "Yeni proje" tetiklendiğinde formu aç */
+  useEffect(() => {
+    const openNew = () => {
+      if (canCreateProject) {
+        setEditingProject(null);
+        setFormOpen(true);
+      }
+    };
+    window.addEventListener("commandpalette:newProject", openNew);
+    return () => window.removeEventListener("commandpalette:newProject", openNew);
+  }, [canCreateProject]);
+
   const filteredProjects = useMemo(() => {
     // `projects` Supabase RLS tarafından sunucuda filtrelenmiş geliyor.
     let result = projects;

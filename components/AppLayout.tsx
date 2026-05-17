@@ -7,6 +7,7 @@ import { SettingsProvider } from "@/contexts/settings-context";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { ApplySettings } from "@/components/ApplySettings";
+import { CommandPalette } from "@/components/CommandPalette";
 import { ProjectChatUnreadProvider } from "@/contexts/project-chat-unread-context";
 
 /** Giriş sayfasında sidebar/header göstermez; diğer sayfalarda tam panel layout. */
@@ -23,6 +24,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       <SettingsProvider>
         <ProjectChatUnreadProvider>
           <ApplySettings />
+          <CommandPalette />
           <div className="flex min-h-screen">
             <Sidebar />
             <div className="flex flex-1 flex-col min-w-0">

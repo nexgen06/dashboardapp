@@ -125,32 +125,32 @@ const LIVE_TABLE_DENSITY_UI: Record<
 > = {
   compact: {
     table: "text-xs",
-    th: "px-2 py-1.5",
-    td: "px-2 py-1",
+    th: "px-2 py-1",
+    td: "px-2 py-0.5",
     grip: "h-3.5 w-3.5",
     colFilterBtn: "h-6 w-6",
     colMenuBtn: "h-6 w-6",
     sortIcon: "h-3.5 w-3.5",
     rowCheckbox: "h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500",
-    actionsBtn: "h-7 w-7",
+    actionsBtn: "h-6 w-6",
     selectHeaderSpan: "text-xs",
   },
   normal: {
     table: "text-sm",
-    th: "px-4 py-3",
-    td: "px-4 py-2",
+    th: "px-3 py-2",
+    td: "px-3 py-1",
     grip: "h-4 w-4",
     colFilterBtn: "h-7 w-7",
     colMenuBtn: "h-7 w-7",
     sortIcon: "h-4 w-4",
     rowCheckbox: "h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500",
-    actionsBtn: "h-8 w-8",
+    actionsBtn: "h-7 w-7",
     selectHeaderSpan: "text-xs",
   },
   comfortable: {
     table: "text-base",
-    th: "px-5 py-4",
-    td: "px-5 py-3",
+    th: "px-4 py-3",
+    td: "px-4 py-2",
     grip: "h-5 w-5",
     colFilterBtn: "h-8 w-8",
     colMenuBtn: "h-8 w-8",
@@ -1615,7 +1615,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     error,
     realtimeConnection,
   } = useTasksWithRealtime();
-  const { projects } = useProjects();
+  const { projects, updateProject } = useProjects();
   const { user, hasPermission, isAdmin } = useAuth();
   const { editorsByRowId, onlineUsers, setEditingRow } = usePresence({
     userEmail: user?.email ?? undefined,
@@ -1642,6 +1642,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const canExportCsv = hasPermission("liveTable.exportCsv");
   const canManageColumns = hasPermission("liveTable.manageColumns");
   const canAutoSizeColumns = hasPermission("liveTable.autoSizeColumns");
+  const canEditProject = hasPermission("projects.edit");
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [editTask, setEditTask] = useState<Task | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -1663,6 +1664,9 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  /** Ek sütun silme onay diyaloğu: hedef anahtar adı (extra:KEY -> KEY) veya null */
+  const [removeExtraColumnKey, setRemoveExtraColumnKey] = useState<string | null>(null);
+  const [removingExtraColumn, setRemovingExtraColumn] = useState(false);
   const toast = useToast();
   const [globalSearch, setGlobalSearch] = useState("");
   /** Varsayılan: sadece projeye bağlı görevler (standart tablo verisi gösterilmez) */
@@ -1695,10 +1699,9 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   // Eskiden "updated" idi ama o kolon kaldırıldı; kayıtlı kullanıcılar için
   // hydration aşamasında geçersiz sort id'leri normalleştiriliyor.
   const [sorting, setSorting] = useState<SortingState>([{ id: "status", desc: false }]);
-  const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 10 });
+  const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 25 });
   /** Sütun görünürlüğü — çoklu seçim ve tek seferde uygulama için taslak */
   const [columnPickerOpen, setColumnPickerOpen] = useState(false);
-  const [columnVisibilityDraft, setColumnVisibilityDraft] = useState<Record<string, boolean>>({});
   const [columnPickerSearch, setColumnPickerSearch] = useState("");
   const [advancedFilterRules, setAdvancedFilterRules] = useState<AdvancedFilterRule[]>([]);
   const [advancedFilterOpen, setAdvancedFilterOpen] = useState(false);
@@ -2179,6 +2182,20 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     setColumnFilters({});
     setAdvancedFilterRules([]);
   }, []);
+
+  /** Komut paleti eylemlerini dinle */
+  useEffect(() => {
+    const openNew = () => {
+      if (canCreateTask) setNewTaskOpen(true);
+    };
+    const clear = () => clearFilters();
+    window.addEventListener("commandpalette:newTask", openNew);
+    window.addEventListener("commandpalette:clearFilters", clear);
+    return () => {
+      window.removeEventListener("commandpalette:newTask", openNew);
+      window.removeEventListener("commandpalette:clearFilters", clear);
+    };
+  }, [canCreateTask, clearFilters]);
 
   // Sütun için benzersiz değerleri hesapla
   const getUniqueValuesForColumn = useCallback((columnId: string): string[] => {
@@ -2999,11 +3016,33 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
 
   const openColumnPicker = useCallback(() => {
     setColumnPickerSearch("");
-    setColumnVisibilityDraft(
-      Object.fromEntries(table.getAllLeafColumns().map((c) => [c.id, c.getIsVisible()]))
-    );
     setColumnPickerOpen(true);
-  }, [table]);
+  }, []);
+
+  /** Tek sütunun görünürlüğünü anında değiştir (draft yok, Uygula yok). */
+  const toggleColumnVisibilityInstant = useCallback((columnId: string, show: boolean) => {
+    setColumnVisibility((prev) => {
+      const next = { ...prev };
+      if (show) delete next[columnId];
+      else next[columnId] = false;
+      return next;
+    });
+  }, []);
+
+  /** Birden fazla sütunu birlikte göster veya gizle. */
+  const setManyColumnVisibilityInstant = useCallback(
+    (columnIds: string[], show: boolean) => {
+      setColumnVisibility((prev) => {
+        const next = { ...prev };
+        for (const id of columnIds) {
+          if (show) delete next[id];
+          else next[id] = false;
+        }
+        return next;
+      });
+    },
+    []
+  );
 
   /** Sürüklenen sütun sırası ve sol/sağ sabitlemeleri varsayılana döner (görünürlük ve genişlik aynı kalır). */
   const resetColumnOrderToDefault = useCallback(() => {
@@ -3068,6 +3107,96 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       });
     }
   }, [selectedIds, selectedTasks, deleteTasks, createTasksBulk, toast]);
+
+  /**
+   * Ek sütun silme etkisi: kaç projenin şeması ve kaç görevin verisi etkilenecek.
+   * Kapsam: proje filtresi aktifse o projeler; değilse anahtarın bulunduğu tüm projeler.
+   */
+  const removeExtraColumnImpact = useMemo(() => {
+    if (!removeExtraColumnKey) return { projects: [] as typeof projects, taskCount: 0 };
+    const key = removeExtraColumnKey;
+    const scopeProjectIds = scopedProjectIdSet;
+    const affectedProjects = projects.filter((p) => {
+      if (scopeProjectIds != null && !scopeProjectIds.has(p.id)) return false;
+      return (p.extra_column_keys ?? []).some((k) => String(k ?? "").trim() === key);
+    });
+    const affectedProjectIdSet = new Set(affectedProjects.map((p) => p.id));
+    const taskCount = tasks.reduce((acc, t) => {
+      if (t.extra_data == null || typeof t.extra_data !== "object") return acc;
+      if (!(key in t.extra_data)) return acc;
+      // Görev kapsamı: filtre varsa sadece filtredeki projeler;
+      // filtre yoksa: etkilenen projelerden birine bağlı veya projesiz görevler dahil
+      if (scopeProjectIds != null) {
+        if (t.project_id == null) return acc;
+        if (!scopeProjectIds.has(String(t.project_id))) return acc;
+      } else {
+        if (t.project_id != null && !affectedProjectIdSet.has(String(t.project_id))) return acc;
+      }
+      return acc + 1;
+    }, 0);
+    return { projects: affectedProjects, taskCount };
+  }, [removeExtraColumnKey, projects, tasks, scopedProjectIdSet]);
+
+  const executeRemoveExtraColumn = useCallback(async () => {
+    if (!removeExtraColumnKey) return;
+    const key = removeExtraColumnKey;
+    const { projects: affectedProjects, taskCount } = removeExtraColumnImpact;
+    setRemovingExtraColumn(true);
+    try {
+      // 1) Projelerin extra_column_keys şemasından anahtarı çıkar
+      for (const p of affectedProjects) {
+        const next = (p.extra_column_keys ?? []).filter((k) => String(k ?? "").trim() !== key);
+        await updateProject(p.id, { extra_column_keys: next });
+      }
+      // 2) Kapsamdaki görevlerin extra_data'sından anahtarı temizle
+      const affectedProjectIdSet = new Set(affectedProjects.map((p) => p.id));
+      const scopeProjectIds = scopedProjectIdSet;
+      const tasksToClear = tasks.filter((t) => {
+        if (t.extra_data == null || typeof t.extra_data !== "object") return false;
+        if (!(key in t.extra_data)) return false;
+        if (scopeProjectIds != null) {
+          return t.project_id != null && scopeProjectIds.has(String(t.project_id));
+        }
+        return t.project_id == null || affectedProjectIdSet.has(String(t.project_id));
+      });
+      for (const t of tasksToClear) {
+        const nextExtra = { ...(t.extra_data ?? {}) };
+        delete nextExtra[key];
+        const nextValue = Object.keys(nextExtra).length > 0 ? nextExtra : null;
+        await saveTask(t.id, { extra_data: nextValue });
+        updateTaskOptimistic(t.id, { extra_data: nextValue });
+      }
+      setRemoveExtraColumnKey(null);
+      const projCount = affectedProjects.length;
+      toast.success(
+        `“${key}” sütunu kaldırıldı` +
+          (projCount > 0 || taskCount > 0
+            ? ` (${projCount} proje şeması, ${taskCount} görev verisi)`
+            : "")
+      );
+      await fetchTasks();
+    } catch (e) {
+      const msg =
+        e instanceof Error
+          ? e.message
+          : typeof e === "object" && e !== null && "message" in e
+            ? String((e as { message: unknown }).message)
+            : "Sütun kaldırılamadı.";
+      toast.error(msg);
+    } finally {
+      setRemovingExtraColumn(false);
+    }
+  }, [
+    removeExtraColumnKey,
+    removeExtraColumnImpact,
+    tasks,
+    scopedProjectIdSet,
+    updateProject,
+    saveTask,
+    updateTaskOptimistic,
+    fetchTasks,
+    toast,
+  ]);
 
   const handleBulkStatusUpdate = useCallback(
     async (status: string) => {
@@ -4114,32 +4243,28 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                 Kolonları göster
               </Button>
               <DialogContent
-                className="flex max-h-[min(90dvh,36rem)] max-w-md flex-col gap-0 overflow-hidden border-slate-200 p-0 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 sm:max-w-md"
+                className="flex max-h-[min(90dvh,36rem)] max-w-lg flex-col gap-0 overflow-hidden border-slate-200 p-0 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 sm:max-w-lg"
                 showClose
               >
-                <div className="shrink-0 space-y-1 border-b border-slate-200 px-6 pb-4 pt-6 dark:border-slate-700">
-                  <DialogHeader className="space-y-2 text-left">
-                    <DialogTitle>Sütun görünürlüğü</DialogTitle>
-                    <DialogDescription className="text-slate-600 dark:text-slate-400">
-                      İstediğiniz sütunları işaretleyin; birden çok seçim yapabilirsiniz. Aşağıdaki «Uygula» ile tabloya yansıtın.
+                <div className="shrink-0 space-y-3 border-b border-slate-200 px-5 pb-3 pt-5 dark:border-slate-700">
+                  <DialogHeader className="space-y-1 text-left">
+                    <DialogTitle className="text-base">Sütun görünürlüğü</DialogTitle>
+                    <DialogDescription className="text-xs text-slate-600 dark:text-slate-400">
+                      Bir rozete tıkla; sütun anında gösterilir veya gizlenir. Dolu = görünür, soluk = gizli.
                     </DialogDescription>
                   </DialogHeader>
-                </div>
-                <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-4">
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="h-8 text-xs"
+                      className="h-7 px-2 text-xs"
                       onClick={() => {
-                        setColumnVisibilityDraft((d) => {
-                          const next = { ...d };
-                          table.getAllLeafColumns().forEach((col) => {
-                            if (col.getCanHide()) next[col.id] = true;
-                          });
-                          return next;
-                        });
+                        const ids = table
+                          .getAllLeafColumns()
+                          .filter((c) => c.getCanHide())
+                          .map((c) => c.id);
+                        setManyColumnVisibilityInstant(ids, true);
                       }}
                     >
                       Tümünü göster
@@ -4148,101 +4273,165 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="h-8 text-xs"
+                      className="h-7 px-2 text-xs"
                       onClick={() => {
-                        setColumnVisibilityDraft((d) => {
-                          const next = { ...d };
-                          table.getAllLeafColumns().forEach((col) => {
-                            if (col.getCanHide()) next[col.id] = false;
-                          });
-                          return next;
-                        });
+                        const ids = table
+                          .getAllLeafColumns()
+                          .filter((c) => c.getCanHide())
+                          .map((c) => c.id);
+                        setManyColumnVisibilityInstant(ids, false);
                       }}
                     >
-                      Seçilebilirleri gizle
+                      Hepsini gizle
                     </Button>
-                  </div>
-                  <div className="relative">
-                    <Search
-                      className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500"
-                      aria-hidden
-                    />
-                    <input
-                      type="search"
-                      autoComplete="off"
-                      placeholder="Sütun ara…"
-                      value={columnPickerSearch}
-                      onChange={(e) => setColumnPickerSearch(e.target.value)}
-                      className="h-9 w-full rounded-md border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
-                    />
-                  </div>
-                  <div className="max-h-[min(40vh,16rem)] space-y-0.5 overflow-y-auto rounded-md border border-slate-200 p-2 sm:max-h-[min(45vh,18rem)] dark:border-slate-600">
-                    {table
-                      .getAllLeafColumns()
-                      .filter((col) => {
-                        const label =
-                          COLUMN_VISIBILITY_LABELS[col.id] ??
-                          (String(col.id).startsWith("extra:") ? String(col.id).replace(/^extra:/, "") : col.id);
-                        return label.toLowerCase().includes(columnPickerSearch.trim().toLowerCase());
-                      })
-                      .map((col) => {
-                        const label =
-                          COLUMN_VISIBILITY_LABELS[col.id] ??
-                          (String(col.id).startsWith("extra:") ? String(col.id).replace(/^extra:/, "") : col.id);
-                        const canHide = col.getCanHide();
-                        const checked = columnVisibilityDraft[col.id] ?? col.getIsVisible();
-                        return (
-                          <label
-                            key={col.id}
-                            className={cn(
-                              "flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 hover:bg-slate-50 dark:hover:bg-slate-700/60",
-                              !canHide && "cursor-not-allowed opacity-70 hover:bg-transparent dark:hover:bg-transparent"
-                            )}
-                          >
-                            <input
-                              type="checkbox"
-                              className="h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-500 dark:bg-slate-800"
-                              checked={checked}
-                              disabled={!canHide}
-                              onChange={(e) => {
-                                if (!canHide) return;
-                                setColumnVisibilityDraft((d) => ({ ...d, [col.id]: e.target.checked }));
-                              }}
-                            />
-                            <span className="min-w-0 flex-1 text-sm text-slate-800 dark:text-slate-200">{label}</span>
-                            {!canHide && (
-                              <span className="shrink-0 text-ui-caption font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                zorunlu
-                              </span>
-                            )}
-                          </label>
-                        );
-                      })}
+                    <div className="relative ml-auto flex-1 min-w-[140px]">
+                      <Search
+                        className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400 dark:text-slate-500"
+                        aria-hidden
+                      />
+                      <input
+                        type="search"
+                        autoComplete="off"
+                        placeholder="Sütun ara…"
+                        value={columnPickerSearch}
+                        onChange={(e) => setColumnPickerSearch(e.target.value)}
+                        className="h-7 w-full rounded-md border border-slate-200 bg-white py-1 pl-7 pr-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
+                      />
+                    </div>
                   </div>
                 </div>
-                <DialogFooter className="shrink-0 gap-2 border-t border-slate-200 bg-white px-6 py-4 dark:border-slate-700 dark:bg-slate-800 sm:gap-2">
-                  <Button type="button" variant="outline" onClick={() => setColumnPickerOpen(false)}>
-                    İptal
-                  </Button>
-                  <Button
-                    type="button"
-                    className="bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700"
-                    onClick={() => {
-                      setColumnVisibility((prev) => {
-                        const next = { ...prev };
-                        for (const column of table.getAllLeafColumns()) {
-                          if (!column.getCanHide()) continue;
-                          const show = columnVisibilityDraft[column.id] ?? column.getIsVisible();
-                          if (show) delete next[column.id];
-                          else next[column.id] = false;
-                        }
-                        return next;
-                      });
-                      setColumnPickerOpen(false);
-                    }}
-                  >
-                    Uygula
-                  </Button>
+                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+                  {(() => {
+                    const q = columnPickerSearch.trim().toLowerCase();
+                    const allCols = table.getAllLeafColumns();
+                    const matches = allCols.filter((col) => {
+                      const label =
+                        COLUMN_VISIBILITY_LABELS[col.id] ??
+                        (String(col.id).startsWith("extra:")
+                          ? String(col.id).replace(/^extra:/, "")
+                          : col.id);
+                      return q === "" || label.toLowerCase().includes(q);
+                    });
+                    const baseCols = matches.filter((c) => !c.id.startsWith("extra:"));
+                    const extraCols = matches.filter((c) => c.id.startsWith("extra:"));
+
+                    const renderChip = (col: (typeof matches)[number]) => {
+                      const label =
+                        COLUMN_VISIBILITY_LABELS[col.id] ??
+                        (String(col.id).startsWith("extra:")
+                          ? String(col.id).replace(/^extra:/, "")
+                          : col.id);
+                      const canHide = col.getCanHide();
+                      const visible = col.getIsVisible();
+                      return (
+                        <button
+                          key={col.id}
+                          type="button"
+                          disabled={!canHide}
+                          onClick={() => {
+                            if (!canHide) return;
+                            toggleColumnVisibilityInstant(col.id, !visible);
+                          }}
+                          aria-pressed={visible}
+                          title={
+                            !canHide
+                              ? "Bu sütun zorunlu — gizlenemez"
+                              : visible
+                                ? "Tıkla: gizle"
+                                : "Tıkla: göster"
+                          }
+                          className={cn(
+                            "group inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all",
+                            visible
+                              ? "border-blue-300 bg-blue-100 text-blue-800 shadow-sm hover:bg-blue-200 dark:border-blue-700 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-900/60"
+                              : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200",
+                            !canHide && "cursor-not-allowed opacity-70 hover:bg-white dark:hover:bg-slate-800"
+                          )}
+                        >
+                          {visible ? (
+                            <Check className="h-3 w-3 shrink-0" aria-hidden />
+                          ) : (
+                            <Circle className="h-3 w-3 shrink-0 opacity-50" aria-hidden />
+                          )}
+                          <span className="truncate max-w-[160px]">{label}</span>
+                          {!canHide && (
+                            <span className="ml-0.5 rounded-sm bg-slate-200 px-1 text-[9px] uppercase tracking-wide text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                              zorunlu
+                            </span>
+                          )}
+                        </button>
+                      );
+                    };
+
+                    if (matches.length === 0) {
+                      return (
+                        <div className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                          “{columnPickerSearch}” için sütun bulunamadı
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <>
+                        {baseCols.length > 0 && (
+                          <section>
+                            <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                              Sabit sütunlar ({baseCols.filter((c) => c.getIsVisible()).length}/{baseCols.length})
+                            </h4>
+                            <div className="flex flex-wrap gap-2">{baseCols.map(renderChip)}</div>
+                          </section>
+                        )}
+                        {extraCols.length > 0 && (
+                          <section>
+                            <div className="mb-2 flex items-center justify-between">
+                              <h4 className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                Ek sütunlar ({extraCols.filter((c) => c.getIsVisible()).length}/{extraCols.length})
+                              </h4>
+                              <div className="flex gap-1">
+                                <button
+                                  type="button"
+                                  className="text-[10px] font-medium uppercase tracking-wide text-blue-600 hover:underline dark:text-blue-400"
+                                  onClick={() =>
+                                    setManyColumnVisibilityInstant(
+                                      extraCols.map((c) => c.id),
+                                      true
+                                    )
+                                  }
+                                >
+                                  Tümü
+                                </button>
+                                <span className="text-[10px] text-slate-400">·</span>
+                                <button
+                                  type="button"
+                                  className="text-[10px] font-medium uppercase tracking-wide text-slate-500 hover:underline dark:text-slate-400"
+                                  onClick={() =>
+                                    setManyColumnVisibilityInstant(
+                                      extraCols.map((c) => c.id),
+                                      false
+                                    )
+                                  }
+                                >
+                                  Hiçbiri
+                                </button>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap gap-2">{extraCols.map(renderChip)}</div>
+                          </section>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+                <DialogFooter className="shrink-0 border-t border-slate-200 bg-slate-50 px-5 py-3 dark:border-slate-700 dark:bg-slate-800/80">
+                  <div className="flex w-full items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                    <span>
+                      {table.getAllLeafColumns().filter((c) => c.getIsVisible()).length} /{" "}
+                      {table.getAllLeafColumns().length} sütun görünür
+                    </span>
+                    <Button type="button" size="sm" onClick={() => setColumnPickerOpen(false)}>
+                      Kapat
+                    </Button>
+                  </div>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
@@ -4355,6 +4544,75 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
               disabled={selectedIds.length === 0}
             >
               Sil
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={removeExtraColumnKey != null}
+        onOpenChange={(open) => {
+          if (!open && !removingExtraColumn) setRemoveExtraColumnKey(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md" showClose>
+          <DialogHeader>
+            <DialogTitle>Sütunu kaldır: “{removeExtraColumnKey}”</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                {removeExtraColumnImpact.projects.length === 0 && removeExtraColumnImpact.taskCount === 0 ? (
+                  <p>Bu sütun aktif kapsamda görünmüyor; kaldıracak bir şey yok.</p>
+                ) : (
+                  <>
+                    <p>
+                      Aşağıdaki değişiklikler uygulanacak. <strong>Bu işlem geri alınamaz.</strong>
+                    </p>
+                    <ul className="ml-4 list-disc space-y-1">
+                      <li>
+                        <strong>{removeExtraColumnImpact.projects.length}</strong> projenin şemasından
+                        (“Canlı tablo ek sütunları”) kaldırılacak.
+                      </li>
+                      <li>
+                        <strong>{removeExtraColumnImpact.taskCount}</strong> görevdeki bu alanın verisi
+                        silinecek.
+                      </li>
+                    </ul>
+                    {removeExtraColumnImpact.projects.length > 0 && (
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Etkilenen projeler:{" "}
+                        {removeExtraColumnImpact.projects
+                          .slice(0, 3)
+                          .map((p) => p.name)
+                          .join(", ")}
+                        {removeExtraColumnImpact.projects.length > 3
+                          ? ` +${removeExtraColumnImpact.projects.length - 3} daha`
+                          : ""}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setRemoveExtraColumnKey(null)}
+              disabled={removingExtraColumn}
+            >
+              İptal
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void executeRemoveExtraColumn()}
+              disabled={
+                removingExtraColumn ||
+                (removeExtraColumnImpact.projects.length === 0 &&
+                  removeExtraColumnImpact.taskCount === 0)
+              }
+            >
+              {removingExtraColumn ? "Kaldırılıyor…" : "Sütunu kaldır"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -4609,6 +4867,18 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                             <DropdownMenuItem onClick={() => pinColumn(col.id, "left")}>Sol tarafa sabitle</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => pinColumn(col.id, "right")}>Sağ tarafa sabitle</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => pinColumn(col.id, "unpin")}>Sabitlemeyi kaldır</DropdownMenuItem>
+                            {col.id.startsWith("extra:") && canEditProject && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
+                                  onClick={() => setRemoveExtraColumnKey(col.id.slice("extra:".length))}
+                                >
+                                  <Trash2 className="mr-2 h-4 w-4" aria-hidden />
+                                  Bu sütunu projeden kaldır…
+                                </DropdownMenuItem>
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
