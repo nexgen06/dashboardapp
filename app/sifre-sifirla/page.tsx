@@ -1,11 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
-import { KeyRound, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { KeyRound, Loader2, CheckCircle2, AlertCircle, Check, X } from "lucide-react";
+import {
+  evaluatePassword,
+  PASSWORD_POLICY,
+  passwordStrengthColor,
+  passwordStrengthLabel,
+} from "@/lib/passwordPolicy";
+import { cn } from "@/lib/utils";
 
 /**
  * Şifre sıfırlama callback sayfası.
@@ -70,11 +77,13 @@ export default function SifreSifirlaPage() {
     };
   }, []);
 
+  const evaluation = useMemo(() => evaluatePassword(password), [password]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (password.length < 6) {
-      setError("Şifre en az 6 karakter olmalı.");
+    if (!evaluation.valid) {
+      setError(evaluation.firstFailureMessage ?? "Şifre politikayı karşılamıyor.");
       return;
     }
     if (password !== confirm) {
@@ -117,7 +126,7 @@ export default function SifreSifirlaPage() {
                 </span>
                 <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Yeni şifre belirle</h1>
                 <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                  En az 6 karakter olacak şekilde yeni bir şifre seç.
+                  Güvenli bir şifre seç — büyük/küçük harf, rakam içermeli.
                 </p>
               </div>
               <form onSubmit={handleSubmit} className="space-y-4">
@@ -132,11 +141,57 @@ export default function SifreSifirlaPage() {
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
                     required
-                    minLength={6}
+                    minLength={PASSWORD_POLICY.minLength}
                     autoComplete="new-password"
                     autoFocus
                     className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
                   />
+                  {/* Strength meter + checks — sadece kullanıcı yazmaya başladıysa */}
+                  {password.length > 0 && (
+                    <div className="mt-2 space-y-2">
+                      {/* 4 bar — score 0..4 */}
+                      <div className="flex items-center gap-1.5">
+                        <div className="flex flex-1 gap-1">
+                          {[1, 2, 3, 4].map((i) => (
+                            <div
+                              key={i}
+                              className={cn(
+                                "h-1.5 flex-1 rounded-full transition-colors",
+                                i <= evaluation.score
+                                  ? passwordStrengthColor(evaluation.score)
+                                  : "bg-slate-200 dark:bg-slate-700"
+                              )}
+                            />
+                          ))}
+                        </div>
+                        <span
+                          className={cn(
+                            "min-w-[64px] shrink-0 text-right text-[11px] font-semibold",
+                            evaluation.score >= 3
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : evaluation.score === 2
+                                ? "text-amber-600 dark:text-amber-400"
+                                : "text-red-600 dark:text-red-400"
+                          )}
+                        >
+                          {passwordStrengthLabel(evaluation.score)}
+                        </span>
+                      </div>
+                      {/* Checks listesi */}
+                      <ul className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                        <RuleItem ok={evaluation.checks.length} label={`En az ${PASSWORD_POLICY.minLength} karakter`} />
+                        <RuleItem ok={evaluation.checks.upper} label="Büyük harf (A-Z)" />
+                        <RuleItem ok={evaluation.checks.lower} label="Küçük harf (a-z)" />
+                        <RuleItem ok={evaluation.checks.digit} label="Rakam (0-9)" />
+                        <RuleItem ok={evaluation.checks.notCommon} label="Yaygın şifre değil" />
+                        <RuleItem
+                          ok={evaluation.checks.special}
+                          label="Özel karakter (öneri)"
+                          optional
+                        />
+                      </ul>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label htmlFor="confirm-password" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -149,17 +204,31 @@ export default function SifreSifirlaPage() {
                     onChange={(e) => setConfirm(e.target.value)}
                     placeholder="••••••••"
                     required
-                    minLength={6}
+                    minLength={PASSWORD_POLICY.minLength}
                     autoComplete="new-password"
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                    className={cn(
+                      "w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:bg-slate-700 dark:text-slate-100",
+                      confirm.length > 0 && confirm !== password
+                        ? "border-red-300 dark:border-red-700"
+                        : "border-slate-300 dark:border-slate-600"
+                    )}
                   />
+                  {confirm.length > 0 && confirm !== password && (
+                    <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">
+                      Şifreler eşleşmiyor
+                    </p>
+                  )}
                 </div>
                 {error && (
                   <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-700 dark:bg-red-950/50 dark:text-red-200">
                     {error}
                   </div>
                 )}
-                <Button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 hover:bg-blue-700 text-white">
+                <Button
+                  type="submit"
+                  disabled={isSubmitting || !evaluation.valid || password !== confirm}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                >
                   {isSubmitting ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -205,5 +274,28 @@ export default function SifreSifirlaPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** Tek satır kural göstergesi — ✓ veya ✗ icon + etiket. */
+function RuleItem({ ok, label, optional = false }: { ok: boolean; label: string; optional?: boolean }) {
+  return (
+    <li
+      className={cn(
+        "flex items-center gap-1.5",
+        ok
+          ? "text-emerald-600 dark:text-emerald-400"
+          : optional
+            ? "text-slate-400 dark:text-slate-500"
+            : "text-slate-500 dark:text-slate-400"
+      )}
+    >
+      {ok ? (
+        <Check className="h-3 w-3 shrink-0" aria-hidden />
+      ) : (
+        <X className="h-3 w-3 shrink-0 opacity-50" aria-hidden />
+      )}
+      <span>{label}</span>
+    </li>
   );
 }
