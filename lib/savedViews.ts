@@ -95,6 +95,30 @@ export type CreateSavedViewInput = {
   target?: string;
 };
 
+/**
+ * Supabase PostgrestError'u kullanıcı dostu hata mesajına çevirir.
+ * "saved_views does not exist" → SQL henüz çalıştırılmamış uyarısı.
+ */
+function toFriendlyError(err: unknown): Error {
+  if (!err || typeof err !== "object") return new Error("Bilinmeyen hata");
+  const e = err as { message?: string; code?: string; details?: string; hint?: string };
+  const raw = e.message ?? "";
+
+  // Tablo yok
+  if (e.code === "42P01" || /relation\s+"?(public\.)?saved_views"?\s+does not exist/i.test(raw)) {
+    return new Error(
+      "saved_views tablosu Supabase'de yok. scripts/saved-views.sql dosyasını Supabase Studio → SQL Editor'da çalıştırman gerek."
+    );
+  }
+  // RLS engel
+  if (e.code === "42501" || /row-level security|permission denied/i.test(raw)) {
+    return new Error("Bu işlem için yetki yok (RLS reddetti). saved-views.sql'in çalıştığını ve oturumun açık olduğunu kontrol et.");
+  }
+  // Unique / check constraint
+  if (raw) return new Error(raw);
+  return new Error("Bilinmeyen hata");
+}
+
 export async function createSavedView(input: CreateSavedViewInput): Promise<SavedView> {
   const { data: sess } = await supabase.auth.getSession();
   const userId = sess.session?.user?.id;
@@ -111,7 +135,10 @@ export async function createSavedView(input: CreateSavedViewInput): Promise<Save
     })
     .select("id, user_id, scope, name, description, target, config, created_at, updated_at")
     .single();
-  if (error) throw error;
+  if (error) {
+    console.error("[savedViews] create failed:", error);
+    throw toFriendlyError(error);
+  }
   return rowToView(data as RawRow);
 }
 
@@ -134,13 +161,19 @@ export async function updateSavedView(id: string, patch: UpdateSavedViewInput): 
     .eq("id", id)
     .select("id, user_id, scope, name, description, target, config, created_at, updated_at")
     .single();
-  if (error) throw error;
+  if (error) {
+    console.error("[savedViews] update failed:", error);
+    throw toFriendlyError(error);
+  }
   return rowToView(data as RawRow);
 }
 
 export async function deleteSavedView(id: string): Promise<void> {
   const { error } = await supabase.from("saved_views").delete().eq("id", id);
-  if (error) throw error;
+  if (error) {
+    console.error("[savedViews] delete failed:", error);
+    throw toFriendlyError(error);
+  }
 }
 
 /** İki view config'i derin karşılaştır — "Değiştirildi" rozeti için */
