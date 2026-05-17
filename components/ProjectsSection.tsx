@@ -58,6 +58,8 @@ export type NewProjectSubmitData = {
   strictAssigneeVisibility?: boolean;
   /** Canlı tabloda bu proje için önceden gösterilecek ek sütun adları (`extra_data` anahtarları). */
   extraColumnKeys?: string[];
+  /** Görev başlığı (Kanban/Özet) için kullanılacak extra_data anahtarı. Boş → otomatik. */
+  titleColumn?: string | null;
   /** Yeni proje + dosya: atanan e-posta listesine round-robin (en az 2 e-posta). */
   importRoundRobin?: boolean;
   /**
@@ -150,6 +152,7 @@ function ProjectFormModal({
   const [strictAssigneeVisibility, setStrictAssigneeVisibility] = useState(false);
   const [importRoundRobin, setImportRoundRobin] = useState(false);
   const [extraColumnKeysText, setExtraColumnKeysText] = useState("");
+  const [titleColumn, setTitleColumn] = useState<string>("");
   /** 2-adım sihirbazı: 1 = proje bilgileri, 2 = opsiyonel görev içe aktarma. Edit modunda kullanılmaz. */
   const [step, setStep] = useState<1 | 2>(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -176,6 +179,7 @@ function ProjectFormModal({
       setStrictAssigneeVisibility(project.strict_assignee_visibility ?? false);
       setImportRoundRobin(false);
       setExtraColumnKeysText((project.extra_column_keys ?? []).join("\n"));
+      setTitleColumn(project.title_column ?? "");
       setStep(1);
     } else if (open && !project) {
       setName("");
@@ -194,6 +198,7 @@ function ProjectFormModal({
       setStrictAssigneeVisibility(false);
       setImportRoundRobin(false);
       setExtraColumnKeysText("");
+      setTitleColumn("");
       setStep(1);
     }
   }, [open, project]);
@@ -325,6 +330,7 @@ function ProjectFormModal({
         strictAssigneeVisibility: isAdmin ? strictAssigneeVisibility : undefined,
         importRoundRobin: !isEdit ? importRoundRobin : undefined,
         extraColumnKeys: extraColumnKeys.length > 0 ? extraColumnKeys : undefined,
+        titleColumn: titleColumn.trim() || null,
         selectedImportColumns:
           !isEdit && importFile && importPreview
             ? importPreview.headers.filter((h) =>
@@ -486,6 +492,43 @@ function ProjectFormModal({
               <code className="text-[0.7rem]">extra_column_keys</code> sütunu gerekir.
             </p>
           </div>
+
+          {/* Başlık sütunu — Kanban kartı, Görev Özeti vb. için */}
+          {(() => {
+            const availableKeys = parseExtraColumnKeysFromForm(extraColumnKeysText);
+            return (
+              <div>
+                <label
+                  htmlFor="project-title-column"
+                  className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300"
+                >
+                  Görev başlığı sütunu (opsiyonel)
+                </label>
+                <select
+                  id="project-title-column"
+                  value={titleColumn}
+                  onChange={(e) => setTitleColumn(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                >
+                  <option value="">— Otomatik (Başlık / Görev / Ad…) —</option>
+                  {availableKeys.map((k) => (
+                    <option key={k} value={k}>
+                      {k}
+                    </option>
+                  ))}
+                  {/* Mevcut seçim listede yoksa yine göster (proje önceden başka sütunla kaydedilmiş olabilir) */}
+                  {titleColumn && !availableKeys.includes(titleColumn) && (
+                    <option value={titleColumn}>{titleColumn} (eski seçim)</option>
+                  )}
+                </select>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  Görevin <strong>content</strong> alanı boşsa Kanban kartı, Görev Özeti ve
+                  mobil kart için <strong>bu sütundaki değer</strong> başlık olarak kullanılır.
+                  Boş bırakırsan otomatik (Başlık / Görev / Ad / Title…) sırasıyla denenir.
+                </p>
+              </div>
+            );
+          })()}
 
           <div>
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
@@ -918,6 +961,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
           priority: data.priority ?? null,
           extra_column_keys:
             data.extraColumnKeys && data.extraColumnKeys.length > 0 ? data.extraColumnKeys : [],
+          title_column: data.titleColumn ?? null,
           ...(isAdmin
             ? { strict_assignee_visibility: data.strictAssigneeVisibility ?? false }
             : {}),
@@ -937,6 +981,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
         strict_assignee_visibility: isAdmin ? (data.strictAssigneeVisibility ?? false) : false,
         extra_column_keys:
           data.extraColumnKeys && data.extraColumnKeys.length > 0 ? data.extraColumnKeys : undefined,
+        title_column: data.titleColumn ?? null,
       });
       if (data.importFile && projectId) {
         const text = await data.importFile.text();

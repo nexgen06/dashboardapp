@@ -49,9 +49,21 @@ export function GorevOzeti({ projectFilter = [] }: GorevOzetiProps = {}) {
     () => parseListOptionString(settings.taskSummaryPreferredExtraKeys),
     [settings.taskSummaryPreferredExtraKeys]
   );
+  /** Proje-bazlı başlık sütunu lookup'ı — getTaskDisplayLabel'a aktarılır */
+  const projectTitleColumnById = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const p of projects) m.set(p.id, p.title_column ?? null);
+    return m;
+  }, [projects]);
   const taskLabel = useCallback(
-    (task: Task) => getTaskDisplayLabel(task, summaryExtraKeys),
-    [summaryExtraKeys]
+    (task: Task) =>
+      getTaskDisplayLabel(task, {
+        projectTitleColumn: task.project_id
+          ? projectTitleColumnById.get(String(task.project_id))
+          : null,
+        preferredExtraKeys: summaryExtraKeys,
+      }),
+    [summaryExtraKeys, projectTitleColumnById]
   );
 
   // `projects` ve `tasks` Supabase RLS tarafından sunucu tarafında filtrelenmiş geliyor.

@@ -165,6 +165,12 @@ export function TasksKanban({ projectFilter = [] }: Props) {
     for (const p of projects) m.set(p.id, p.name);
     return m;
   }, [projects]);
+  /** Proje-bazlı başlık sütunu lookup'ı — Kanban kartı başlığını projeye göre seçer */
+  const projectTitleColumnById = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const p of projects) m.set(p.id, p.title_column ?? null);
+    return m;
+  }, [projects]);
 
   const handleDragStart = (taskId: string) => (e: React.DragEvent) => {
     setDraggingId(taskId);
@@ -273,7 +279,12 @@ export function TasksKanban({ projectFilter = [] }: Props) {
                     <KanbanCard
                       key={t.id}
                       task={t}
-                      label={getTaskDisplayLabel(t, preferredLabelKeys)}
+                      label={getTaskDisplayLabel(t, {
+                        projectTitleColumn: t.project_id
+                          ? projectTitleColumnById.get(String(t.project_id))
+                          : null,
+                        preferredExtraKeys: preferredLabelKeys,
+                      })}
                       projectName={t.project_id ? projectNameById.get(String(t.project_id)) ?? null : null}
                       dateFormat={settings.dateFormat}
                       urgentPrioritySet={urgentPrioritySet}
