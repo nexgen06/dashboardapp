@@ -75,6 +75,8 @@ import { useToast } from "@/components/ui/toast";
 import { RestrictedButton } from "@/components/ui/permission-gate";
 import { TaskCardMobile } from "@/components/TaskCardMobile";
 import { TaskDetailSheet } from "@/components/TaskDetailSheet";
+import { SavedViewsControl } from "@/components/SavedViewsControl";
+import type { SavedViewConfig } from "@/lib/savedViews";
 import { urgentPrioritySetFromCsv, isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
 import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban } from "lucide-react";
 
@@ -2216,6 +2218,79 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     setAdvancedFilterRules([]);
   }, []);
 
+  /**
+   * SavedViews entegrasyonu:
+   * - getCurrentViewConfig: mevcut filtre+sıralama+kolon görünümünü snapshot olarak ver
+   * - applyViewConfig: kaydedilmiş bir görünümü uygula (state setter'larını çağırır)
+   */
+  const getCurrentViewConfig = useCallback((): SavedViewConfig => {
+    return {
+      version: 1,
+      filters: {
+        globalSearch,
+        projectLinkedFilter,
+        statusFilter,
+        assigneeFilter,
+        projectFilter,
+        dateFrom,
+        dateTo,
+        datePreset,
+        columnFilters,
+        advancedFilterRules,
+      },
+      sort: sorting.map((s) => ({ id: s.id, desc: s.desc })),
+      columns: {
+        visibility: { ...columnVisibility } as Record<string, boolean>,
+        order: [...columnOrder],
+        pinning: {
+          left: columnPinning.left ?? [],
+          right: columnPinning.right ?? [],
+        },
+      },
+    };
+  }, [
+    globalSearch,
+    projectLinkedFilter,
+    statusFilter,
+    assigneeFilter,
+    projectFilter,
+    dateFrom,
+    dateTo,
+    datePreset,
+    columnFilters,
+    advancedFilterRules,
+    sorting,
+    columnVisibility,
+    columnOrder,
+    columnPinning,
+  ]);
+
+  const applyViewConfig = useCallback((config: SavedViewConfig) => {
+    const f = config.filters ?? {};
+    setGlobalSearch(typeof f.globalSearch === "string" ? f.globalSearch : "");
+    setProjectLinkedFilter(f.projectLinkedFilter === "proje" ? "proje" : "tümü");
+    setStatusFilter(Array.isArray(f.statusFilter) ? f.statusFilter : []);
+    setAssigneeFilter(Array.isArray(f.assigneeFilter) ? f.assigneeFilter : []);
+    setProjectFilter(Array.isArray(f.projectFilter) ? f.projectFilter : []);
+    setDateFrom(typeof f.dateFrom === "string" ? f.dateFrom : "");
+    setDateTo(typeof f.dateTo === "string" ? f.dateTo : "");
+    setDatePreset(typeof f.datePreset === "string" ? f.datePreset : "custom");
+    setColumnFilters(f.columnFilters && typeof f.columnFilters === "object" ? f.columnFilters : {});
+    setAdvancedFilterRules(Array.isArray(f.advancedFilterRules) ? (f.advancedFilterRules as AdvancedFilterRule[]) : []);
+    if (Array.isArray(config.sort) && config.sort.length > 0) {
+      setSorting(config.sort);
+    }
+    const c = config.columns;
+    if (c?.visibility) setColumnVisibility(c.visibility);
+    if (Array.isArray(c?.order) && c.order.length > 0) setColumnOrder(c.order);
+    if (c?.pinning) {
+      setColumnPinning({
+        left: c.pinning.left ?? [],
+        right: c.pinning.right ?? [],
+      });
+    }
+  }, []);
+
   /** Komut paleti eylemlerini dinle */
   useEffect(() => {
     const openNew = () => {
@@ -4302,6 +4377,12 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <SavedViewsControl
+            getCurrentConfig={getCurrentViewConfig}
+            onApplyConfig={applyViewConfig}
+            isAdmin={isAdmin}
+            userId={user?.id ?? null}
+          />
           {canManageColumns && (
             <>
             <Dialog open={columnPickerOpen} onOpenChange={setColumnPickerOpen}>
