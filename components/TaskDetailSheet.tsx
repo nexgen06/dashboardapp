@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   Sheet,
   SheetContent,
@@ -23,12 +23,23 @@ import {
   Clock,
   ExternalLink,
   Pencil,
-  MessageSquare,
+  History,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import type { Task } from "@/types/tasks";
 import { cn } from "@/lib/utils";
 import { getStatusKind } from "@/lib/statusKind";
 import { formatDate } from "@/lib/formatDate";
+import { getRelativeTime } from "@/lib/relativeTime";
+import { supabase } from "@/lib/supabaseClient";
+import {
+  fetchAuditLog,
+  fieldLabel,
+  formatAuditValue,
+  type AuditLogEntry,
+  type AuditFieldDiff,
+} from "@/lib/auditLog";
 import type { DateFormat } from "@/contexts/settings-context";
 import {
   isSensitiveExtraColumnKey,
@@ -104,6 +115,52 @@ export function TaskDetailSheet({
   canEdit,
   onEdit,
 }: TaskDetailSheetProps) {
+  /**
+   * Audit log timeline state.
+   * Görev değiştikçe audit_log realtime INSERT'leri ile anında güncellenir.
+   */
+  const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+
+  useEffect(() => {
+    if (!task) {
+      setAuditLog([]);
+      return;
+    }
+    let cancelled = false;
+    setAuditLoading(true);
+    void fetchAuditLog("tasks", task.id, 50).then((entries) => {
+      if (cancelled) return;
+      setAuditLog(entries);
+      setAuditLoading(false);
+    });
+
+    // Realtime: bu görev için yeni audit_log INSERT olursa listeye ekle
+    const channel = supabase
+      .channel(`audit-${task.id}`, { config: { private: true } })
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "audit_log",
+          filter: `record_id=eq.${task.id}`,
+        },
+        () => {
+          // Tam yeniden fetch — yeni satırı RLS'le doğru hidrate etmek için
+          void fetchAuditLog("tasks", task.id, 50).then((entries) => {
+            if (!cancelled) setAuditLog(entries);
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(channel);
+    };
+  }, [task]);
+
   /**
    * Klavye gezinmesi: Sheet açıkken
    *  - j veya ↓ → sonraki satır
@@ -275,16 +332,34 @@ export function TaskDetailSheet({
             </section>
           )}
 
-          {/* Yorumlar / aktivite — placeholder (henüz backend yok) */}
+          {/* Aktivite timeline — audit_log üzerinden, realtime senkron */}
           <section>
             <h3 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              <MessageSquare className="h-3 w-3" aria-hidden />
-              Yorumlar ve aktivite
+              <History className="h-3 w-3" aria-hidden />
+              Aktivite
+              {auditLog.length > 0 && (
+                <span className="ml-1 rounded-full bg-slate-100 px-1.5 text-[10px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                  {auditLog.length}
+                </span>
+              )}
             </h3>
-            <div className="rounded-md border border-dashed border-slate-300 bg-slate-50/40 px-3 py-4 text-center text-xs text-slate-500 dark:border-slate-600 dark:bg-slate-800/40 dark:text-slate-400">
-              Bu bölüm yakında: görev yorumları, durum değişikliği aktivitesi
-              ve @mention. Şimdilik son güncelleme bilgisi yukarıda.
-            </div>
+            {auditLoading && auditLog.length === 0 ? (
+              <div className="flex items-center gap-2 px-3 py-4 text-xs text-slate-500 dark:text-slate-400">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Yükleniyor…
+              </div>
+            ) : auditLog.length === 0 ? (
+              <div className="rounded-md border border-dashed border-slate-300 bg-slate-50/40 px-3 py-4 text-center text-xs text-slate-500 dark:border-slate-600 dark:bg-slate-800/40 dark:text-slate-400">
+                Henüz değişiklik kaydı yok. Görevde yapılacak değişiklikler
+                burada otomatik listelenir.
+              </div>
+            ) : (
+              <ol className="space-y-2.5">
+                {auditLog.map((entry) => (
+                  <AuditEntryLine key={entry.id} entry={entry} />
+                ))}
+              </ol>
+            )}
           </section>
         </SheetBody>
 
@@ -334,5 +409,83 @@ export function TaskDetailSheet({
         </SheetFooter>
       </SheetContent>
     </Sheet>
+  );
+}
+
+/**
+ * Tek aktivite satırı.
+ * action'a göre icon + renk; UPDATE ise değişen her alanı kısa diff ile gösterir.
+ * Tarih: relativeTime ("2 saat önce"); hover'da tam tarih.
+ */
+function AuditEntryLine({ entry }: { entry: AuditLogEntry }) {
+  const actorLabel = entry.actorEmail || (entry.actorId ? `Kullanıcı ${entry.actorId.slice(0, 6)}` : "Sistem");
+  const relative = getRelativeTime(entry.at);
+  const fullDate = entry.at.toLocaleString("tr-TR");
+
+  const config =
+    entry.action === "insert"
+      ? {
+          icon: <Plus className="h-3 w-3" aria-hidden />,
+          dotClass:
+            "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+          verb: "oluşturdu",
+        }
+      : entry.action === "delete"
+        ? {
+            icon: <Trash2 className="h-3 w-3" aria-hidden />,
+            dotClass: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+            verb: "sildi",
+          }
+        : {
+            icon: <Pencil className="h-3 w-3" aria-hidden />,
+            dotClass: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+            verb: "güncelledi",
+          };
+
+  return (
+    <li className="flex gap-2.5">
+      <span
+        className={cn(
+          "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full",
+          config.dotClass
+        )}
+        aria-hidden
+      >
+        {config.icon}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs leading-snug text-slate-700 dark:text-slate-200">
+          <span className="font-medium">{actorLabel}</span>{" "}
+          <span className="text-slate-500 dark:text-slate-400">{config.verb}</span>
+          <span className="ml-1.5 text-slate-400 dark:text-slate-500" title={fullDate}>
+            · {relative}
+          </span>
+        </p>
+        {entry.action === "update" && (
+          <ul className="mt-1 space-y-0.5">
+            {Object.entries(entry.changedFields).map(([field, diff]) => {
+              const d = diff as AuditFieldDiff;
+              return (
+                <li
+                  key={field}
+                  className="rounded-md bg-slate-50 px-2 py-1 text-[11px] leading-snug text-slate-600 dark:bg-slate-800/60 dark:text-slate-300"
+                >
+                  <span className="font-medium text-slate-700 dark:text-slate-200">
+                    {fieldLabel(field)}:
+                  </span>{" "}
+                  <span className="text-slate-500 dark:text-slate-400 line-through">
+                    {formatAuditValue(d?.before)}
+                  </span>
+                  <span className="mx-1 text-slate-400">→</span>
+                  <span className="text-slate-800 dark:text-slate-100">
+                    {formatAuditValue(d?.after)}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </li>
   );
 }
