@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
+import { StatusDonut } from "@/components/ui/status-donut";
 import {
   FolderKanban,
   ListTodo,
@@ -148,7 +149,8 @@ export function DashboardSection() {
     const done = projectLinkedTasks.filter((t) => isStatusDone(t.status)).length;
     const inProgress = projectLinkedTasks.filter((t) => isStatusInProgress(t.status)).length;
     const todo = projectLinkedTasks.filter((t) => isStatusTodo(t.status)).length;
-    return { totalProjects, totalTasks, done, inProgress, todo };
+    const completionPct = totalTasks > 0 ? Math.round((done / totalTasks) * 100) : 0;
+    return { totalProjects, totalTasks, done, inProgress, todo, completionPct };
   }, [projects.length, projectLinkedTasks]);
 
   const recentTasks = useMemo(() => {
@@ -175,9 +177,30 @@ export function DashboardSection() {
     const { todo, inProgress, done } = kpi;
     const total = todo + inProgress + done || 1;
     return [
-      { label: "Yapılacak", value: todo, pct: Math.round((todo / total) * 100), color: "bg-slate-400 dark:bg-slate-500" },
-      { label: "Devam", value: inProgress, pct: Math.round((inProgress / total) * 100), color: "bg-amber-500 dark:bg-amber-400" },
-      { label: "Tamamlandı", value: done, pct: Math.round((done / total) * 100), color: "bg-emerald-500 dark:bg-emerald-400" },
+      {
+        label: "Yapılacak",
+        value: todo,
+        pct: Math.round((todo / total) * 100),
+        barClass: "bg-slate-400 dark:bg-slate-500",
+        donutColor: "#94a3b8", // slate-400
+        dotClass: "bg-slate-400 dark:bg-slate-500",
+      },
+      {
+        label: "Devam",
+        value: inProgress,
+        pct: Math.round((inProgress / total) * 100),
+        barClass: "bg-amber-500 dark:bg-amber-400",
+        donutColor: "#f59e0b", // amber-500
+        dotClass: "bg-amber-500 dark:bg-amber-400",
+      },
+      {
+        label: "Tamamlandı",
+        value: done,
+        pct: Math.round((done / total) * 100),
+        barClass: "bg-emerald-500 dark:bg-emerald-400",
+        donutColor: "#10b981", // emerald-500
+        dotClass: "bg-emerald-500 dark:bg-emerald-400",
+      },
     ];
   }, [kpi]);
 
@@ -363,23 +386,39 @@ export function DashboardSection() {
         </div>
       </section>
 
-      {/* Görev durum dağılımı (çubuk grafik) */}
+      {/* Görev durum dağılımı: donut + detay çubukları */}
       {kpi.totalTasks > 0 && (
         <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800/80">
           <SectionHeader level="card" title="Görev durum dağılımı" spacing="sm" />
-          <div className="space-y-2">
-            {statusChartData.map(({ label, value, pct, color }) => (
-              <div key={label} className="flex items-center gap-3">
-                <span className="w-24 text-ui-caption text-slate-500 dark:text-slate-400">{label}</span>
-                <div className="flex-1 h-6 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
-                  <div
-                    className={cn("h-full rounded-full transition-all", color)}
-                    style={{ width: `${Math.max(pct, 2)}%` }}
-                  />
+          <div className="grid gap-5 sm:grid-cols-[auto_1fr] sm:items-center">
+            <StatusDonut
+              size={160}
+              segments={statusChartData.map((s) => ({
+                label: s.label,
+                value: s.value,
+                color: s.donutColor,
+                dotClass: s.dotClass,
+              }))}
+              centerValue={`%${kpi.completionPct}`}
+              centerLabel="Tamamlanma"
+              showLegend={false}
+            />
+            <div className="space-y-2">
+              {statusChartData.map(({ label, value, pct, barClass }) => (
+                <div key={label} className="flex items-center gap-3">
+                  <span className="w-24 text-ui-caption text-slate-500 dark:text-slate-400">{label}</span>
+                  <div className="h-5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+                    <div
+                      className={cn("h-full rounded-full transition-all", barClass)}
+                      style={{ width: `${Math.max(pct, 2)}%` }}
+                    />
+                  </div>
+                  <span className="w-12 text-right text-xs font-medium tabular-nums text-slate-600 dark:text-slate-300">
+                    {value} · %{pct}
+                  </span>
                 </div>
-                <span className="text-xs font-medium text-slate-600 dark:text-slate-300 w-8">{value}</span>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </section>
       )}
