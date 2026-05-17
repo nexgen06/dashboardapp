@@ -14,9 +14,9 @@ import { ProjectChatUnreadProvider } from "@/contexts/project-chat-unread-contex
 /** Giriş sayfasında sidebar/header göstermez; diğer sayfalarda tam panel layout. */
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isLoginPage = pathname === "/giris";
+  const isPublicAuthPage = pathname === "/giris" || pathname === "/sifre-sifirla";
 
-  if (isLoginPage) {
+  if (isPublicAuthPage) {
     return <>{children}</>;
   }
 
