@@ -21,11 +21,13 @@ import {
   Command as CmdIcon,
   Filter,
   PlusCircle,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useSettings } from "@/contexts/settings-context";
 import { useProjects } from "@/hooks/useProjects";
+import { resetOnboardingTour } from "@/components/OnboardingTour";
 import type { Permission } from "@/types/permissions";
 import { cn } from "@/lib/utils";
 
@@ -287,6 +289,19 @@ export function CommandPalette() {
         perform: () => navigate(`/projeler/${p.id}`),
       });
     }
+
+    // — Yardım —
+    list.push({
+      id: "help-tour",
+      label: "Tanıtım turunu başlat",
+      keywords: ["onboarding", "tour", "yardim", "help", "rehber"],
+      icon: Sparkles,
+      group: "Yardım",
+      perform: () => {
+        close();
+        resetOnboardingTour();
+      },
+    });
 
     // — Hesap —
     list.push({
