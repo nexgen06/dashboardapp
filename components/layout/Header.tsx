@@ -3,10 +3,11 @@
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useState, useCallback } from "react";
-import { User, Settings, LogOut, LogIn, Shield, Copy, Check } from "lucide-react";
+import { User, Settings, LogOut, LogIn, Shield, Copy, Check, Search } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useNotificationSummary } from "@/hooks/useNotificationSummary";
 import { NotificationBell } from "@/components/NotificationBell";
+import { openCommandPalette } from "@/components/CommandPalette";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -88,6 +89,33 @@ export function Header() {
       </div>
 
       <div className="ml-4 flex flex-1 items-center justify-end gap-2">
+        {user && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={openCommandPalette}
+            className="hidden h-9 gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-700/40 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200 sm:inline-flex"
+            aria-label="Komut paletini aç"
+            title="Komut paleti (⌘K / Ctrl+K)"
+          >
+            <Search className="h-3.5 w-3.5" aria-hidden />
+            <span className="text-xs">Ara veya komut…</span>
+            <kbd className="ml-2 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400">
+              ⌘K
+            </kbd>
+          </Button>
+        )}
+        {user && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={openCommandPalette}
+            className="h-9 w-9 sm:hidden"
+            aria-label="Komut paletini aç"
+          >
+            <Search className="h-4 w-4" aria-hidden />
+          </Button>
+        )}
         {user && <NotificationBell summary={notificationSummary} />}
         {user ? (
           <DropdownMenu>

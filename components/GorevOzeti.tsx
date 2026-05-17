@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { getRelativeTime } from "@/lib/relativeTime";
 import { getTaskDisplayLabel } from "@/lib/taskDisplayLabel";
 import { isTaskCompleted, isTaskInProgress } from "@/lib/taskStats";
+import { isStatusTodo } from "@/lib/statusKind";
 import { urgentPrioritySetFromCsv, isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
 import { isTaskAssignedToMe } from "@/lib/taskAssignment";
 import type { Task } from "@/types/tasks";
@@ -55,11 +56,19 @@ export function GorevOzeti({ projectFilter = [] }: GorevOzetiProps = {}) {
 
   // `projects` ve `tasks` Supabase RLS tarafından sunucu tarafında filtrelenmiş geliyor.
 
-  // Önce proje filtresine göre kapsamlandır — KPI ve listeler artık bu kapsama göre hesaplanır
+  /**
+   * Önce proje filtresine göre kapsamlandır — KPI ve listeler artık bu kapsama göre hesaplanır.
+   * Tablo (Canlı Tablo) varsayılan olarak yalnızca projeye bağlı görevleri gösterir
+   * (`projectLinkedFilter === "proje"`); bu nedenle özet de projesi olmayan ("orphan")
+   * görevleri hariç tutar — aksi halde özet ile tablo sayıları tutmaz.
+   */
   const projectScopedTasks = useMemo(() => {
-    if (projectFilter.length === 0) return tasks;
+    const projectLinked = tasks.filter(
+      (t) => t.project_id != null && String(t.project_id).trim() !== ""
+    );
+    if (projectFilter.length === 0) return projectLinked;
     const selected = new Set(projectFilter);
-    return tasks.filter((t) => t.project_id != null && selected.has(String(t.project_id)));
+    return projectLinked.filter((t) => selected.has(String(t.project_id)));
   }, [tasks, projectFilter]);
 
   // Kapsamı insan-okunabilir etiketle ifade et (başlık için)
@@ -91,15 +100,42 @@ export function GorevOzeti({ projectFilter = [] }: GorevOzetiProps = {}) {
     return Array.from(grouped.entries()).sort((a, b) => b[1].length - a[1].length);
   }, [filteredTasks]);
 
+  /**
+   * Project öncelik haritası — id -> normalized priority.
+   * "Acil öncelik" KPI'ı projenin önceliğini esas alır (görevin kendi priority alanını DEĞİL),
+   * böylece projeyi Low/optional bırakırsan KPI 0 gösterir.
+   */
+  const projectPriorityById = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const p of projects) m.set(p.id, p.priority ?? null);
+    return m;
+  }, [projects]);
+
+  /** Görevin bağlı olduğu projenin önceliği acil set'inde mi? Projesi yoksa false. */
+  const taskInheritsUrgentProject = useCallback(
+    (t: Task) => {
+      if (!t.project_id) return false;
+      const projPriority = projectPriorityById.get(String(t.project_id)) ?? null;
+      return isUrgentPriorityValue(projPriority, urgentPrioritySet);
+    },
+    [projectPriorityById, urgentPrioritySet]
+  );
+
   const stats = useMemo(() => {
     const tamamlandi = filteredTasks.filter((t) => isTaskCompleted(t)).length;
     const devam = filteredTasks.filter((t) => isTaskInProgress(t)).length;
+    // Yapılacak SADECE gerçek "todo" statüsündekiler (boş/Yapılacak/todo varyantları);
+    // "Beklemede"/"İptal"/özel statüler "diğer" kategorisine girer ve buraya katılmaz.
+    const yapilacak = filteredTasks.filter((t) => isStatusTodo(t.status)).length;
     const total = filteredTasks.length;
-    const yapilacak = Math.max(0, total - tamamlandi - devam);
-    const highPriority = filteredTasks.filter((t) => isUrgentPriorityValue(t.priority, urgentPrioritySet)).length;
+    const diger = Math.max(0, total - tamamlandi - devam - yapilacak);
+    // Acil öncelik = tamamlanmamış + projenin önceliği acil set'inde (varsayılan: High/Yüksek/...)
+    const highPriority = filteredTasks.filter(
+      (t) => !isTaskCompleted(t) && taskInheritsUrgentProject(t)
+    ).length;
     const completionRate = total > 0 ? Math.round((tamamlandi / total) * 100) : 0;
-    return { tamamlandi, devam, yapilacak, total, highPriority, completionRate };
-  }, [filteredTasks, urgentPrioritySet]);
+    return { tamamlandi, devam, yapilacak, diger, total, highPriority, completionRate };
+  }, [filteredTasks, taskInheritsUrgentProject]);
 
   // Haftalık trend (son 7 gün)
   const weeklyTrend = useMemo(() => {
@@ -123,13 +159,13 @@ export function GorevOzeti({ projectFilter = [] }: GorevOzetiProps = {}) {
       .slice(0, GECMIS_GOREV_SAYISI);
   }, [filteredTasks]);
 
-  // Acil görevler: ayarlarda tanımlı yüksek öncelik VEYA bugün/geçmiş bitiş tarihi (due_date)
+  // Acil görevler: projenin önceliği acil set'inde VEYA bugün/geçmiş bitiş tarihi (due_date)
   const acilGorevler = useMemo(() => {
     const bugun = new Date();
     bugun.setHours(23, 59, 59, 999); // Bugün sonu
     return filteredTasks.filter((t) => {
       if (isTaskCompleted(t)) return false; // Tamamlanmış görevleri dahil etme
-      const isUrgentP = isUrgentPriorityValue(t.priority, urgentPrioritySet);
+      const isUrgentP = taskInheritsUrgentProject(t);
       const hasDueDate = t.due_date && t.due_date.trim() !== "";
       if (!isUrgentP && !hasDueDate) return false;
       if (isUrgentP && !hasDueDate) return true;
@@ -143,12 +179,12 @@ export function GorevOzeti({ projectFilter = [] }: GorevOzetiProps = {}) {
       const da = a.due_date ? new Date(a.due_date).getTime() : Infinity;
       const db = b.due_date ? new Date(b.due_date).getTime() : Infinity;
       if (da !== db) return da - db;
-      // Sonra önceliğe göre (acil öncelik önce)
-      const pa = isUrgentPriorityValue(a.priority, urgentPrioritySet) ? 0 : 1;
-      const pb = isUrgentPriorityValue(b.priority, urgentPrioritySet) ? 0 : 1;
+      // Sonra önceliğe göre (acil proje önce)
+      const pa = taskInheritsUrgentProject(a) ? 0 : 1;
+      const pb = taskInheritsUrgentProject(b) ? 0 : 1;
       return pa - pb;
     });
-  }, [filteredTasks, urgentPrioritySet]);
+  }, [filteredTasks, taskInheritsUrgentProject]);
 
   function getTaskUrgency(task: Task): "overdue" | "today" | "high" | "normal" {
     if (isTaskCompleted(task)) return "normal";
@@ -161,7 +197,7 @@ export function GorevOzeti({ projectFilter = [] }: GorevOzetiProps = {}) {
       if (dueDate < bugun) return "overdue";
       if (dueDate >= bugun && dueDate <= bugunSonu) return "today";
     }
-    if (isUrgentPriorityValue(task.priority, urgentPrioritySet)) return "high";
+    if (taskInheritsUrgentProject(task)) return "high";
     return "normal";
   }
 
@@ -354,7 +390,10 @@ export function GorevOzeti({ projectFilter = [] }: GorevOzetiProps = {}) {
               </div>
             </div>
           </div>
-          <div className="min-w-0 rounded-lg border border-purple-200 bg-purple-50 p-2.5 transition-all hover:shadow-sm dark:border-purple-700 dark:bg-purple-900/20">
+          <div
+            className="min-w-0 rounded-lg border border-purple-200 bg-purple-50 p-2.5 transition-all hover:shadow-sm dark:border-purple-700 dark:bg-purple-900/20"
+            title="Projenin önceliği 'High/Yüksek/Kritik' set'inde olan, tamamlanmamış görevler"
+          >
             <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-purple-500 text-white">
                 <AlertCircle className="h-3.5 w-3.5" />
@@ -398,7 +437,7 @@ export function GorevOzeti({ projectFilter = [] }: GorevOzetiProps = {}) {
             Acil Görevler ({acilGorevler.length})
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
-            Öncelik alanı ayarlardaki “acil öncelik” listesine uyan görevler veya bugün / geçmiş son tarihi olan tamamlanmamış görevler. Satır başlığı için önce görev metni, yoksa belirttiğiniz ek sütun adları kullanılır.
+            Projesinin önceliği ayarlardaki “acil öncelik” listesine uyan görevler veya bugün / geçmiş son tarihi olan tamamlanmamış görevler. Satır başlığı için önce görev metni, yoksa belirttiğiniz ek sütun adları kullanılır.
           </p>
           <ul className="space-y-1.5 max-h-[180px] overflow-auto pr-1">
             {acilGorevler.map((task) => {
@@ -437,9 +476,12 @@ export function GorevOzeti({ projectFilter = [] }: GorevOzetiProps = {}) {
                       {isOverdue ? "GECİKMİŞ" : isToday ? "BUGÜN" : new Date(task.due_date).toLocaleDateString("tr-TR", { day: "numeric", month: "short" })}
                     </span>
                   )}
-                  {isUrgentPriorityValue(task.priority, urgentPrioritySet) && !task.due_date && (
-                    <span className="shrink-0 rounded-full bg-purple-600 px-2 py-0.5 text-xs font-bold text-white">
-                      {(task.priority ?? "").trim() || "Öncelik"}
+                  {taskInheritsUrgentProject(task) && !task.due_date && (
+                    <span
+                      className="shrink-0 rounded-full bg-purple-600 px-2 py-0.5 text-xs font-bold text-white"
+                      title="Bu görevin bağlı olduğu projenin önceliği acil"
+                    >
+                      {(projectPriorityById.get(String(task.project_id ?? "")) ?? "").toString().trim() || "Acil proje"}
                     </span>
                   )}
                   {task.assignee && (
