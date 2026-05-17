@@ -4,12 +4,14 @@ import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import { useAuth } from "@/contexts/auth-context";
 import { TasksTable } from "@/components/TasksTable";
+import { TasksKanban } from "@/components/TasksKanban";
 import { GorevOzeti } from "@/components/GorevOzeti";
-import { Shield, Loader2 } from "lucide-react";
+import { Shield, Loader2, Table2, Columns3 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Section } from "@/components/ui/section";
 import { SectionHeader } from "@/components/ui/section-header";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import ankaraHeader from "@/images/ankara.png";
 
 /** Proje filtresinin tutulduğu localStorage anahtarı (kullanıcı id bazlı). */
@@ -126,17 +128,38 @@ export default function CanliTabloPage() {
           variant="flush"
           className="flex h-full min-h-0 max-h-full flex-col overflow-hidden shadow-md xl:col-start-2 xl:row-start-1"
         >
-          <div className="shrink-0 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
-            <SectionHeader
-              level="section"
-              title="Tüm görevler"
-              subtitle="Gerçek zamanlı senkron · Satırda mor = başka kullanıcı odakta"
-              spacing="none"
-            />
-          </div>
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <TasksTable projectFilter={projectFilter} onProjectFilterChange={setProjectFilter} />
-          </div>
+          <Tabs defaultValue="table" className="flex min-h-0 flex-1 flex-col">
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+              <SectionHeader
+                level="section"
+                title="Tüm görevler"
+                subtitle="Gerçek zamanlı senkron · Satırda mor = başka kullanıcı odakta"
+                spacing="none"
+              />
+              <TabsList className="shrink-0">
+                <TabsTrigger value="table" className="gap-1.5">
+                  <Table2 className="h-3.5 w-3.5" aria-hidden />
+                  Tablo
+                </TabsTrigger>
+                <TabsTrigger value="kanban" className="gap-1.5">
+                  <Columns3 className="h-3.5 w-3.5" aria-hidden />
+                  Kanban
+                </TabsTrigger>
+              </TabsList>
+            </div>
+            <TabsContent
+              value="table"
+              className="flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
+            >
+              <TasksTable projectFilter={projectFilter} onProjectFilterChange={setProjectFilter} />
+            </TabsContent>
+            <TabsContent
+              value="kanban"
+              className="flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
+            >
+              <TasksKanban projectFilter={projectFilter} />
+            </TabsContent>
+          </Tabs>
         </Section>
 
         <Section
