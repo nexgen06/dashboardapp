@@ -2351,9 +2351,10 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   }, [clearFilters, currentUserEmail, projects, urgentPrioritySetForTable, setProjectFilter]);
 
   // Akıllı filtre sayıları
-  // Kapsam: tablonun gördüğü kapsamla hizalı olmalı — projesi olmayan ("orphan") görevler
-  // hariç (projectLinkedFilter === "proje" default'u) ve aktif proje filtresi uygulanır.
-  // Aksi halde Görev Özeti ile sayılar tutmaz.
+  // Kapsam: Görev Özeti ile aynı sabit kural — projesi olmayan ("orphan") görevler
+  // HER ZAMAN hariç + aktif proje filtresi. Toolbar'daki `projectLinkedFilter` ("Tümü")
+  // moduna bağlanmaz; aksi halde Görev Özeti ile sayılar tutmaz (kullanıcı toolbar'da
+  // "Tümü"ye geçtiğinde orphan görevler özette görünmez ama hızlı filtrelerde sayılırdı).
   const smartFilterCounts = useMemo(() => {
     const bugun = new Date();
     bugun.setHours(0, 0, 0, 0);
@@ -2361,10 +2362,9 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     haftaSonu.setDate(bugun.getDate() + 7);
     haftaSonu.setHours(23, 59, 59, 999);
 
-    let scoped = tasks;
-    if (projectLinkedFilter === "proje") {
-      scoped = scoped.filter((t) => t.project_id != null && String(t.project_id).trim() !== "");
-    }
+    let scoped = tasks.filter(
+      (t) => t.project_id != null && String(t.project_id).trim() !== ""
+    );
     const projectArr = Array.isArray(projectFilter) ? projectFilter : [];
     if (projectArr.length > 0) {
       const selected = new Set(projectArr);
@@ -2404,7 +2404,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     ).length;
 
     return { overdue, thisWeek, priority, mine, unassigned };
-  }, [tasks, currentUserEmail, projectById, urgentPrioritySetForTable, projectLinkedFilter, projectFilter]);
+  }, [tasks, currentUserEmail, projectById, urgentPrioritySetForTable, projectFilter]);
 
   const handleDragStart = useCallback((e: React.DragEvent, columnId: string) => {
     setDraggedColumnId(columnId);
