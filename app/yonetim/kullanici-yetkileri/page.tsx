@@ -5,6 +5,8 @@ import { useAuth } from "@/contexts/auth-context";
 import type { RoleId, Permission } from "@/types/permissions";
 import { ROLES, PERMISSION_GROUPS, PERMISSION_LABELS } from "@/types/permissions";
 import { listDirectoryUsers, type DirectoryUserProfile } from "@/lib/listDirectoryUsers";
+import { supabase } from "@/lib/supabaseClient";
+import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -12,9 +14,10 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Shield, User, Users, Check, X, Info, Loader2, RotateCw } from "lucide-react";
+import { Shield, User, Users, Check, X, Info, Loader2, RotateCw, UserPlus, Mail } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
@@ -22,10 +25,16 @@ const ROLE_OPTIONS: RoleId[] = ["admin", "project_manager", "member", "viewer"];
 
 export default function KullaniciYetkileriPage() {
   const { user, isLoaded, hasPermission, updateUserRole, isAdmin } = useAuth();
+  const toast = useToast();
   const canEdit = hasPermission("userManagement.edit");
   const [users, setUsers] = useState<DirectoryUserProfile[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [updatingUid, setUpdatingUid] = useState<string | null>(null);
+  /** Davet diyaloğu state */
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteSubmitting, setInviteSubmitting] = useState(false);
 
   const fetchUsers = useCallback(async () => {
     if (!isAdmin) return;
@@ -51,6 +60,62 @@ export default function KullaniciYetkileriPage() {
       setUsers((prev) => prev.map((u) => (u.uid === targetUid ? { ...u, roleId } : u)));
     } finally {
       setUpdatingUid(null);
+    }
+  };
+
+  /**
+   * Davet gönder: /api/admin/invite server route'una POST.
+   * Auth: current user'ın access_token'ı Bearer header'ında gönderilir;
+   * server tarafı token'ı doğrulayıp admin yetkisi kontrol eder.
+   */
+  const handleInvite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setInviteError(null);
+    const email = inviteEmail.trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setInviteError("Geçerli bir e-posta adresi girin.");
+      return;
+    }
+    setInviteSubmitting(true);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) {
+        setInviteError("Oturum bilgisi alınamadı. Sayfayı yenileyip tekrar deneyin.");
+        return;
+      }
+      const redirectTo =
+        typeof window !== "undefined"
+          ? `${window.location.origin}/sifre-sifirla`
+          : undefined;
+      const res = await fetch("/api/admin/invite", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ email, redirectTo }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; ok?: boolean };
+      if (!res.ok) {
+        if (res.status === 409) {
+          setInviteError(`${email} zaten kayıtlı bir kullanıcı.`);
+        } else {
+          setInviteError(data.error || "Davet gönderilemedi.");
+        }
+        return;
+      }
+      toast.success(`${email} adresine davet bağlantısı gönderildi`);
+      setInviteOpen(false);
+      setInviteEmail("");
+      // Profil listesi yenile — yeni kullanıcı henüz profil oluşturmamış olabilir
+      // ama trigger anında çalışıyorsa görünür
+      void fetchUsers();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Bağlantı hatası";
+      setInviteError(msg);
+    } finally {
+      setInviteSubmitting(false);
     }
   };
 
@@ -106,10 +171,25 @@ export default function KullaniciYetkileriPage() {
                 Listedeki kayıtlar ilk giriş sonrasında oluşturulan profillerdir; kullanıcı yoksa önce /giris ile oturum açılmalıdır.
               </p>
             </div>
-            <Button variant="outline" size="sm" onClick={fetchUsers} disabled={usersLoading} className="shrink-0">
-              {usersLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
-              {usersLoading ? "Yükleniyor…" : "Yenile"}
-            </Button>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                size="sm"
+                onClick={() => {
+                  setInviteEmail("");
+                  setInviteError(null);
+                  setInviteOpen(true);
+                }}
+                className="bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700"
+              >
+                <UserPlus className="h-4 w-4" />
+                <span className="ml-1 hidden sm:inline">Kullanıcı davet et</span>
+                <span className="ml-1 sm:hidden">Davet</span>
+              </Button>
+              <Button variant="outline" size="sm" onClick={fetchUsers} disabled={usersLoading}>
+                {usersLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
+                <span className="ml-1 hidden sm:inline">{usersLoading ? "Yükleniyor…" : "Yenile"}</span>
+              </Button>
+            </div>
           </div>
           <div className="p-4">
             {usersLoading && users.length === 0 ? (
@@ -295,6 +375,83 @@ export default function KullaniciYetkileriPage() {
           ))}
         </div>
       </div>
+
+      {/* Davet et diyaloğu */}
+      <Dialog
+        open={inviteOpen}
+        onOpenChange={(open) => {
+          if (!open && !inviteSubmitting) setInviteOpen(false);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+              Kullanıcı davet et
+            </DialogTitle>
+            <DialogDescription>
+              Davet linki verdiğin e-postaya gönderilir. Kullanıcı link üzerinden şifre belirler,
+              otomatik olarak <strong>Üye</strong> rolüyle başlar. Rolünü buradan değiştirebilirsin.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleInvite} className="space-y-3">
+            <div>
+              <label
+                htmlFor="invite-email"
+                className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300"
+              >
+                E-posta adresi
+              </label>
+              <div className="relative">
+                <Mail
+                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500"
+                  aria-hidden
+                />
+                <input
+                  id="invite-email"
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="ornek@email.com"
+                  required
+                  autoFocus
+                  autoComplete="email"
+                  className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                />
+              </div>
+            </div>
+            {inviteError && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-700 dark:bg-red-950/50 dark:text-red-200">
+                {inviteError}
+              </div>
+            )}
+            <DialogFooter className="pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setInviteOpen(false)}
+                disabled={inviteSubmitting}
+              >
+                İptal
+              </Button>
+              <Button
+                type="submit"
+                disabled={inviteSubmitting || !inviteEmail.trim()}
+                className="bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700"
+              >
+                {inviteSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Gönderiliyor…
+                  </>
+                ) : (
+                  "Daveti gönder"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Bilgi kutusu */}
       <div className="mt-6 rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-4 flex gap-3">
