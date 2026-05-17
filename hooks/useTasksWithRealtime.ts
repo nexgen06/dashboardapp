@@ -53,6 +53,30 @@ export function useTasksWithRealtime() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [realtimeConnection, setRealtimeConnection] = useState<RealtimeConnectionState>("connecting");
+  /**
+   * Realtime ile az önce (≤3sn) gelen UPDATE/INSERT id'leri.
+   * UI satırları 3 saniyeliğine flash'lar. Sadece BAŞKA kullanıcının değişikliklerinde
+   * dolar — yerel kullanıcının kendi save işlemleri (updateTaskOptimistic) dahil değildir.
+   */
+  const [recentlyUpdatedIds, setRecentlyUpdatedIds] = useState<Set<string>>(new Set());
+
+  /** Bir id'yi 3 sn flash listesine ekle (timer otomatik temizler). */
+  const markRecentlyUpdated = useCallback((id: string) => {
+    setRecentlyUpdatedIds((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+    window.setTimeout(() => {
+      setRecentlyUpdatedIds((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }, 3000);
+  }, []);
   /** @deprecated `realtimeConnection === "live"` ile aynı; geriye uyumluluk için. */
   const isRealtimeConnected = realtimeConnection === "live";
 
@@ -132,12 +156,30 @@ export function useTasksWithRealtime() {
                 case "INSERT":
                   if (newRecord && typeof newRecord === "object") {
                     const existing = prev.some((t) => String(t.id) === newId);
-                    if (!existing) return [...prev, mapRowToTask(newRecord as Record<string, unknown>)];
+                    if (!existing) {
+                      if (newId) markRecentlyUpdated(newId);
+                      return [...prev, mapRowToTask(newRecord as Record<string, unknown>)];
+                    }
                   }
                   return prev;
                 case "UPDATE":
                   if (newRecord && typeof newRecord === "object" && newId) {
                     const updated = mapRowToTask(newRecord as Record<string, unknown>);
+                    // Yerel kullanıcının kendi save'inde realtime de fire eder; o durumda
+                    // mevcut row'un last_updated_by'ı zaten ayarlanmış olur. Flash'ı
+                    // sadece DEĞİŞEN alanlar varsa ve yerel optimistik update'ten farklı
+                    // (yani başka kullanıcı/kaynak) ise tetikle.
+                    const existing = prev.find((t) => String(t.id) === newId);
+                    const isChanged =
+                      !existing ||
+                      existing.status !== updated.status ||
+                      existing.content !== updated.content ||
+                      existing.assignee !== updated.assignee ||
+                      existing.priority !== updated.priority ||
+                      existing.due_date !== updated.due_date ||
+                      JSON.stringify(existing.extra_data ?? null) !==
+                        JSON.stringify(updated.extra_data ?? null);
+                    if (isChanged) markRecentlyUpdated(newId);
                     return prev.map((t) =>
                       String(t.id) === newId ? { ...t, ...updated } : t
                     );
@@ -349,5 +391,6 @@ export function useTasksWithRealtime() {
     error,
     isRealtimeConnected,
     realtimeConnection,
+    recentlyUpdatedIds,
   };
 }

@@ -51,6 +51,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { OnlineUsersPanel } from "@/components/OnlineUsersPanel";
 import { presenceEditorLines } from "@/lib/userDisplayName";
 import { formatDate } from "@/lib/formatDate";
+import { getRelativeTime } from "@/lib/relativeTime";
 import { parseCSV } from "@/lib/csvParser";
 import { parseJSON } from "@/lib/jsonParser";
 import { isSensitiveExtraColumnKey, maskSensitiveExtraValue } from "@/lib/extraColumnSensitiveDisplay";
@@ -1646,6 +1647,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     isLoading,
     error,
     realtimeConnection,
+    recentlyUpdatedIds,
   } = useTasksWithRealtime();
   const { projects, updateProject } = useProjects();
   const { user, hasPermission, isAdmin } = useAuth();
@@ -5148,9 +5150,29 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                 : isCompleted
                   ? completedCellBg
                   : pinnedDefaultBg;
+              const isRecentlyUpdated = recentlyUpdatedIds.has(row.original.id);
+              /** Satır hover'ında "Son güncelleyen: X · Y önce" göstergesi (native tooltip) */
+              const lastEditorTitle = (() => {
+                const who = row.original.last_updated_by;
+                const when = row.original.updated_at;
+                if (!who && !when) return undefined;
+                const whoLabel = who ? `Son güncelleyen: ${who}` : "";
+                let whenLabel = "";
+                if (when) {
+                  try {
+                    whenLabel = `${getRelativeTime(new Date(when))}`;
+                  } catch {
+                    whenLabel = "";
+                  }
+                }
+                return [whoLabel, whenLabel].filter(Boolean).join(" · ");
+              })();
               const rowClassName = cn(
                 "border-b border-slate-100 transition-colors dark:border-slate-700",
                 "cursor-pointer",
+                // Realtime ile az önce gelen UPDATE: 3 sn'lik amber flash
+                isRecentlyUpdated &&
+                  "animate-[pulse_1.5s_ease-in-out_2] bg-amber-50/70 dark:bg-amber-950/30",
                 !isEditedByOthers && "hover:bg-slate-50/50 dark:hover:bg-slate-700/30",
                 !isEditedByOthers &&
                   isCompleted &&
@@ -5215,6 +5237,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
               const rowPointerHandlers = {
                 onPointerDown: claimRowPresence,
                 onClick: handleRowClick,
+                title: lastEditorTitle,
               };
 
               if (rowTooltipBody != null && isEditedByOthers) {
