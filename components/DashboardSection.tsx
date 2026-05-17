@@ -131,24 +131,35 @@ export function DashboardSection() {
     return map;
   }, [projects]);
 
+  /**
+   * KPI hesaplaması için "projeye bağlı görevler" kapsamı kullanılır.
+   * Canlı Tablo varsayılan olarak orphan görevleri (project_id = null) gizlediği için
+   * Dashboard kartlarının da aynı kapsamı göstermesi gerek; aksi halde "Yapılacak 1"
+   * gösterip kullanıcı tabloda göremediği bir görev sayar.
+   */
+  const projectLinkedTasks = useMemo(
+    () => tasks.filter((t) => t.project_id != null && String(t.project_id).trim() !== ""),
+    [tasks]
+  );
+
   const kpi = useMemo(() => {
     const totalProjects = projects.length;
-    const totalTasks = tasks.length;
-    const done = tasks.filter((t) => isStatusDone(t.status)).length;
-    const inProgress = tasks.filter((t) => isStatusInProgress(t.status)).length;
-    const todo = tasks.filter((t) => isStatusTodo(t.status)).length;
+    const totalTasks = projectLinkedTasks.length;
+    const done = projectLinkedTasks.filter((t) => isStatusDone(t.status)).length;
+    const inProgress = projectLinkedTasks.filter((t) => isStatusInProgress(t.status)).length;
+    const todo = projectLinkedTasks.filter((t) => isStatusTodo(t.status)).length;
     return { totalProjects, totalTasks, done, inProgress, todo };
-  }, [projects.length, tasks]);
+  }, [projects.length, projectLinkedTasks]);
 
   const recentTasks = useMemo(() => {
-    return [...tasks]
+    return [...projectLinkedTasks]
       .sort((a, b) => {
         const ta = a.updated_at ? new Date(a.updated_at).getTime() : 0;
         const tb = b.updated_at ? new Date(b.updated_at).getTime() : 0;
         return tb - ta;
       })
       .slice(0, 10);
-  }, [tasks]);
+  }, [projectLinkedTasks]);
 
   const recentProjects = useMemo(() => {
     return [...projects]
@@ -178,7 +189,7 @@ export function DashboardSection() {
     const todayEnd = new Date();
     todayEnd.setHours(23, 59, 59, 999);
 
-    const myOpen = tasks.filter(
+    const myOpen = projectLinkedTasks.filter(
       (t) => !isStatusDone(t.status) && (t.assignee ?? "").trim().toLowerCase() === me
     );
     const dueSoon = myOpen.filter((t) => {
@@ -186,7 +197,7 @@ export function DashboardSection() {
       const d = new Date(t.due_date).getTime();
       return d <= todayEnd.getTime();
     });
-    const completedThisWeek = tasks.filter((t) => {
+    const completedThisWeek = projectLinkedTasks.filter((t) => {
       if (!isStatusDone(t.status)) return false;
       if (!t.updated_at) return false;
       const ts = new Date(t.updated_at).getTime();
@@ -197,7 +208,7 @@ export function DashboardSection() {
       dueSoonCount: dueSoon.length,
       completedThisWeek,
     };
-  }, [tasks, user?.email]);
+  }, [projectLinkedTasks, user?.email]);
 
   const displayName = user?.displayName || user?.email || "Kullanıcı";
 
