@@ -125,6 +125,7 @@ function ProjectFormModal({
   isSubmitting,
   formError,
   isAdmin,
+  observedExtraKeys = [],
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -133,6 +134,9 @@ function ProjectFormModal({
   isSubmitting: boolean;
   formError?: string | null;
   isAdmin: boolean;
+  /** Edit mode: bu projeye bağlı görevlerin extra_data'sında gerçekten kullanılan anahtarlar.
+   *  "Görev başlığı sütunu" dropdown'ı şema + bunları birleşik gösterir. */
+  observedExtraKeys?: string[];
 }) {
   const [name, setName] = useState(project?.name ?? "");
   const [description, setDescription] = useState(project?.description ?? "");
@@ -495,7 +499,15 @@ function ProjectFormModal({
 
           {/* Başlık sütunu — Kanban kartı, Görev Özeti vb. için */}
           {(() => {
-            const availableKeys = parseExtraColumnKeysFromForm(extraColumnKeysText);
+            // Adaylar: (1) form'daki şema, (2) mevcut görevlerden gözlemlenen extra_data
+            // anahtarları. İkisi birleştirilir, tekrarlar elenir, alfabetik sıralanır.
+            const schemaKeys = parseExtraColumnKeysFromForm(extraColumnKeysText);
+            const merged = new Set<string>();
+            for (const k of schemaKeys) if (k.trim()) merged.add(k.trim());
+            for (const k of observedExtraKeys ?? []) if (k && k.trim()) merged.add(k.trim());
+            const availableKeys = Array.from(merged).sort((a, b) =>
+              a.localeCompare(b, "tr", { sensitivity: "base" })
+            );
             return (
               <div>
                 <label
@@ -516,7 +528,7 @@ function ProjectFormModal({
                       {k}
                     </option>
                   ))}
-                  {/* Mevcut seçim listede yoksa yine göster (proje önceden başka sütunla kaydedilmiş olabilir) */}
+                  {/* Mevcut seçim listede yoksa yine göster (eski/silinmiş sütun olabilir) */}
                   {titleColumn && !availableKeys.includes(titleColumn) && (
                     <option value={titleColumn}>{titleColumn} (eski seçim)</option>
                   )}
@@ -524,7 +536,14 @@ function ProjectFormModal({
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   Görevin <strong>content</strong> alanı boşsa Kanban kartı, Görev Özeti ve
                   mobil kart için <strong>bu sütundaki değer</strong> başlık olarak kullanılır.
-                  Boş bırakırsan otomatik (Başlık / Görev / Ad / Title…) sırasıyla denenir.
+                  {availableKeys.length === 0 ? (
+                    <span className="mt-1 block italic text-amber-700 dark:text-amber-400">
+                      Henüz sütun yok — &quot;Canlı tablo ek sütunları&quot; alanına ekle veya
+                      bu projeye CSV/Excel'den görev içe aktar; ondan sonra burada listelenir.
+                    </span>
+                  ) : (
+                    <> Boş bırakırsan otomatik fallback uygulanır.</>
+                  )}
                 </p>
               </div>
             );
@@ -890,7 +909,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
     deleteProject,
     archiveProject,
   } = useProjects();
-  const { createTasksBulk } = useTasksWithRealtime();
+  const { createTasksBulk, tasks } = useTasksWithRealtime();
   const taskCountByProject = useTaskCountByProject();
   const { unreadByProjectId } = useProjectChatUnread();
 
@@ -1449,6 +1468,23 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
         isSubmitting={isSubmitting}
         formError={formError}
         isAdmin={isAdmin}
+        observedExtraKeys={
+          editingProject
+            ? (() => {
+                const out = new Set<string>();
+                for (const t of tasks) {
+                  if (String(t.project_id ?? "") !== editingProject.id) continue;
+                  if (t.extra_data && typeof t.extra_data === "object") {
+                    for (const k of Object.keys(t.extra_data)) {
+                      const key = String(k).trim();
+                      if (key) out.add(key);
+                    }
+                  }
+                }
+                return Array.from(out);
+              })()
+            : []
+        }
       />
       <Dialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
         <DialogContent showClose={true}>
