@@ -51,6 +51,10 @@ function mapRowToProject(row: Record<string, unknown>): Project {
       .filter(Boolean);
     extra_column_keys = list.length > 0 ? list : null;
   }
+  const titleColumn =
+    row.title_column != null && String(row.title_column).trim() !== ""
+      ? String(row.title_column).trim()
+      : null;
   return {
     id: String(row.id),
     name: String(row.name ?? ""),
@@ -63,6 +67,7 @@ function mapRowToProject(row: Record<string, unknown>): Project {
     priority: priority ?? null,
     strict_assignee_visibility: strict_assignee_visibility,
     extra_column_keys,
+    title_column: titleColumn,
   };
 }
 
@@ -163,6 +168,7 @@ export function useProjects() {
       priority?: ProjectPriority | null;
       strict_assignee_visibility?: boolean;
       extra_column_keys?: string[] | null;
+      title_column?: string | null;
     }): Promise<string | null> => {
       const baseRow: Record<string, unknown> = {
         name: payload.name.trim() || "İsimsiz proje",
@@ -185,6 +191,9 @@ export function useProjects() {
       }
       if (payload.extra_column_keys != null && payload.extra_column_keys.length > 0) {
         baseRow.extra_column_keys = payload.extra_column_keys;
+      }
+      if (payload.title_column != null && String(payload.title_column).trim() !== "") {
+        baseRow.title_column = String(payload.title_column).trim();
       }
       let { data, error: insertError } = await supabase
         .from("projects")
@@ -218,7 +227,7 @@ export function useProjects() {
   );
 
   const updateProject = useCallback(
-    async (id: string, payload: Partial<Pick<Project, "name" | "description" | "status" | "assigned_emails" | "due_date" | "priority" | "strict_assignee_visibility" | "extra_column_keys">>) => {
+    async (id: string, payload: Partial<Pick<Project, "name" | "description" | "status" | "assigned_emails" | "due_date" | "priority" | "strict_assignee_visibility" | "extra_column_keys" | "title_column">>) => {
       const updateRow: Record<string, unknown> = { ...payload, updated_at: new Date().toISOString() };
       if (payload.assigned_emails !== undefined) {
         updateRow.assigned_emails =
@@ -236,6 +245,12 @@ export function useProjects() {
           payload.extra_column_keys == null || payload.extra_column_keys.length === 0
             ? []
             : payload.extra_column_keys.map((k) => String(k).trim()).filter(Boolean);
+      }
+      if (payload.title_column !== undefined) {
+        updateRow.title_column =
+          payload.title_column == null || String(payload.title_column).trim() === ""
+            ? null
+            : String(payload.title_column).trim();
       }
       const { error: updateError } = await supabase.from("projects").update(updateRow).eq("id", id);
       if (updateError) throw updateError;

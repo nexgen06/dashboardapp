@@ -23,4 +23,6 @@ export type Project = {
   strict_assignee_visibility?: boolean;
   /** Canlı tabloda bu projeyle ilişkili görevler için `extra_data` sütunlarını önceden listelemek üzere başlık adları (import olmadan şema). */
   extra_column_keys?: string[] | null;
+  /** Görev başlığı (Kanban kartı / Görev Özeti / mobil kart) için kullanılacak extra_data anahtarı. NULL → otomatik. */
+  title_column?: string | null;
 };
