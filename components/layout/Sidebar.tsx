@@ -59,6 +59,7 @@ export function Sidebar() {
   return (
     <TooltipProvider delayDuration={0}>
       <aside
+        data-tour="sidebar"
         className={cn(
           "flex flex-col border-r border-slate-200 bg-slate-100 transition-all duration-300 ease-in-out dark:border-slate-700 dark:bg-slate-800",
           isCollapsed ? "w-[72px]" : "w-[250px]"

@@ -91,6 +91,7 @@ export function Header() {
       <div className="ml-4 flex flex-1 items-center justify-end gap-2">
         {user && (
           <Button
+            data-tour="command-palette"
             variant="ghost"
             size="sm"
             onClick={openCommandPalette}
@@ -116,7 +117,11 @@ export function Header() {
             <Search className="h-4 w-4" aria-hidden />
           </Button>
         )}
-        {user && <NotificationBell summary={notificationSummary} />}
+        {user && (
+          <span data-tour="notifications" className="inline-flex">
+            <NotificationBell summary={notificationSummary} />
+          </span>
+        )}
         {user ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
