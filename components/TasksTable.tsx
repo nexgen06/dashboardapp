@@ -352,11 +352,20 @@ function computeBalancedColumnSizing(
   return balanceColumnWidthsToTarget(intrinsic, ordered, target);
 }
 
+/**
+ * Export değer çözücü.
+ *
+ * `unmaskSensitive` parametresi GIZLILIK kontrolünün override'ıdır:
+ * - false (varsayılan) → hassas extra sütunlar (TCKN/sicil) maskeli yazılır
+ * - true → ham değer yazılır; YALNIZCA admin için ve bilinçli onayla geçilir
+ *   (TasksTable export menüsündeki kilit toggle'ı). Non-admin için her zaman false.
+ */
 function getExportValue(
   columnId: string,
   task: Task,
   dateFormat: DateFormat,
-  projectById?: Map<string, Project>
+  projectById?: Map<string, Project>,
+  unmaskSensitive: boolean = false
 ): string {
   const t = task as Record<string, unknown>;
   switch (columnId) {
@@ -384,17 +393,23 @@ function getExportValue(
       if (columnId.startsWith("extra:")) {
         const key = columnId.replace(/^extra:/, "");
         const raw = String(task.extra_data?.[key] ?? (t.extra_data as Record<string, string>)?.[key] ?? "");
-        // GIZLILIK: TCKN/sicil/personel no gibi hassas sütunlar export'ta da maskeli kalır.
-        // Tam değer hiçbir CSV/Excel/PDF'ye sızmaz — UI'de gördüğü maskeli haliyle dışa çıkar.
-        return isSensitiveExtraColumnKey(key) ? maskSensitiveExtraValue(raw) : raw;
+        // GIZLILIK: TCKN/sicil/personel no gibi hassas sütunlar varsayılan olarak maskeli.
+        // `unmaskSensitive` yalnızca admin bilinçli onayla geçerse true olur.
+        if (isSensitiveExtraColumnKey(key) && !unmaskSensitive) {
+          return maskSensitiveExtraValue(raw);
+        }
+        return raw;
       }
       if (columnId === "detay") {
-        // Hassas alanları maskele — sonra JSON üret
+        // Hassas alanları maskele (override yoksa) — sonra JSON üret
         if (!task.extra_data) return "";
         const safe: Record<string, string> = {};
         for (const [k, v] of Object.entries(task.extra_data)) {
           const raw = String(v ?? "");
-          safe[k] = isSensitiveExtraColumnKey(k) ? maskSensitiveExtraValue(raw) : raw;
+          safe[k] =
+            isSensitiveExtraColumnKey(k) && !unmaskSensitive
+              ? maskSensitiveExtraValue(raw)
+              : raw;
         }
         return JSON.stringify(safe);
       }
@@ -410,7 +425,8 @@ function getExportData(
   rows: Task[],
   visibleColumnIds: string[],
   dateFormat: DateFormat,
-  projectById?: Map<string, Project>
+  projectById?: Map<string, Project>,
+  unmaskSensitive: boolean = false
 ) {
   let dataColumns = visibleColumnIds.filter(
     (id) => !EXPORT_SKIP_IDS.has(id) && (COLUMN_LABELS[id] != null || id.startsWith("extra:") || id === "due_date" || id === "updated" || id === "updated_at" || id === "assignee" || id === "priority" || id === "content" || id === "status" || id === "project" || id === "detay")
@@ -424,7 +440,7 @@ function getExportData(
     COLUMN_LABELS[id] ?? (id === "due_date" ? "Son tarih" : id === "updated_at" ? "Son güncelleme" : id.startsWith("extra:") ? id.replace(/^extra:/, "") : id === "detay" ? "Detay" : id)
   );
   const rowArrays = rows.map((task) =>
-    dataColumns.map((id) => getExportValue(id, task, dateFormat, projectById))
+    dataColumns.map((id) => getExportValue(id, task, dateFormat, projectById, unmaskSensitive))
   );
   return { headers, rowArrays };
 }
@@ -434,9 +450,10 @@ function downloadCSV(
   visibleColumnIds: string[],
   dateFormat: DateFormat,
   filename: string,
-  projectById?: Map<string, Project>
+  projectById?: Map<string, Project>,
+  unmaskSensitive: boolean = false
 ) {
-  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById);
+  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive);
   const lines = [headers.map((h) => `"${String(h).replace(/"/g, '""')}"`).join(",")];
   for (const values of rowArrays) {
     lines.push(values.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
@@ -455,9 +472,10 @@ function downloadExcel(
   visibleColumnIds: string[],
   dateFormat: DateFormat,
   filename: string,
-  projectById?: Map<string, Project>
+  projectById?: Map<string, Project>,
+  unmaskSensitive: boolean = false
 ) {
-  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById);
+  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive);
   const sheetData: string[][] = [headers, ...rowArrays];
   const ws = XLSX.utils.aoa_to_sheet(sheetData);
   const wb = XLSX.utils.book_new();
@@ -480,9 +498,10 @@ async function downloadPDF(
   visibleColumnIds: string[],
   dateFormat: DateFormat,
   filename: string,
-  projectById?: Map<string, Project>
+  projectById?: Map<string, Project>,
+  unmaskSensitive: boolean = false
 ) {
-  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById);
+  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive);
   const [{ default: pdfMake }, vfsMod] = await Promise.all([
     import("pdfmake/build/pdfmake"),
     import("pdfmake/build/vfs_fonts"),
@@ -1674,6 +1693,9 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const [draggedColumnId, setDraggedColumnId] = useState<string | null>(null);
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
+  /** SÜPERADMIN-only: hassas sütunları (TCKN/sicil) export'ta ham mı yazsın?
+   *  Varsayılan false (maskeli) — admin bilinçli onayla aktif eder. */
+  const [exportUnmaskSensitive, setExportUnmaskSensitive] = useState(false);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   /** Ek sütun silme onay diyaloğu: hedef anahtar adı (extra:KEY -> KEY) veya null */
   const [removeExtraColumnKey, setRemoveExtraColumnKey] = useState<string | null>(null);
@@ -3018,19 +3040,44 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   }, [filteredData, liveTableVisibleKey, liveTableViewportWidth, tableDensity, isLoading, error, table]);
 
   const visibleColumnIds = table.getVisibleLeafColumns().map((c) => (c.id ?? (c as { accessorKey?: string }).accessorKey ?? "").toString()).filter(Boolean);
+  /** Export sırasında hassas sütunların ham olarak yazılıp yazılmayacağı.
+   *  Non-admin için her zaman false; UI toggle'ı admin olmadığında render edilmez,
+   *  ama bir sızıntı senaryosunda da yine sunucu/UI iki katmanda korunur. */
+  const effectiveUnmaskSensitive = isAdmin && exportUnmaskSensitive;
+
   const handleExportCSV = useCallback(
     (scope: "current" | "all") => {
       const rows = scope === "all" ? tasks : filteredData;
-      downloadCSV(rows, visibleColumnIds, settings.dateFormat, `gorevler-${scope === "all" ? "tum" : "gorunum"}-${Date.now()}.csv`, projectById);
+      downloadCSV(
+        rows,
+        visibleColumnIds,
+        settings.dateFormat,
+        `gorevler-${scope === "all" ? "tum" : "gorunum"}${effectiveUnmaskSensitive ? "-ham" : ""}-${Date.now()}.csv`,
+        projectById,
+        effectiveUnmaskSensitive
+      );
+      if (effectiveUnmaskSensitive) {
+        toast.success("Hassas veriler AÇIK olarak indirildi (admin onayı)");
+      }
     },
-    [tasks, filteredData, visibleColumnIds, settings.dateFormat, projectById]
+    [tasks, filteredData, visibleColumnIds, settings.dateFormat, projectById, effectiveUnmaskSensitive, toast]
   );
   const handleExportExcel = useCallback(
     (scope: "current" | "all") => {
       const rows = scope === "all" ? tasks : filteredData;
-      downloadExcel(rows, visibleColumnIds, settings.dateFormat, `gorevler-${scope === "all" ? "tum" : "gorunum"}-${Date.now()}.xlsx`, projectById);
+      downloadExcel(
+        rows,
+        visibleColumnIds,
+        settings.dateFormat,
+        `gorevler-${scope === "all" ? "tum" : "gorunum"}${effectiveUnmaskSensitive ? "-ham" : ""}-${Date.now()}.xlsx`,
+        projectById,
+        effectiveUnmaskSensitive
+      );
+      if (effectiveUnmaskSensitive) {
+        toast.success("Hassas veriler AÇIK olarak indirildi (admin onayı)");
+      }
     },
-    [tasks, filteredData, visibleColumnIds, settings.dateFormat, projectById]
+    [tasks, filteredData, visibleColumnIds, settings.dateFormat, projectById, effectiveUnmaskSensitive, toast]
   );
   const handleExportPDF = useCallback(
     async (scope: "current" | "all") => {
@@ -3040,14 +3087,18 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
           rows,
           visibleColumnIds,
           settings.dateFormat,
-          `gorevler-${scope === "all" ? "tum" : "gorunum"}-${Date.now()}.pdf`,
-          projectById
+          `gorevler-${scope === "all" ? "tum" : "gorunum"}${effectiveUnmaskSensitive ? "-ham" : ""}-${Date.now()}.pdf`,
+          projectById,
+          effectiveUnmaskSensitive
         );
+        if (effectiveUnmaskSensitive) {
+          toast.success("Hassas veriler AÇIK olarak indirildi (admin onayı)");
+        }
       } catch (e) {
         console.error("[Export] PDF oluşturulamadı:", e);
       }
     },
-    [tasks, filteredData, visibleColumnIds, settings.dateFormat, projectById]
+    [tasks, filteredData, visibleColumnIds, settings.dateFormat, projectById, effectiveUnmaskSensitive, toast]
   );
 
   const openColumnPicker = useCallback(() => {
@@ -4491,7 +4542,40 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                 Dışa aktar
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end" className="w-72">
+              {isAdmin && (
+                <>
+                  <div
+                    className={cn(
+                      "flex items-start gap-2 border-b px-2 py-2",
+                      exportUnmaskSensitive
+                        ? "border-amber-200 bg-amber-50 dark:border-amber-800/60 dark:bg-amber-950/30"
+                        : "border-slate-100 dark:border-slate-700"
+                    )}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      id="export-unmask-toggle"
+                      type="checkbox"
+                      checked={exportUnmaskSensitive}
+                      onChange={(e) => setExportUnmaskSensitive(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-500"
+                    />
+                    <label
+                      htmlFor="export-unmask-toggle"
+                      className="cursor-pointer text-xs leading-snug text-slate-700 dark:text-slate-200"
+                    >
+                      <span className="font-semibold text-amber-700 dark:text-amber-300">
+                        🔓 Hassas verileri AÇIK indir
+                      </span>
+                      <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">
+                        TCKN/sicil/personel no maskeli yerine ham yazılır.
+                        <strong className="ml-0.5 text-amber-700 dark:text-amber-400">Süperadmin yetkisi.</strong>
+                      </span>
+                    </label>
+                  </div>
+                </>
+              )}
               <DropdownMenuItem onClick={() => handleExportCSV("current")}>CSV indir (mevcut görünüm)</DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleExportExcel("current")}>Excel indir (mevcut görünüm)</DropdownMenuItem>
               <DropdownMenuItem onClick={() => void handleExportPDF("current")}>PDF indir (mevcut görünüm)</DropdownMenuItem>
