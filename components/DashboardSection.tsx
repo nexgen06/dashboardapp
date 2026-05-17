@@ -403,21 +403,44 @@ export function DashboardSection() {
               centerLabel="Tamamlanma"
               showLegend={false}
             />
-            <div className="space-y-2">
-              {statusChartData.map(({ label, value, pct, barClass }) => (
-                <div key={label} className="flex items-center gap-3">
-                  <span className="w-24 text-ui-caption text-slate-500 dark:text-slate-400">{label}</span>
-                  <div className="h-5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
-                    <div
-                      className={cn("h-full rounded-full transition-all", barClass)}
-                      style={{ width: `${Math.max(pct, 2)}%` }}
-                    />
+            <div className="space-y-2.5">
+              {statusChartData.map(({ label, value, pct, barClass }) => {
+                /**
+                 * Bar yeterince geniş ise sayı/oran içine beyaz; değilse dışında.
+                 * Eşik: ~%18 — "12 · %47" 4-5 karakter, bunun altında sıkışır.
+                 */
+                const labelInside = pct >= 18;
+                const labelText = `${value} · %${pct}`;
+                return (
+                  <div key={label} className="flex items-center gap-3">
+                    <span className="w-24 shrink-0 text-ui-caption font-medium text-slate-600 dark:text-slate-300">
+                      {label}
+                    </span>
+                    <div className="relative h-7 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+                      <div
+                        className={cn(
+                          "flex h-full items-center justify-end rounded-full pr-2.5 transition-all",
+                          barClass
+                        )}
+                        style={{ width: `${Math.max(pct, 2)}%` }}
+                      >
+                        {labelInside && (
+                          <span className="whitespace-nowrap text-[11px] font-bold tabular-nums text-white drop-shadow-sm">
+                            {labelText}
+                          </span>
+                        )}
+                      </div>
+                      {!labelInside && (
+                        <span
+                          className="absolute right-2 top-1/2 -translate-y-1/2 whitespace-nowrap text-[11px] font-bold tabular-nums text-slate-700 dark:text-slate-200"
+                        >
+                          {labelText}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <span className="w-12 text-right text-xs font-medium tabular-nums text-slate-600 dark:text-slate-300">
-                    {value} · %{pct}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </section>
