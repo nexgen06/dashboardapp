@@ -73,6 +73,8 @@ import Link from "next/link";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
 import { RestrictedButton } from "@/components/ui/permission-gate";
+import { TaskCardMobile } from "@/components/TaskCardMobile";
+import { urgentPrioritySetFromCsv } from "@/lib/urgentTaskPriority";
 import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
@@ -1627,6 +1629,10 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const dui = LIVE_TABLE_DENSITY_UI[tableDensity];
   const statusOptions = useMemo(() => getStatusOptions(settings), [settings.customStatusList]);
   const priorityOptions = getPriorityOptions(settings);
+  const urgentPrioritySetForTable = useMemo(
+    () => urgentPrioritySetFromCsv(settings.urgentPriorityTokens),
+    [settings.urgentPriorityTokens]
+  );
   const currentUserEmail = (user?.email ?? "").trim().toLowerCase();
   const canCreateTask = hasPermission("liveTable.createTask");
   const canEditTask = hasPermission("liveTable.editTask");
@@ -4355,13 +4361,53 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       </Dialog>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <TooltipProvider delayDuration={200} skipDelayDuration={120}>
+      {/* MOBİL — kart listesi (md altı). Boşsa hiç render etme; EmptyState aşağıda zaten gösterilir. */}
+      {table.getRowModel().rows.length > 0 && (
+      <div
+        className={cn(
+          "flex-1 min-h-0 w-full overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/50 p-2 dark:border-slate-700 dark:bg-slate-900/30 md:hidden",
+          !isFullWidth && "max-h-[calc(100dvh-22rem)] sm:max-h-[calc(100dvh-20rem)]"
+        )}
+      >
+        <ul className="flex flex-col gap-2" aria-label="Görev listesi">
+            {table.getRowModel().rows.map((row) => {
+              const t = row.original;
+              const pName = t.project_id ? projectById.get(String(t.project_id))?.name ?? null : null;
+              return (
+                <li key={row.id}>
+                  <TaskCardMobile
+                    task={t}
+                    projectId={t.project_id ?? null}
+                    projectName={pName}
+                    extraKeys={extraDataKeys}
+                    selected={row.getIsSelected()}
+                    onToggleSelect={() => row.toggleSelected(!row.getIsSelected())}
+                    dateFormat={settings.dateFormat}
+                    urgentPrioritySet={urgentPrioritySetForTable}
+                    now={now}
+                    canEdit={canEditTask}
+                    canDelete={canDeleteTask}
+                    canCreate={canCreateTask}
+                    onEdit={() => setEditTask(t)}
+                    onCopy={() => handleCopyTask(t)}
+                    onDelete={() => handleDeleteTask(t.id)}
+                    onOpenDetail={() => setDetailTask(t)}
+                    isDeleting={deletingIds.has(t.id)}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+      </div>
+      )}
+      {/* MASAÜSTÜ — tablo (md ve üstü) */}
       <div
         ref={liveTableScrollRef}
         className={cn(
-          "flex-1 min-h-0 w-full min-w-0 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 bg-white isolate [overflow-anchor:none] dark:border-slate-700 dark:bg-slate-800",
+          "hidden md:flex flex-1 min-h-0 w-full min-w-0 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 bg-white isolate [overflow-anchor:none] dark:border-slate-700 dark:bg-slate-800",
           /* Sayfa düzeni flex’te bazen yükseklik sınırlanmıyor; viewport tavanı iç scroll + thead sticky’yi garanti eder (genişlet modunda portal zaten sınırlı). */
           !isFullWidth &&
-            "max-h-[calc(100dvh-22rem)] sm:max-h-[calc(100dvh-20rem)] lg:max-h-[calc(100dvh-18rem)] xl:max-h-[calc(100dvh-16rem)]",
+            "md:max-h-[calc(100dvh-20rem)] lg:max-h-[calc(100dvh-18rem)] xl:max-h-[calc(100dvh-16rem)]",
           isFullWidth && "min-h-0 max-h-none flex-1",
           tasks.length > 0 && "min-h-[200px]"
         )}
