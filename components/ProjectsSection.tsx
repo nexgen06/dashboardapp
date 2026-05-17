@@ -29,6 +29,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
@@ -287,10 +288,24 @@ function ProjectFormModal({
     setAssignedEmails((prev) => prev.filter((e) => e !== email));
   };
 
+  /**
+   * Step 1 → Step 2 geçişinde stray submit'i yakala:
+   * Kullanıcı "İleri" tıkladığında setStep(2) çalışır, buton aynı slot'ta "Oluştur"
+   * (type=submit) ile değişir, click event yeni butona iner ve form submit edilir.
+   * Bu ref ile "İleri ile geçildi" sinyalini bir microtask için tutarız ve o aralıkta
+   * gelen submit'leri reddederiz.
+   */
+  const justAdvancedRef = useRef(false);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // 2-adım sihirbazı: kullanıcı step 1'deyken input'tan Enter ile form submit ederse
-    // proje hemen oluşturulup pencere kapanmasın — sadece step 2'ye ilerle.
+    if (justAdvancedRef.current) {
+      // İleri'den hemen sonra gelen stray submit — yut
+      justAdvancedRef.current = false;
+      return;
+    }
+    // 2-adım sihirbazı: input'tan Enter ile submit ederse proje hemen oluşturulup
+    // pencere kapanmasın — sadece step 2'ye ilerle.
     if (!isEdit && step === 1) {
       if (isStep1Valid) setStep(2);
       return;
@@ -341,6 +356,13 @@ function ProjectFormModal({
       <DialogContent showClose={true} className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {isEdit
+              ? "Proje bilgilerini düzenleyin."
+              : step === 1
+                ? "Yeni proje için ad, açıklama, durum ve atanan kişileri belirleyin."
+                : "Opsiyonel olarak CSV veya JSON dosyasından görev içe aktarın."}
+          </DialogDescription>
         </DialogHeader>
         {/* Stepper indicator — yalnızca yeni proje oluşturma akışında */}
         {!isEdit && (
@@ -781,7 +803,13 @@ function ProjectFormModal({
               <Button
                 type="button"
                 disabled={!isStep1Valid}
-                onClick={() => setStep(2)}
+                onClick={() => {
+                  // Step değişimi sırasında DialogFooter slot'undaki buton "Oluştur"
+                  // (type=submit) ile değişiyor ve aynı click event'i yeni butona inip
+                  // form submit'i tetikliyor. Bu ref bir sonraki submit'i yutar.
+                  justAdvancedRef.current = true;
+                  setStep(2);
+                }}
                 className="bg-blue-600 hover:bg-blue-700 text-white"
               >
                 İleri →
@@ -1381,10 +1409,10 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
         <DialogContent showClose={true}>
           <DialogHeader>
             <DialogTitle className="text-red-700 dark:text-red-300">Projeyi sil</DialogTitle>
+            <DialogDescription className="text-slate-600 dark:text-slate-400">
+              &quot;{deleteConfirm?.name}&quot; projesi kalıcı olarak silinecek. Bu projeye bağlı tüm görevler canlı tablodan da silinecektir. Bu işlem geri alınamaz.
+            </DialogDescription>
           </DialogHeader>
-          <p className="text-sm text-slate-600 dark:text-slate-400">
-            &quot;{deleteConfirm?.name}&quot; projesi kalıcı olarak silinecek. Bu projeye bağlı tüm görevler canlı tablodan da silinecektir. Bu işlem geri alınamaz.
-          </p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setDeleteConfirm(null)}>İptal</Button>
             <Button type="button" className="bg-red-600 hover:bg-red-700 text-white" onClick={handleDelete}>
