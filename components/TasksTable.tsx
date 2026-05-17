@@ -660,7 +660,7 @@ function ExtraCellCopyButton({ text, density }: { text: string; density: LiveTab
       aria-label={copied ? "Kopyalandı" : "Panoya kopyala"}
       className={cn(
         "shrink-0 rounded p-0.5 text-slate-400 opacity-0 transition-opacity group-hover/extra-cell:opacity-100 hover:bg-slate-200 hover:text-slate-800 focus:opacity-100 dark:text-slate-500 dark:hover:bg-slate-600 dark:hover:text-slate-100",
-        copied && "text-green-600 opacity-100 hover:text-green-600 dark:text-green-400"
+        copied && "text-emerald-600 opacity-100 hover:text-emerald-600 dark:text-emerald-400"
       )}
     >
       {copied ? <Check className={iconClass} strokeWidth={2.5} /> : <Copy className={iconClass} />}
