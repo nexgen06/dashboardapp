@@ -180,6 +180,9 @@ function MesajlarContent() {
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     Bu projedeki ekip ile aynı sohbet; proje sayfasındaki panel ile senkron.
                   </p>
+                  <p className="mt-0.5 text-[0.7rem] text-slate-400 dark:text-slate-500">
+                    Sohbet açıldığında mesajlar otomatik okundu sayılır.
+                  </p>
                 </div>
                 <Button variant="outline" size="sm" asChild>
                   <Link href={`/projeler/${selected.id}`} className="gap-1.5">

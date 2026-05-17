@@ -54,10 +54,12 @@ import { formatDate } from "@/lib/formatDate";
 import { parseCSV } from "@/lib/csvParser";
 import { parseJSON } from "@/lib/jsonParser";
 import { isSensitiveExtraColumnKey, maskSensitiveExtraValue } from "@/lib/extraColumnSensitiveDisplay";
+import { isStatusDone, isStatusInProgress, getStatusKind } from "@/lib/statusKind";
 import {
   loadLiveTablePrefs,
   mergeColumnOrderWithDynamics,
   saveLiveTablePrefs,
+  type LiveTablePersistedPrefs,
 } from "@/lib/liveTableColumnPersistence";
 import {
   ADVANCED_FILTER_OP_OPTIONS,
@@ -69,6 +71,10 @@ import {
 import * as XLSX from "xlsx";
 import Link from "next/link";
 import { EmptyState } from "@/components/ui/empty-state";
+import { useToast } from "@/components/ui/toast";
+import { RestrictedButton } from "@/components/ui/permission-gate";
+import { TaskCardMobile } from "@/components/TaskCardMobile";
+import { urgentPrioritySetFromCsv } from "@/lib/urgentTaskPriority";
 import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
@@ -657,7 +663,7 @@ function ExtraCellCopyButton({ text, density }: { text: string; density: LiveTab
       aria-label={copied ? "Kopyalandı" : "Panoya kopyala"}
       className={cn(
         "shrink-0 rounded p-0.5 text-slate-400 opacity-0 transition-opacity group-hover/extra-cell:opacity-100 hover:bg-slate-200 hover:text-slate-800 focus:opacity-100 dark:text-slate-500 dark:hover:bg-slate-600 dark:hover:text-slate-100",
-        copied && "text-green-600 opacity-100 hover:text-green-600 dark:text-green-400"
+        copied && "text-emerald-600 opacity-100 hover:text-emerald-600 dark:text-emerald-400"
       )}
     >
       {copied ? <Check className={iconClass} strokeWidth={2.5} /> : <Copy className={iconClass} />}
@@ -1568,8 +1574,8 @@ const PRIORITY_STYLES: Record<string, string> = {
 
 function TaskStats({ tasks }: { tasks: Task[] }) {
   const total = tasks.length;
-  const tamamlandi = tasks.filter((t) => /tamamlandı|tamamlandi|done|completed/i.test(t.status)).length;
-  const devamEden = tasks.filter((t) => /devam|sürüyor|in progress|progress/i.test(t.status)).length;
+  const tamamlandi = tasks.filter((t) => isStatusDone(t.status)).length;
+  const devamEden = tasks.filter((t) => isStatusInProgress(t.status)).length;
   const diger = total - tamamlandi - devamEden;
 
   return (
@@ -1589,7 +1595,13 @@ function TaskStats({ tasks }: { tasks: Task[] }) {
   );
 }
 
-export function TasksTable() {
+type TasksTableProps = {
+  /** Üst seviyeden kontrol edilen proje filtresi. Verilmezse internal state kullanılır. */
+  projectFilter?: string[];
+  onProjectFilterChange?: (next: string[]) => void;
+};
+
+export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterChange }: TasksTableProps = {}) {
   const {
     tasks,
     updateTaskOptimistic,
@@ -1617,6 +1629,10 @@ export function TasksTable() {
   const dui = LIVE_TABLE_DENSITY_UI[tableDensity];
   const statusOptions = useMemo(() => getStatusOptions(settings), [settings.customStatusList]);
   const priorityOptions = getPriorityOptions(settings);
+  const urgentPrioritySetForTable = useMemo(
+    () => urgentPrioritySetFromCsv(settings.urgentPriorityTokens),
+    [settings.urgentPriorityTokens]
+  );
   const currentUserEmail = (user?.email ?? "").trim().toLowerCase();
   const canCreateTask = hasPermission("liveTable.createTask");
   const canEditTask = hasPermission("liveTable.editTask");
@@ -1647,14 +1663,24 @@ export function TasksTable() {
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
-  const [mutationBanner, setMutationBanner] = useState<{ kind: "success" | "error"; message: string } | null>(null);
+  const toast = useToast();
   const [globalSearch, setGlobalSearch] = useState("");
   /** Varsayılan: sadece projeye bağlı görevler (standart tablo verisi gösterilmez) */
   const [projectLinkedFilter, setProjectLinkedFilter] = useState<"proje" | "tümü">("proje");
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
-  /** Çoklu proje filtresi (görev hangi projeye bağlı): proje id listesi */
-  const [projectFilter, setProjectFilter] = useState<string[]>([]);
+  /** Çoklu proje filtresi (görev hangi projeye bağlı): proje id listesi.
+   *  Controlled: dışarıdan prop verilirse onu kullan, değilse internal state. */
+  const [internalProjectFilter, setInternalProjectFilter] = useState<string[]>([]);
+  const projectFilter = extProjectFilter ?? internalProjectFilter;
+  const setProjectFilter = useCallback(
+    (next: string[] | ((prev: string[]) => string[])) => {
+      const value = typeof next === "function" ? next(projectFilter) : next;
+      if (onProjectFilterChange) onProjectFilterChange(value);
+      else setInternalProjectFilter(value);
+    },
+    [projectFilter, onProjectFilterChange]
+  );
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [assigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false);
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
@@ -1665,7 +1691,10 @@ export function TasksTable() {
   const [columnFilterOpen, setColumnFilterOpen] = useState<string | null>(null);
   const [columnFilterSearch, setColumnFilterSearch] = useState("");
   const [datePreset, setDatePreset] = useState<string>("custom");
-  const [sorting, setSorting] = useState<SortingState>([{ id: "updated", desc: true }]);
+  // Default sort: status (Yapılacak/Devam/Tamamlandı gruplaması).
+  // Eskiden "updated" idi ama o kolon kaldırıldı; kayıtlı kullanıcılar için
+  // hydration aşamasında geçersiz sort id'leri normalleştiriliyor.
+  const [sorting, setSorting] = useState<SortingState>([{ id: "status", desc: false }]);
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 10 });
   /** Sütun görünürlüğü — çoklu seçim ve tek seferde uygulama için taslak */
   const [columnPickerOpen, setColumnPickerOpen] = useState(false);
@@ -1674,12 +1703,6 @@ export function TasksTable() {
   const [advancedFilterRules, setAdvancedFilterRules] = useState<AdvancedFilterRule[]>([]);
   const [advancedFilterOpen, setAdvancedFilterOpen] = useState(false);
   const now = new Date();
-
-  useEffect(() => {
-    if (!mutationBanner) return;
-    const t = window.setTimeout(() => setMutationBanner(null), 7000);
-    return () => window.clearTimeout(t);
-  }, [mutationBanner]);
 
   /**
    * `projects` ve `tasks` artık Supabase RLS tarafından sunucu tarafında filtrelenmiş geliyor
@@ -1701,9 +1724,13 @@ export function TasksTable() {
       .sort((a, b) => a.name.localeCompare(b.name, "tr"));
   }, [projects]);
 
-  /** Görünmez olan projelerin filtre seçimini temizle (proje silinirse vb.). */
+  /** Görünmez olan projelerin filtre seçimini temizle (proje silinirse vb.).
+   *  ÖNEMLİ: projects henüz yüklenmediyse (projectFilterOptions boş) bu
+   *  cleanup'ı ÇALIŞTIRMA — yoksa localStorage'tan hydrate edilen filtre,
+   *  proje listesi gelmeden "geçersiz" sayılıp silinir ve kalıcılık bozulur. */
   useEffect(() => {
     if (projectFilter.length === 0) return;
+    if (projectFilterOptions.length === 0) return; // projeler hâlâ yükleniyor olabilir
     const validIds = new Set(projectFilterOptions.map((p) => p.id));
     const valid = projectFilter.filter((id) => validIds.has(id));
     if (valid.length !== projectFilter.length) setProjectFilter(valid);
@@ -1730,27 +1757,61 @@ export function TasksTable() {
     }
   }, [assigneeFilter, assigneeFilterOptions]);
 
-  const projectSchemaExtraKeys = useMemo(() => {
-    const set = new Set<string>();
+  /**
+   * Extra (dinamik) sütun kapsamı — Canlı Tablo karmaşası fix'i:
+   *
+   *  - Proje filtresi aktifse, sütun seti seçili projelerin görev verilerinden
+   *    + seçili projelerin schema'larından (extra_column_keys) oluşur:
+   *    kullanıcı bilinçli olarak o projeye odaklanmıştır, schema'sını proaktif
+   *    görmek faydalıdır (Öneri 1 + #4).
+   *  - Filtre yokken: yalnızca en az bir görevde değeri olan anahtarlar
+   *    görünür (Öneri 2: schema-only kalabalık küresel tabloyu kirletmesin).
+   *
+   *  Sonuç: yeni bir projenin schema tanımı diğer projeleri kirletmez, ama
+   *  o projeyi filtreleyince schema'sı görünür.
+   */
+  const scopedProjectIdSet = useMemo(
+    () => (projectFilter.length > 0 ? new Set(projectFilter) : null),
+    [projectFilter]
+  );
+
+  const scopedTasksForSchema = useMemo(() => {
+    if (scopedProjectIdSet == null) return tasks;
+    return tasks.filter(
+      (t) => t.project_id != null && scopedProjectIdSet.has(String(t.project_id))
+    );
+  }, [tasks, scopedProjectIdSet]);
+
+  /** Filtre aktifken seçili projelerin schema'sı (proje formundaki "Canlı tablo ek sütunları"). */
+  const scopedProjectSchemaKeys = useMemo(() => {
+    if (scopedProjectIdSet == null) return new Set<string>();
+    const out = new Set<string>();
     projects.forEach((p) => {
+      if (!scopedProjectIdSet.has(p.id)) return;
       for (const k of p.extra_column_keys ?? []) {
-        if (k != null && String(k).trim() !== "") set.add(String(k).trim());
+        const key = String(k ?? "").trim();
+        if (key) out.add(key);
       }
     });
-    return Array.from(set).sort();
-  }, [projects]);
+    return out;
+  }, [projects, scopedProjectIdSet]);
 
   const extraDataKeys = useMemo(() => {
-    const set = new Set<string>(projectSchemaExtraKeys);
-    tasks.forEach((t) => {
+    const keys = new Set<string>(scopedProjectSchemaKeys);
+    scopedTasksForSchema.forEach((t) => {
       if (t.extra_data && typeof t.extra_data === "object") {
-        Object.keys(t.extra_data).forEach((k) => {
-          if (k != null && String(k).trim() !== "") set.add(k);
-        });
+        for (const [k, v] of Object.entries(t.extra_data)) {
+          if (k == null || String(k).trim() === "") continue;
+          // Filtre yoksa: sadece değer içeren anahtarlar (küresel tablo temizliği)
+          // Filtre varsa: tüm anahtarlar dahil (kullanıcı projeye odaklı)
+          if (scopedProjectIdSet != null || String(v ?? "").trim() !== "") {
+            keys.add(k);
+          }
+        }
       }
     });
-    return Array.from(set).sort();
-  }, [tasks, projectSchemaExtraKeys]);
+    return Array.from(keys).sort();
+  }, [scopedTasksForSchema, scopedProjectSchemaKeys, scopedProjectIdSet]);
 
   const advancedFilterFieldOptions = useMemo(() => {
     const opts: { id: string; label: string }[] = [
@@ -1770,6 +1831,27 @@ export function TasksTable() {
     () => advancedFilterRules.filter(advancedFilterRuleIsActive).length,
     [advancedFilterRules]
   );
+
+  /**
+   * Gelişmiş filtrede tek bir aktif kural varsa, o alana göre otomatik A-Z sırala.
+   * Aynı değere sahip satırlar yan yana gelir (ör. İl başlar A → Adana, Adana, Ankara…).
+   * Kullanıcı manuel sort yaparsa veya farklı bir alana geçerse buradaki ref takip eder
+   * ve aynı alanı tekrar tekrar uygulamaz; başka alan seçildiğinde ya da rule eklenince
+   * yeniden uygulanır.
+   */
+  const autoSortedFieldRef = useRef<string | null>(null);
+  useEffect(() => {
+    const active = advancedFilterRules.filter(advancedFilterRuleIsActive);
+    if (active.length === 1) {
+      const field = active[0].field;
+      if (field !== autoSortedFieldRef.current) {
+        autoSortedFieldRef.current = field;
+        setSorting([{ id: field, desc: false }]);
+      }
+    } else {
+      autoSortedFieldRef.current = null;
+    }
+  }, [advancedFilterRules]);
 
   /** Aynı commit içinde önce varsayılan state ile kayıt tetiklenmesin (localStorage'ı silmesin). */
   const skipNextLiveTablePersistRef = useRef(false);
@@ -1809,29 +1891,143 @@ export function TasksTable() {
       if (saved?.sorting && saved.sorting.length > 0) {
         setSorting(saved.sorting);
       }
+      // Filtre state'lerini hydrate et (sayfa yenileme sonrası korunsun).
+      // projectFilter parent component tarafından ayrı bir localStorage
+      // anahtarıyla yönetiliyor; buradan dokunmuyoruz.
+      const f = saved?.filters;
+      if (f) {
+        setGlobalSearch(f.globalSearch);
+        setProjectLinkedFilter(f.projectLinkedFilter);
+        setStatusFilter(f.statusFilter);
+        setAssigneeFilter(f.assigneeFilter);
+        setDateFrom(f.dateFrom);
+        setDateTo(f.dateTo);
+        setDatePreset(f.datePreset);
+        setColumnFilters(f.columnFilters);
+        setAdvancedFilterRules(f.advancedFilterRules as AdvancedFilterRule[]);
+      }
       return;
     }
 
     setColumnOrder((prev) => mergeColumnOrderWithDynamics(prev, dynamicIds));
   }, [userIdForPrefs, extraDataKeys]);
 
+  /**
+   * Tüm prefs'i tek dosyada tutmak için ortak helper: mevcut bütünsel
+   * snapshot'ı döndür. NOT: projectFilter parent component tarafından
+   * ayrı bir localStorage anahtarıyla yönetiliyor; burada yer almaz.
+   */
+  const buildCurrentPrefs = useCallback((): LiveTablePersistedPrefs => ({
+    columnVisibility,
+    columnOrder,
+    columnPinning,
+    columnSizing,
+    sorting,
+    filters: {
+      globalSearch,
+      projectLinkedFilter,
+      statusFilter,
+      assigneeFilter,
+      projectFilter: [],
+      dateFrom,
+      dateTo,
+      datePreset,
+      columnFilters,
+      advancedFilterRules,
+    },
+  }), [
+    columnVisibility,
+    columnOrder,
+    columnPinning,
+    columnSizing,
+    sorting,
+    globalSearch,
+    projectLinkedFilter,
+    statusFilter,
+    assigneeFilter,
+    dateFrom,
+    dateTo,
+    datePreset,
+    columnFilters,
+    advancedFilterRules,
+  ]);
+
+  /**
+   * Filtre değişiklikleri ANINDA yazılır (debounce yok).
+   */
   useEffect(() => {
     if (!userIdForPrefs) return;
     if (skipNextLiveTablePersistRef.current) {
       skipNextLiveTablePersistRef.current = false;
       return;
     }
+    saveLiveTablePrefs(userIdForPrefs, buildCurrentPrefs());
+  }, [
+    userIdForPrefs,
+    globalSearch,
+    projectLinkedFilter,
+    statusFilter,
+    assigneeFilter,
+    dateFrom,
+    dateTo,
+    datePreset,
+    columnFilters,
+    advancedFilterRules,
+    buildCurrentPrefs,
+  ]);
+
+  /**
+   * Kolon yerleşim/sıralama gibi rapid-fire (resize sırasında onlarca event)
+   * değişiklikler 250ms debounce ile yazılır. Bekleyen kayıt unmount'ta flush
+   * edilir (aşağıdaki useEffect).
+   */
+  const pendingPrefsSaveRef = useRef<{ userId: string; payload: LiveTablePersistedPrefs } | null>(null);
+  useEffect(() => {
+    if (!userIdForPrefs) return;
+    if (skipNextLiveTablePersistRef.current) return;
+    const payload = buildCurrentPrefs();
+    pendingPrefsSaveRef.current = { userId: userIdForPrefs, payload };
     const t = window.setTimeout(() => {
-      saveLiveTablePrefs(userIdForPrefs, {
-        columnVisibility,
-        columnOrder,
-        columnPinning,
-        columnSizing,
-        sorting,
-      });
-    }, 400);
+      saveLiveTablePrefs(userIdForPrefs, payload);
+      pendingPrefsSaveRef.current = null;
+    }, 250);
     return () => window.clearTimeout(t);
-  }, [userIdForPrefs, columnVisibility, columnOrder, columnPinning, columnSizing, sorting]);
+  }, [
+    userIdForPrefs,
+    columnVisibility,
+    columnOrder,
+    columnPinning,
+    columnSizing,
+    sorting,
+    buildCurrentPrefs,
+  ]);
+
+  /**
+   * Bileşen unmount edildiğinde veya tarayıcı sekmesi kapatılırken bekleyen
+   * debounced kayıt iptal edilirdi; bunun yerine son hesaplanan paketi
+   * senkron olarak localStorage'a yaz. Böylece "filtre seç → hızlıca sayfayı
+   * değiştir / yenile" senaryosunda da kayıt kaybolmaz.
+   */
+  useEffect(() => {
+    const flush = () => {
+      const pending = pendingPrefsSaveRef.current;
+      if (pending) {
+        saveLiveTablePrefs(pending.userId, pending.payload);
+        pendingPrefsSaveRef.current = null;
+      }
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("beforeunload", flush);
+      window.addEventListener("pagehide", flush);
+    }
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("beforeunload", flush);
+        window.removeEventListener("pagehide", flush);
+      }
+      flush();
+    };
+  }, []);
 
   const filteredData = useMemo(() => {
     let result = tasks;
@@ -2206,10 +2402,10 @@ export function TasksTable() {
     (taskId: string, patch: Partial<Task>) => {
       updateTaskOptimistic(taskId, patch);
       void saveTask(taskId, patch).then((r) => {
-        if (!r.ok) setMutationBanner({ kind: "error", message: r.message });
+        if (!r.ok) toast.error(r.message);
       });
     },
-    [updateTaskOptimistic, saveTask]
+    [updateTaskOptimistic, saveTask, toast]
   );
 
   const handleNewTask = useCallback(
@@ -2251,12 +2447,13 @@ export function TasksTable() {
       updateTaskOptimistic(editTask.id, patch);
       const r = await saveTask(editTask.id, patch);
       if (!r.ok) {
-        setMutationBanner({ kind: "error", message: r.message });
+        toast.error(r.message);
         return;
       }
       setEditTask(null);
+      toast.success("Görev güncellendi");
     },
-    [editTask, saveTask, updateTaskOptimistic]
+    [editTask, saveTask, updateTaskOptimistic, toast]
   );
 
   const handleCopyTask = useCallback(
@@ -2272,10 +2469,35 @@ export function TasksTable() {
 
   const handleDeleteTask = useCallback(
     async (taskId: string) => {
+      // Undo için önce mevcut görev verisini yakala
+      const backup = tasks.find((t) => t.id === taskId);
       setDeletingIds((prev) => new Set(prev).add(taskId));
       try {
         await deleteTask(taskId);
-        setMutationBanner({ kind: "success", message: "Görev silindi." });
+        toast.success("Görev silindi", {
+          action: backup
+            ? {
+                label: "Geri al",
+                onClick: async () => {
+                  try {
+                    await createTask({
+                      content: backup.content,
+                      status: backup.status,
+                      assignee: backup.assignee,
+                      priority: backup.priority,
+                      project_id: backup.project_id,
+                      due_date: backup.due_date,
+                      extra_data: backup.extra_data,
+                    });
+                    toast.success("Görev geri yüklendi");
+                  } catch (err) {
+                    const msg = err instanceof Error ? err.message : "Geri alınamadı";
+                    toast.error(msg);
+                  }
+                },
+              }
+            : undefined,
+        });
       } catch (e) {
         const msg =
           e instanceof Error
@@ -2283,7 +2505,7 @@ export function TasksTable() {
             : typeof e === "object" && e !== null && "message" in e
               ? String((e as { message: unknown }).message)
               : "Görev silinemedi.";
-        setMutationBanner({ kind: "error", message: msg });
+        toast.error(msg);
       } finally {
         setDeletingIds((prev) => {
           const next = new Set(prev);
@@ -2292,7 +2514,7 @@ export function TasksTable() {
         });
       }
     },
-    [deleteTask]
+    [deleteTask, createTask, tasks, toast]
   );
 
   // Dinamik hücre düzenleme handler'ı
@@ -2385,6 +2607,10 @@ export function TasksTable() {
     columnHelper.display({
       id: "status",
       header: "Durum",
+      sortingFn: (a, b) =>
+        String(a.original.status ?? "").localeCompare(String(b.original.status ?? ""), "tr", {
+          sensitivity: "base",
+        }),
       cell: ({ row }) => (
         <StatusCell
           value={row.original.status ?? ""}
@@ -2405,6 +2631,11 @@ export function TasksTable() {
     columnHelper.display({
       id: "content",
       header: "Açıklama",
+      sortingFn: (a, b) =>
+        String(a.original.content ?? "").localeCompare(String(b.original.content ?? ""), "tr", {
+          sensitivity: "base",
+          numeric: true,
+        }),
       cell: ({ row }) => {
         const task = row.original;
         const value = task.content ?? "";
@@ -2448,6 +2679,14 @@ export function TasksTable() {
     columnHelper.display({
       id: "project",
       header: "Proje",
+      sortingFn: (a, b) => {
+        const an = (projectById.get(String(a.original.project_id ?? ""))?.name ?? "").trim();
+        const bn = (projectById.get(String(b.original.project_id ?? ""))?.name ?? "").trim();
+        if (!an && !bn) return 0;
+        if (!an) return 1;
+        if (!bn) return -1;
+        return an.localeCompare(bn, "tr", { sensitivity: "base" });
+      },
       cell: ({ row }) => {
         const pid = row.original.project_id;
         if (!pid) {
@@ -2476,6 +2715,20 @@ export function TasksTable() {
       columnHelper.display({
         id: `extra:${key}`,
         header: key,
+        /**
+         * Display sütunları varsayılan olarak sıralanamaz; extra_data[key]
+         * değerine bakan Türkçe-aware sortingFn ekliyoruz.
+         * Adana, Adıyaman, Ağrı, Ankara, Antalya... gibi doğru alfabetik sıra.
+         */
+        sortingFn: (rowA, rowB) => {
+          const a = String(rowA.original.extra_data?.[key] ?? "").trim();
+          const b = String(rowB.original.extra_data?.[key] ?? "").trim();
+          // Boşlar her zaman en sonda
+          if (!a && !b) return 0;
+          if (!a) return 1;
+          if (!b) return -1;
+          return a.localeCompare(b, "tr", { sensitivity: "base", numeric: true });
+        },
         cell: ({ row }) => {
           const value = row.original.extra_data?.[key] ?? "";
           const taskId = row.original.id;
@@ -2766,13 +3019,38 @@ export function TasksTable() {
   const executeBulkDelete = useCallback(async () => {
     if (selectedIds.length === 0) return;
     setBulkDeleteConfirmOpen(false);
+    // Undo için seçili görevlerin tamamını yakala
+    const backups = selectedTasks.map((t) => ({ ...t }));
     setDeletingIds((prev) => new Set([...Array.from(prev), ...selectedIds]));
     try {
       await deleteTasks(selectedIds);
       setRowSelection({});
-      setMutationBanner({
-        kind: "success",
-        message: `${selectedIds.length} görev silindi.`,
+      toast.success(`${selectedIds.length} görev silindi`, {
+        action:
+          backups.length > 0
+            ? {
+                label: "Geri al",
+                onClick: async () => {
+                  try {
+                    await createTasksBulk(
+                      backups.map((b) => ({
+                        content: b.content,
+                        status: b.status,
+                        assignee: b.assignee,
+                        priority: b.priority,
+                        project_id: b.project_id,
+                        due_date: b.due_date,
+                        extra_data: b.extra_data,
+                      }))
+                    );
+                    toast.success(`${backups.length} görev geri yüklendi`);
+                  } catch (err) {
+                    const msg = err instanceof Error ? err.message : "Geri alınamadı";
+                    toast.error(msg);
+                  }
+                },
+              }
+            : undefined,
       });
     } catch (e) {
       const msg =
@@ -2781,7 +3059,7 @@ export function TasksTable() {
           : typeof e === "object" && e !== null && "message" in e
             ? String((e as { message: unknown }).message)
             : "Toplu silme başarısız.";
-      setMutationBanner({ kind: "error", message: msg });
+      toast.error(msg);
     } finally {
       setDeletingIds((prev) => {
         const next = new Set(prev);
@@ -2789,7 +3067,7 @@ export function TasksTable() {
         return next;
       });
     }
-  }, [selectedIds, deleteTasks]);
+  }, [selectedIds, selectedTasks, deleteTasks, createTasksBulk, toast]);
 
   const handleBulkStatusUpdate = useCallback(
     async (status: string) => {
@@ -2801,19 +3079,15 @@ export function TasksTable() {
         if (!r.ok) fail += 1;
       }
       if (fail > 0) {
-        setMutationBanner({
-          kind: "error",
-          message: `${fail} görev güncellenemedi${fail < selectedTasks.length ? ` (${selectedTasks.length - fail} güncellendi)` : ""}.`,
-        });
+        toast.error(
+          `${fail} görev güncellenemedi${fail < selectedTasks.length ? ` (${selectedTasks.length - fail} güncellendi)` : ""}`
+        );
       } else if (selectedTasks.length > 0) {
-        setMutationBanner({
-          kind: "success",
-          message: `${selectedTasks.length} görevin durumu güncellendi.`,
-        });
+        toast.success(`${selectedTasks.length} görevin durumu güncellendi`);
       }
       setRowSelection({});
     },
-    [selectedTasks, saveTask, updateTaskOptimistic]
+    [selectedTasks, saveTask, updateTaskOptimistic, toast]
   );
 
   if (isLoading) {
@@ -2877,6 +3151,9 @@ export function TasksTable() {
               Kuralların hepsi birlikte uygulanır (hepsi doğru olmalı — VE). Tablo yapısı değişse de aynı pencereden ek sütunları seçebilirsiniz.
             </DialogDescription>
           </DialogHeader>
+          <div className="rounded-md border border-blue-200 bg-blue-50/60 px-3 py-2 text-ui-caption text-blue-900 dark:border-blue-700/60 dark:bg-blue-950/40 dark:text-blue-100">
+            <strong>İpucu:</strong> Tek bir kural eklediğinizde tablo o alana göre <em>otomatik A-Z</em> sıralanır; aynı değere sahip satırlar yan yana gelir. Manuel değiştirmek için sütun başlığına tıklayabilirsiniz.
+          </div>
           <div className="space-y-3 py-1">
             {advancedFilterRules.length === 0 && (
               <p className="text-sm text-slate-500 dark:text-slate-400">Henüz kural yok. Aşağıdan «Kural ekle» ile koşul ekleyin.</p>
@@ -3079,31 +3356,7 @@ export function TasksTable() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <div
-        className="empty:hidden px-2 sm:px-4"
-        role="status"
-        aria-live={mutationBanner?.kind === "error" ? "assertive" : "polite"}
-      >
-        {mutationBanner && (
-          <div
-            className={cn(
-              "mb-2 flex items-start justify-between gap-2 rounded-md border px-3 py-2 text-sm",
-              mutationBanner.kind === "error"
-                ? "border-red-200 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950/50 dark:text-red-100"
-                : "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100"
-            )}
-          >
-            <span>{mutationBanner.message}</span>
-            <button
-              type="button"
-              className="shrink-0 rounded px-1 text-xs font-medium underline underline-offset-2 hover:opacity-90"
-              onClick={() => setMutationBanner(null)}
-            >
-              Kapat
-            </button>
-          </div>
-        )}
-      </div>
+      {/* Mutation feedback artık <Toaster /> üzerinden sağ-altta gösteriliyor. */}
       <div className="flex shrink-0 flex-col gap-3 px-2 py-3 sm:px-4">
         {/* Katman 1 — Hızlı filtreler (mobilde daraltılabilir) */}
         <div className="rounded-lg border border-slate-200/90 bg-slate-50/80 px-2 py-2 dark:border-slate-600/80 dark:bg-slate-800/45 sm:px-3 sm:py-2.5">
@@ -3834,12 +4087,16 @@ export function TasksTable() {
             </span>
           )}
           {onlineUsers.length > 0 && (
-            <OnlineUsersPanel
-              onlineUsers={onlineUsers}
-              editorsByRowId={editorsByRowId}
-              currentUserEmail={currentUserEmail}
-              tasks={tasks}
-            />
+            <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+              <User className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span className="sr-only sm:not-sr-only">Şu an çevrimiçi:</span>
+              <OnlineUsersPanel
+                onlineUsers={onlineUsers}
+                editorsByRowId={editorsByRowId}
+                currentUserEmail={currentUserEmail}
+                tasks={tasks}
+              />
+            </span>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -4034,8 +4291,8 @@ export function TasksTable() {
             </DropdownMenuContent>
           </DropdownMenu>
           )}
-          {canCreateTask && (
-          <Button
+          <RestrictedButton
+            permission="liveTable.createTask"
             type="button"
             size="sm"
             onClick={() => setNewTaskOpen(true)}
@@ -4044,8 +4301,7 @@ export function TasksTable() {
           >
             <PlusCircle className="h-4 w-4 shrink-0 sm:mr-2" aria-hidden />
             <span className="hidden sm:inline">Yeni görev</span>
-          </Button>
-          )}
+          </RestrictedButton>
         </div>
       </div>
       {selectedIds.length > 0 && (
@@ -4105,13 +4361,53 @@ export function TasksTable() {
       </Dialog>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <TooltipProvider delayDuration={200} skipDelayDuration={120}>
+      {/* MOBİL — kart listesi (md altı). Boşsa hiç render etme; EmptyState aşağıda zaten gösterilir. */}
+      {table.getRowModel().rows.length > 0 && (
+      <div
+        className={cn(
+          "flex-1 min-h-0 w-full overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/50 p-2 dark:border-slate-700 dark:bg-slate-900/30 md:hidden",
+          !isFullWidth && "max-h-[calc(100dvh-22rem)] sm:max-h-[calc(100dvh-20rem)]"
+        )}
+      >
+        <ul className="flex flex-col gap-2" aria-label="Görev listesi">
+            {table.getRowModel().rows.map((row) => {
+              const t = row.original;
+              const pName = t.project_id ? projectById.get(String(t.project_id))?.name ?? null : null;
+              return (
+                <li key={row.id}>
+                  <TaskCardMobile
+                    task={t}
+                    projectId={t.project_id ?? null}
+                    projectName={pName}
+                    extraKeys={extraDataKeys}
+                    selected={row.getIsSelected()}
+                    onToggleSelect={() => row.toggleSelected(!row.getIsSelected())}
+                    dateFormat={settings.dateFormat}
+                    urgentPrioritySet={urgentPrioritySetForTable}
+                    now={now}
+                    canEdit={canEditTask}
+                    canDelete={canDeleteTask}
+                    canCreate={canCreateTask}
+                    onEdit={() => setEditTask(t)}
+                    onCopy={() => handleCopyTask(t)}
+                    onDelete={() => handleDeleteTask(t.id)}
+                    onOpenDetail={() => setDetailTask(t)}
+                    isDeleting={deletingIds.has(t.id)}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+      </div>
+      )}
+      {/* MASAÜSTÜ — tablo (md ve üstü) */}
       <div
         ref={liveTableScrollRef}
         className={cn(
-          "flex-1 min-h-0 w-full min-w-0 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 bg-white isolate [overflow-anchor:none] dark:border-slate-700 dark:bg-slate-800",
+          "hidden md:flex flex-1 min-h-0 w-full min-w-0 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 bg-white isolate [overflow-anchor:none] dark:border-slate-700 dark:bg-slate-800",
           /* Sayfa düzeni flex’te bazen yükseklik sınırlanmıyor; viewport tavanı iç scroll + thead sticky’yi garanti eder (genişlet modunda portal zaten sınırlı). */
           !isFullWidth &&
-            "max-h-[calc(100dvh-22rem)] sm:max-h-[calc(100dvh-20rem)] lg:max-h-[calc(100dvh-18rem)] xl:max-h-[calc(100dvh-16rem)]",
+            "md:max-h-[calc(100dvh-20rem)] lg:max-h-[calc(100dvh-18rem)] xl:max-h-[calc(100dvh-16rem)]",
           isFullWidth && "min-h-0 max-h-none flex-1",
           tasks.length > 0 && "min-h-[200px]"
         )}

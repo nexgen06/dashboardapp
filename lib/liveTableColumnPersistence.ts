@@ -8,12 +8,46 @@ import type {
 
 const STORAGE_KEY_PREFIX = "dashboardapp.liveTable.prefs.v1:";
 
+/**
+ * Kalıcı tutulan Canlı Tablo filtreleri (sayfa yenilemede korunur).
+ *
+ * NOT persisted: modal açık/kapalı durumu, satır seçimleri, açık dropdown,
+ * mutasyon banner'ı, hover state'leri.
+ */
+export type LiveTablePersistedFilters = {
+  globalSearch: string;
+  projectLinkedFilter: "proje" | "tümü";
+  statusFilter: string[];
+  assigneeFilter: string[];
+  projectFilter: string[];
+  dateFrom: string;
+  dateTo: string;
+  datePreset: string;
+  columnFilters: Record<string, string[]>;
+  /** Opaque JSON — caller'da AdvancedFilterRule[] olarak parse edilir. */
+  advancedFilterRules: unknown[];
+};
+
 export type LiveTablePersistedPrefs = {
   columnVisibility: VisibilityState;
   columnOrder: ColumnOrderState;
   columnPinning: ColumnPinningState;
   columnSizing: ColumnSizingState;
   sorting: SortingState;
+  filters?: LiveTablePersistedFilters;
+};
+
+export const EMPTY_LIVE_TABLE_FILTERS: LiveTablePersistedFilters = {
+  globalSearch: "",
+  projectLinkedFilter: "proje",
+  statusFilter: [],
+  assigneeFilter: [],
+  projectFilter: [],
+  dateFrom: "",
+  dateTo: "",
+  datePreset: "custom",
+  columnFilters: {},
+  advancedFilterRules: [],
 };
 
 const CORE_START = ["select", "status", "content"] as const;
@@ -42,11 +76,36 @@ export function loadLiveTablePrefs(userId: string): LiveTablePersistedPrefs | nu
         right: Array.isArray(right) ? right : [],
       },
       columnSizing: p.columnSizing && typeof p.columnSizing === "object" ? p.columnSizing : {},
-      sorting: Array.isArray(p.sorting) && p.sorting.length > 0 ? p.sorting : [{ id: "updated", desc: true }],
+      // Geçersiz/kaldırılmış sütun id'lerini ("updated" gibi) filtrele;
+      // boş kalırsa default sort'u uygula
+      sorting: Array.isArray(p.sorting)
+        ? p.sorting.filter((s) => s && typeof s.id === "string" && s.id !== "updated" && s.id !== "updated_at")
+        : [],
+      filters: normalizeFilters(p.filters),
     };
   } catch {
     return null;
   }
+}
+
+function normalizeFilters(raw: unknown): LiveTablePersistedFilters | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const f = raw as Partial<LiveTablePersistedFilters>;
+  const projectLinked = f.projectLinkedFilter === "tümü" || f.projectLinkedFilter === "proje"
+    ? f.projectLinkedFilter
+    : "proje";
+  return {
+    globalSearch: typeof f.globalSearch === "string" ? f.globalSearch : "",
+    projectLinkedFilter: projectLinked,
+    statusFilter: Array.isArray(f.statusFilter) ? f.statusFilter.filter((x): x is string => typeof x === "string") : [],
+    assigneeFilter: Array.isArray(f.assigneeFilter) ? f.assigneeFilter.filter((x): x is string => typeof x === "string") : [],
+    projectFilter: Array.isArray(f.projectFilter) ? f.projectFilter.filter((x): x is string => typeof x === "string") : [],
+    dateFrom: typeof f.dateFrom === "string" ? f.dateFrom : "",
+    dateTo: typeof f.dateTo === "string" ? f.dateTo : "",
+    datePreset: typeof f.datePreset === "string" ? f.datePreset : "custom",
+    columnFilters: f.columnFilters && typeof f.columnFilters === "object" ? (f.columnFilters as Record<string, string[]>) : {},
+    advancedFilterRules: Array.isArray(f.advancedFilterRules) ? f.advancedFilterRules : [],
+  };
 }
 
 export function saveLiveTablePrefs(userId: string, prefs: LiveTablePersistedPrefs): void {

@@ -22,6 +22,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
+import { AvatarStack } from "@/components/ui/avatar-stack";
+import { RestrictedButton } from "@/components/ui/permission-gate";
 import {
   Dialog,
   DialogContent,
@@ -135,10 +137,13 @@ function ProjectFormModal({
   const [strictAssigneeVisibility, setStrictAssigneeVisibility] = useState(false);
   const [importRoundRobin, setImportRoundRobin] = useState(false);
   const [extraColumnKeysText, setExtraColumnKeysText] = useState("");
+  /** 2-adım sihirbazı: 1 = proje bilgileri, 2 = opsiyonel görev içe aktarma. Edit modunda kullanılmaz. */
+  const [step, setStep] = useState<1 | 2>(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isEdit = !!project;
-  const title = isEdit ? "Projeyi düzenle" : "Yeni proje";
+  const title = isEdit ? "Projeyi düzenle" : step === 1 ? "Yeni proje · Bilgiler" : "Yeni proje · Görev içe aktarma (opsiyonel)";
+  const isStep1Valid = name.trim().length > 0;
 
   useEffect(() => {
     if (open && project) {
@@ -154,6 +159,7 @@ function ProjectFormModal({
       setStrictAssigneeVisibility(project.strict_assignee_visibility ?? false);
       setImportRoundRobin(false);
       setExtraColumnKeysText((project.extra_column_keys ?? []).join("\n"));
+      setStep(1);
     } else if (open && !project) {
       setName("");
       setDescription("");
@@ -167,6 +173,7 @@ function ProjectFormModal({
       setStrictAssigneeVisibility(false);
       setImportRoundRobin(false);
       setExtraColumnKeysText("");
+      setStep(1);
     }
   }, [open, project]);
 
@@ -186,19 +193,25 @@ function ProjectFormModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const extraColumnKeys = parseExtraColumnKeysFromForm(extraColumnKeysText);
-    await onSubmit({
-      name: name.trim(),
-      description: description.trim(),
-      status,
-      due_date: dueDate.trim() || undefined,
-      priority: priority ? (priority as ProjectPriority) : undefined,
-      importFile: isEdit ? undefined : importFile ?? undefined,
-      assignee: isEdit ? undefined : (assignee.trim() || undefined),
-      assignedEmails: assignedEmails.length > 0 ? assignedEmails : undefined,
-      strictAssigneeVisibility: isAdmin ? strictAssigneeVisibility : undefined,
-      importRoundRobin: !isEdit ? importRoundRobin : undefined,
-      extraColumnKeys: extraColumnKeys.length > 0 ? extraColumnKeys : undefined,
-    });
+    try {
+      await onSubmit({
+        name: name.trim(),
+        description: description.trim(),
+        status,
+        due_date: dueDate.trim() || undefined,
+        priority: priority ? (priority as ProjectPriority) : undefined,
+        importFile: isEdit ? undefined : importFile ?? undefined,
+        assignee: isEdit ? undefined : (assignee.trim() || undefined),
+        // Boş dizi de göndermeli ki "tüm atananları kaldır" işlemi kaydedilebilsin
+        assignedEmails: assignedEmails,
+        strictAssigneeVisibility: isAdmin ? strictAssigneeVisibility : undefined,
+        importRoundRobin: !isEdit ? importRoundRobin : undefined,
+        extraColumnKeys: extraColumnKeys.length > 0 ? extraColumnKeys : undefined,
+      });
+    } catch {
+      // onSubmit içinde formError zaten set ediliyor; modal kapanmasın.
+      return;
+    }
     onOpenChange(false);
     setName("");
     setDescription("");
@@ -220,12 +233,35 @@ function ProjectFormModal({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
+        {/* Stepper indicator — yalnızca yeni proje oluşturma akışında */}
+        {!isEdit && (
+          <div className="flex items-center gap-3 px-1 pt-1" role="progressbar" aria-valuenow={step} aria-valuemin={1} aria-valuemax={2}>
+            <div className="flex items-center gap-2">
+              <span className={cn(
+                "flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
+                step >= 1 ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-400"
+              )}>1</span>
+              <span className={cn("text-sm font-medium", step === 1 ? "text-slate-900 dark:text-slate-100" : "text-slate-500 dark:text-slate-400")}>Bilgiler</span>
+            </div>
+            <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" aria-hidden />
+            <div className="flex items-center gap-2">
+              <span className={cn(
+                "flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
+                step >= 2 ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-400"
+              )}>2</span>
+              <span className={cn("text-sm font-medium", step === 2 ? "text-slate-900 dark:text-slate-100" : "text-slate-500 dark:text-slate-400")}>Görev içe aktar <span className="text-xs font-normal text-slate-500">(opsiyonel)</span></span>
+            </div>
+          </div>
+        )}
         {formError && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-700 dark:bg-red-950/50 dark:text-red-200">
             {formError}
           </div>
         )}
         <form onSubmit={handleSubmit} className="grid gap-4 py-2">
+          {/* Step 1 — Proje bilgileri (edit modunda her zaman görünür) */}
+          {(isEdit || step === 1) && (
+          <>
           <div>
             <label htmlFor="project-name" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
               Ad
@@ -389,14 +425,23 @@ function ProjectFormModal({
             </div>
           )}
 
-          {!isEdit && (
-            <>
+          </>
+          )}
+          {/* /Step 1 */}
+
+          {/* Step 2 — Opsiyonel görev içe aktarma (yalnızca yeni proje akışı) */}
+          {!isEdit && step === 2 && (
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                Bu adım <strong>opsiyonel</strong>. Hemen "Oluştur"a basabilir veya bir dosyadan toplu görev ekleyebilirsiniz.
+              </p>
+
               <div className="rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50/50 dark:bg-slate-800/50 p-3 space-y-3">
                 <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
                   CSV / JSON ile görev aktar
                 </p>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Proje oluşturulduktan sonra dosyadaki satırlar canlı tabloya görev olarak eklenir. Orijinal sütun başlıkları korunur; işlemi yapacak kullanıcıyı seçin.
+                  Proje oluşturulduktan sonra dosyadaki her satır canlı tabloda bir görev olarak eklenir. Sütun başlıkları korunur.
                 </p>
                 <input
                   ref={fileInputRef}
@@ -431,39 +476,62 @@ function ProjectFormModal({
                       onChange={(e) => setImportRoundRobin(e.target.checked)}
                     />
                     <span className="text-xs text-slate-700 dark:text-slate-300">
-                      <strong>Eşit dağıt (round-robin):</strong> Dosyadaki her satır, yukarıdaki atanan e-posta listesine sırayla paylaştırılır.
-                      İşaretliyken CSV’deki &quot;Atanan&quot; sütunu yok sayılır.
+                      <strong>Eşit dağıt (round-robin):</strong> Her satır, atanan e-posta listesine sırayla paylaştırılır.
+                      İşaretliyken CSV&apos;deki &quot;Atanan&quot; sütunu yok sayılır.
                     </span>
                   </label>
                 )}
               </div>
-              <div>
-                <label htmlFor="project-assignee" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  İşlemi yapacak kullanıcı (atanan)
-                </label>
-                <input
-                  id="project-assignee"
-                  type="text"
-                  value={assignee}
-                  onChange={(e) => setAssignee(e.target.value)}
-                  placeholder="Dosyadan eklenen görevlere atanacak kişi"
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
-                />
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  Dosya yüklediyseniz: CSV/Excel&apos;de &quot;Atanan&quot; / &quot;assignee&quot; başlıklı sütun varsa satır bazında kullanılır.
-                  Sütun yoksa bu alan tüm satırlara aynı atananı yazar. Round-robin seçiliyse bu alan ve sütun yok sayılır.
-                </p>
-              </div>
-            </>
+
+              {importFile && (
+                <div>
+                  <label htmlFor="project-assignee" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    Varsayılan atanan
+                  </label>
+                  <input
+                    id="project-assignee"
+                    type="text"
+                    value={assignee}
+                    onChange={(e) => setAssignee(e.target.value)}
+                    placeholder="Dosyadan eklenen görevlere atanacak kişi"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                  />
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    Dosyada &quot;Atanan&quot; / &quot;assignee&quot; sütunu varsa satır bazında kullanılır. Yoksa burada yazan değer tüm satırlara uygulanır.
+                    Round-robin işaretliyse bu alan ve dosyadaki sütun yok sayılır.
+                  </p>
+                </div>
+              )}
+            </div>
           )}
+          {/* /Step 2 */}
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              İptal
-            </Button>
-            <Button type="submit" disabled={isSubmitting} className="bg-blue-600 hover:bg-blue-700">
-              {isEdit ? "Kaydet" : "Oluştur"}
-            </Button>
+            {/* Sol: İptal veya Geri */}
+            {!isEdit && step === 2 ? (
+              <Button type="button" variant="outline" onClick={() => setStep(1)}>
+                ← Geri
+              </Button>
+            ) : (
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                İptal
+              </Button>
+            )}
+            {/* Sağ: İleri / Oluştur / Kaydet */}
+            {!isEdit && step === 1 ? (
+              <Button
+                type="button"
+                disabled={!isStep1Valid}
+                onClick={() => setStep(2)}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                İleri →
+              </Button>
+            ) : (
+              <Button type="submit" disabled={isSubmitting || (!isEdit && !isStep1Valid)} className="bg-blue-600 hover:bg-blue-700 text-white">
+                {isEdit ? "Kaydet" : importFile ? "Oluştur ve içe aktar" : "Oluştur"}
+              </Button>
+            )}
           </DialogFooter>
         </form>
       </DialogContent>
@@ -652,8 +720,18 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
       setFormError(null);
     } catch (e) {
       console.error("[Projects] Form submit failed:", e);
-      const message = e instanceof Error ? e.message : String(e);
+      // Supabase hatası genelde { code, message, details, hint } yapısındadır.
+      const supaErr = e as { code?: string; message?: string; details?: string; hint?: string };
+      const parts = [supaErr?.message, supaErr?.details, supaErr?.hint, supaErr?.code]
+        .filter((x) => x != null && String(x).trim() !== "");
+      const message = parts.length > 0
+        ? parts.join(" — ")
+        : e instanceof Error
+          ? e.message
+          : String(e);
       setFormError(message || "Proje oluşturulurken veya güncellenirken bir hata oluştu.");
+      // Form'un yakalayıp modal'ı açık tutması için re-throw et
+      throw e;
     } finally {
       setIsSubmitting(false);
     }
@@ -778,17 +856,16 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
             placeholder="Bitiş"
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
           />
-          {canCreateProject && (
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => { setEditingProject(null); setFormOpen(true); }}
-              className="bg-blue-600 hover:bg-blue-700 shrink-0"
-            >
-              <PlusCircle className="mr-2 h-4 w-4" />
-              Yeni proje
-            </Button>
-          )}
+          <RestrictedButton
+            permission="projects.create"
+            type="button"
+            size="sm"
+            onClick={() => { setEditingProject(null); setFormOpen(true); }}
+            className="bg-blue-600 hover:bg-blue-700 shrink-0"
+          >
+            <PlusCircle className="mr-2 h-4 w-4" />
+            Yeni proje
+          </RestrictedButton>
         </div>
 
         {filteredProjects.length === 0 ? (
@@ -837,28 +914,36 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {filteredProjects.map((project) => {
-              const taskCount = taskCountByProject[project.id] ?? 0;
+              const taskStats = taskCountByProject[project.id] ?? { total: 0, done: 0 };
+              const taskCount = taskStats.total;
+              const taskDone = taskStats.done;
+              const taskProgressPct = taskCount > 0 ? Math.round((taskDone / taskCount) * 100) : 0;
               const chatUnread = unreadByProjectId[project.id] ?? 0;
               return (
-                <div
+                <article
                   key={project.id}
                   className={cn(
-                    "flex flex-col rounded-lg border p-4 transition-shadow",
+                    "group relative flex flex-col rounded-lg border p-4 transition-all",
                     isPageVariant
-                      ? "border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/60 hover:border-slate-300 dark:hover:border-slate-500"
-                      : "border-slate-200 bg-slate-50/50 dark:border-slate-600 dark:bg-slate-800/50 hover:shadow-md",
+                      ? "border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/60 hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5 dark:hover:border-blue-600"
+                      : "border-slate-200 bg-slate-50/50 dark:border-slate-600 dark:bg-slate-800/50 hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5 dark:hover:border-blue-600",
                     project.status === "Beklemede" && "opacity-80"
                   )}
                 >
-                  <div className="flex items-start justify-between gap-2">
+                  {/* Stretched link: tüm kart tıklanabilir; içeride z-10'lu elementler kendi davranışlarını korur. */}
+                  <Link
+                    href={`/projeler/${project.id}`}
+                    aria-label={`${project.name || "İsimsiz proje"} projesine git`}
+                    className="absolute inset-0 z-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                  />
+                  <div className="relative z-10 flex items-start justify-between gap-2 pointer-events-none">
                     <div className="min-w-0 flex-1">
-                      <Link
-                        href={`/projeler/${project.id}`}
+                      <div
                         className={cn(
-                          "flex min-w-0 items-center gap-1.5 focus:outline-none focus:ring-0",
+                          "flex min-w-0 items-center gap-1.5",
                           isPageVariant
-                            ? "font-semibold text-slate-800 dark:text-slate-100 hover:text-slate-600 dark:hover:text-slate-200"
-                            : "font-medium text-slate-800 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400"
+                            ? "font-semibold text-slate-800 dark:text-slate-100 group-hover:text-blue-700 dark:group-hover:text-blue-300"
+                            : "font-medium text-slate-800 dark:text-slate-100 group-hover:text-blue-700 dark:group-hover:text-blue-300"
                         )}
                       >
                         <span className="truncate">{project.name || "İsimsiz proje"}</span>
@@ -870,12 +955,12 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
                             {chatUnread > 99 ? "99+" : chatUnread}
                           </span>
                         )}
-                      </Link>
+                      </div>
                       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 line-clamp-2">{project.description || "—"}</p>
                     </div>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" aria-label="Menü">
+                        <Button variant="ghost" size="icon" className="pointer-events-auto h-8 w-8 shrink-0" aria-label="Proje menüsü">
                           <MoreVertical className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -910,7 +995,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <div className="relative z-10 mt-3 flex flex-wrap items-center gap-2 pointer-events-none">
                     <Badge variant="outline" className={cn("text-xs font-normal", STATUS_STYLES[project.status])}>
                       {project.status}
                     </Badge>
@@ -934,32 +1019,27 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
                         Yaklaşan
                       </Badge>
                     )}
-                    <Link
-                      href={`/projeler/${project.id}`}
+                    <span
                       className={cn(
-                        "inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium focus:outline-none focus:ring-0",
+                        "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium",
                         isPageVariant
-                          ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-500 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
-                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+                          ? "border-slate-300 bg-white text-slate-700 dark:border-slate-500 dark:bg-slate-700 dark:text-slate-200"
+                          : "border-slate-200 bg-white text-slate-600 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300"
                       )}
+                      title={taskCount > 0 ? `${taskDone} / ${taskCount} görev tamamlandı (${taskProgressPct}%)` : "Görev yok"}
                     >
-                      {taskCount} görev
-                    </Link>
+                      {taskCount === 0
+                        ? "0 görev"
+                        : <>{taskDone}<span className="opacity-60">/{taskCount}</span> görev</>}
+                    </span>
                     {(project.assigned_emails?.length ?? 0) > 0 && (
-                      <span
-                        className={cn(
-                          "inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium",
-                          (project.assigned_emails ?? []).some((e) => e.toLowerCase() === currentUserEmail)
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200"
-                            : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300"
-                        )}
-                        title={(project.assigned_emails ?? []).join(", ")}
-                      >
-                        <UserPlus className="mr-1 h-3 w-3" />
-                        {(project.assigned_emails ?? []).some((e) => e.toLowerCase() === currentUserEmail)
-                          ? "Atandınız"
-                          : `${project.assigned_emails!.length} kişi`}
-                      </span>
+                      <AvatarStack
+                        emails={project.assigned_emails ?? []}
+                        highlightEmail={currentUserEmail}
+                        max={4}
+                        size={24}
+                        className="pointer-events-auto"
+                      />
                     )}
                     {(project.updated_at || project.created_at) && (
                       <span className="text-xs text-slate-400 dark:text-slate-500">
@@ -967,7 +1047,39 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
                       </span>
                     )}
                   </div>
-                </div>
+                  {/* Tamamlanma progress bar — sıfır görev yoksa görünür */}
+                  {taskCount > 0 && (
+                    <div className="relative z-10 mt-3 pointer-events-none">
+                      <div className="flex items-center justify-between text-ui-caption text-slate-500 dark:text-slate-400">
+                        <span>İlerleme</span>
+                        <span className={cn(
+                          "font-medium",
+                          taskProgressPct === 100 && "text-emerald-700 dark:text-emerald-300",
+                          taskProgressPct > 0 && taskProgressPct < 100 && "text-amber-700 dark:text-amber-300",
+                          taskProgressPct === 0 && "text-slate-500 dark:text-slate-400"
+                        )}>
+                          %{taskProgressPct}
+                        </span>
+                      </div>
+                      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-all",
+                            taskProgressPct === 100
+                              ? "bg-emerald-500 dark:bg-emerald-400"
+                              : taskProgressPct >= 50
+                                ? "bg-blue-500 dark:bg-blue-400"
+                                : taskProgressPct > 0
+                                  ? "bg-amber-500 dark:bg-amber-400"
+                                  : "bg-slate-300 dark:bg-slate-600"
+                          )}
+                          style={{ width: `${Math.max(2, taskProgressPct)}%` }}
+                          aria-hidden
+                        />
+                      </div>
+                    </div>
+                  )}
+                </article>
               );
             })}
           </div>

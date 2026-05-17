@@ -4,6 +4,7 @@ import { GeistSans } from "geist/font/sans";
 import { AuthProvider } from "@/contexts/auth-context";
 import { AuthGuard } from "@/components/AuthGuard";
 import { AppLayout } from "@/components/AppLayout";
+import { ToastProvider } from "@/components/ui/toast";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -25,11 +26,13 @@ export default function RootLayout({
           }}
         />
         <AuthProvider>
+        <ToastProvider>
         <AuthGuard>
         <Suspense fallback={<div className="flex min-h-screen items-center justify-center text-slate-500">Yükleniyor…</div>}>
           <AppLayout>{children}</AppLayout>
         </Suspense>
         </AuthGuard>
+        </ToastProvider>
         </AuthProvider>
       </body>
     </html>

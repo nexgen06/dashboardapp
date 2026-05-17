@@ -10,6 +10,9 @@ import { useAuth } from "@/contexts/auth-context";
 import { formatDate } from "@/lib/formatDate";
 import { parseCSV } from "@/lib/csvParser";
 import { parseJSON } from "@/lib/jsonParser";
+import { urgentPrioritySetFromCsv } from "@/lib/urgentTaskPriority";
+import { PriorityBadge } from "@/components/ui/priority-badge";
+import { RestrictedButton } from "@/components/ui/permission-gate";
 import {
   findAssigneeColumnIndex,
   findAssigneeJsonKey,
@@ -113,6 +116,10 @@ export default function ProjeDetayPage() {
   const params = useParams();
   const id = typeof params?.id === "string" ? params.id : "";
   const { settings } = useSettings();
+  const urgentPrioritySet = useMemo(
+    () => urgentPrioritySetFromCsv(settings.urgentPriorityTokens),
+    [settings.urgentPriorityTokens]
+  );
   const statusOptions = getStatusOptions(settings);
   const priorityOptions = getPriorityOptions(settings);
   const { user, hasPermission, isAdmin } = useAuth();
@@ -573,23 +580,27 @@ export default function ProjeDetayPage() {
           <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
             <h2 className="text-lg font-medium text-slate-800 dark:text-slate-100">Bu projedeki görevler</h2>
             <div className="flex items-center gap-2">
-              {canAddTask && (
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => setAddTaskOpen(true)}
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  <PlusCircle className="mr-2 h-4 w-4" />
-                  Görev ekle
-                </Button>
-              )}
-              {canImportCsv && (
-                <Button type="button" size="sm" variant="outline" onClick={() => setImportOpen(true)} className="text-slate-700 dark:text-slate-300">
-                  <Upload className="mr-2 h-4 w-4" />
-                  CSV/JSON
-                </Button>
-              )}
+              <RestrictedButton
+                permission="projectDetail.addTask"
+                type="button"
+                size="sm"
+                onClick={() => setAddTaskOpen(true)}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                <PlusCircle className="mr-2 h-4 w-4" />
+                Görev ekle
+              </RestrictedButton>
+              <RestrictedButton
+                permission="projectDetail.importCsv"
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setImportOpen(true)}
+                className="text-slate-700 dark:text-slate-300"
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                CSV/JSON
+              </RestrictedButton>
             </div>
           </div>
 
@@ -718,11 +729,7 @@ export default function ProjeDetayPage() {
                   ) : (
                     <span className="text-xs text-slate-400 dark:text-slate-500">—</span>
                   )}
-                  {task.priority && (
-                    <Badge variant="outline" className={cn("text-xs font-normal", PRIORITY_STYLES[task.priority] ?? "")}>
-                      {task.priority}
-                    </Badge>
-                  )}
+                  <PriorityBadge priority={task.priority} urgentSet={urgentPrioritySet} />
                   {task.updated_at && (
                     <span className="text-xs text-slate-400 dark:text-slate-500">
                       {formatDate(new Date(task.updated_at), settings.dateFormat)}
