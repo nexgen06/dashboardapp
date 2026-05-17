@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
 import { useProjects } from "@/hooks/useProjects";
 import { aggregateStatsByAssignee, isTaskCompleted, isTaskInProgress } from "@/lib/taskStats";
+import { isStatusTodo } from "@/lib/statusKind";
 import { Button } from "@/components/ui/button";
 import { BarChart3, Loader2, Shield, LayoutList } from "lucide-react";
 
@@ -21,13 +22,27 @@ export default function GorevIstatistikleriPage() {
     return m;
   }, [projects]);
 
+  /**
+   * Görev kapsamı:
+   *  - "all" → yalnızca projeye bağlı görevler (Dashboard / Görev Özeti / Canlı Tablo ile tutarlı)
+   *  - "no_project" → orphan görevler (admin audit için bilinçli görüntüleme)
+   *  - belirli proje id → o projenin görevleri
+   */
   const filteredTasks = useMemo(() => {
-    if (projectFilter === "all") return tasks;
+    if (projectFilter === "all") {
+      return tasks.filter((t) => t.project_id != null && String(t.project_id).trim() !== "");
+    }
     if (projectFilter === "no_project") {
       return tasks.filter((t) => !t.project_id || String(t.project_id).trim() === "");
     }
     return tasks.filter((t) => t.project_id === projectFilter);
   }, [tasks, projectFilter]);
+
+  /** "Kalan" = gerçek todo statüsündekiler (Beklemede / İptal gibi "diğer" statüler dahil değil) */
+  const orphanCount = useMemo(
+    () => tasks.filter((t) => !t.project_id || String(t.project_id).trim() === "").length,
+    [tasks]
+  );
 
   const byAssignee = useMemo(() => aggregateStatsByAssignee(filteredTasks), [filteredTasks]);
 
@@ -35,7 +50,7 @@ export default function GorevIstatistikleriPage() {
     const total = filteredTasks.length;
     const completed = filteredTasks.filter(isTaskCompleted).length;
     const inProgress = filteredTasks.filter(isTaskInProgress).length;
-    const open = Math.max(0, total - completed - inProgress);
+    const open = filteredTasks.filter((t) => isStatusTodo(t.status)).length;
     const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
     return { total, completed, inProgress, open, pct };
   }, [filteredTasks]);
@@ -86,8 +101,8 @@ export default function GorevIstatistikleriPage() {
           onChange={(e) => setProjectFilter(e.target.value)}
           className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 min-w-[200px]"
         >
-          <option value="all">Tüm projeler</option>
-          <option value="no_project">Projesiz görevler</option>
+          <option value="all">Tüm projeler (projeye bağlı)</option>
+          <option value="no_project">Projesiz görevler{orphanCount > 0 ? ` (${orphanCount})` : ""}</option>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}

@@ -38,7 +38,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Search, PlusCircle, MoreVertical, Pencil, Archive, Trash2, RotateCw, Upload, FileText, UserPlus, X, Calendar, Flag, FolderKanban } from "lucide-react";
+import { Search, PlusCircle, MoreVertical, Pencil, Archive, Trash2, RotateCw, Upload, FileText, UserPlus, X, Calendar, Flag, FolderKanban, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type NewProjectSubmitData = {
@@ -59,6 +59,12 @@ export type NewProjectSubmitData = {
   extraColumnKeys?: string[];
   /** Yeni proje + dosya: atanan e-posta listesine round-robin (en az 2 e-posta). */
   importRoundRobin?: boolean;
+  /**
+   * İçe aktarılacak sütunların whitelist'i. undefined / boş → dosyadaki tüm sütunlar dahil
+   * (geriye dönük uyumluluk). Kullanıcı önizleme üzerinden bazı sütunları kapattıysa
+   * burada yalnızca tutulanlar gelir.
+   */
+  selectedImportColumns?: string[];
 };
 
 const STATUS_OPTIONS: ProjectStatus[] = ["Aktif", "Tamamlandı", "Beklemede"];
@@ -131,6 +137,12 @@ function ProjectFormModal({
   const [dueDate, setDueDate] = useState(project?.due_date?.slice(0, 10) ?? "");
   const [priority, setPriority] = useState<ProjectPriority | "">(project?.priority ?? "");
   const [importFile, setImportFile] = useState<File | null>(null);
+  /** Önizleme verisi: dosya seçilince anlık parse edilir, kullanıcı sütun seçimi yapar. */
+  const [importPreview, setImportPreview] = useState<{ headers: string[]; rows: string[][] } | null>(null);
+  const [importPreviewError, setImportPreviewError] = useState<string | null>(null);
+  const [importPreviewLoading, setImportPreviewLoading] = useState(false);
+  /** İçe aktarılacak sütunlar — varsayılan: tümü. Toggle ile kullanıcı çıkarabilir. */
+  const [selectedImportColumns, setSelectedImportColumns] = useState<Set<string>>(new Set());
   const [assignee, setAssignee] = useState("");
   const [assignedEmails, setAssignedEmails] = useState<string[]>([]);
   const [emailInput, setEmailInput] = useState("");
@@ -153,6 +165,10 @@ function ProjectFormModal({
       setDueDate(project.due_date?.slice(0, 10) ?? "");
       setPriority(project.priority ?? "");
       setImportFile(null);
+      setImportPreview(null);
+      setImportPreviewError(null);
+      setImportPreviewLoading(false);
+      setSelectedImportColumns(new Set());
       setAssignee("");
       setAssignedEmails(project.assigned_emails ?? []);
       setEmailInput("");
@@ -167,6 +183,10 @@ function ProjectFormModal({
       setDueDate("");
       setPriority("");
       setImportFile(null);
+      setImportPreview(null);
+      setImportPreviewError(null);
+      setImportPreviewLoading(false);
+      setSelectedImportColumns(new Set());
       setAssignee("");
       setAssignedEmails([]);
       setEmailInput("");
@@ -176,6 +196,83 @@ function ProjectFormModal({
       setStep(1);
     }
   }, [open, project]);
+
+  /**
+   * Dosya seçilince anında parse et — önizleme + sütun seçici için.
+   * CSV için string[][] doğrudan kullanılır; JSON için header sırasına göre değer dizilir.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    if (!importFile) {
+      setImportPreview(null);
+      setImportPreviewError(null);
+      setImportPreviewLoading(false);
+      setSelectedImportColumns(new Set());
+      return;
+    }
+    setImportPreviewLoading(true);
+    setImportPreviewError(null);
+    importFile
+      .text()
+      .then((text) => {
+        if (cancelled) return;
+        const fileName = (importFile.name || "").toLowerCase();
+        const isJson = fileName.endsWith(".json");
+        try {
+          let headers: string[];
+          let rows: string[][];
+          if (isJson) {
+            const parsed = parseJSON(text);
+            headers = parsed.headers;
+            rows = parsed.rows.map((rec) => headers.map((h) => String(rec[h] ?? "")));
+          } else {
+            const parsed = parseCSV(text);
+            headers = parsed.headers;
+            rows = parsed.rows.map((r) => r.map((v) => String(v ?? "")));
+          }
+          if (headers.length === 0) {
+            setImportPreviewError("Dosyada sütun başlığı bulunamadı.");
+            setImportPreview(null);
+            return;
+          }
+          setImportPreview({ headers, rows: rows.slice(0, 8) });
+          // Varsayılan: tüm sütunlar seçili
+          setSelectedImportColumns(new Set(headers.map((h) => (h ?? "").trim() || h)));
+        } catch (err) {
+          setImportPreviewError(
+            err instanceof Error ? err.message : "Dosya okunamadı veya geçersiz format."
+          );
+          setImportPreview(null);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setImportPreviewError(err instanceof Error ? err.message : "Dosya okunamadı.");
+        setImportPreview(null);
+      })
+      .finally(() => {
+        if (!cancelled) setImportPreviewLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [importFile]);
+
+  const toggleImportColumn = (header: string) => {
+    setSelectedImportColumns((prev) => {
+      const next = new Set(prev);
+      if (next.has(header)) next.delete(header);
+      else next.add(header);
+      return next;
+    });
+  };
+
+  const setAllImportColumns = (selected: boolean) => {
+    if (!importPreview) return;
+    setSelectedImportColumns(
+      selected ? new Set(importPreview.headers.map((h) => (h ?? "").trim() || h)) : new Set()
+    );
+  };
 
   const addAssignedEmail = () => {
     const email = emailInput.trim().toLowerCase();
@@ -192,6 +289,12 @@ function ProjectFormModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // 2-adım sihirbazı: kullanıcı step 1'deyken input'tan Enter ile form submit ederse
+    // proje hemen oluşturulup pencere kapanmasın — sadece step 2'ye ilerle.
+    if (!isEdit && step === 1) {
+      if (isStep1Valid) setStep(2);
+      return;
+    }
     const extraColumnKeys = parseExtraColumnKeysFromForm(extraColumnKeysText);
     try {
       await onSubmit({
@@ -207,6 +310,12 @@ function ProjectFormModal({
         strictAssigneeVisibility: isAdmin ? strictAssigneeVisibility : undefined,
         importRoundRobin: !isEdit ? importRoundRobin : undefined,
         extraColumnKeys: extraColumnKeys.length > 0 ? extraColumnKeys : undefined,
+        selectedImportColumns:
+          !isEdit && importFile && importPreview
+            ? importPreview.headers.filter((h) =>
+                selectedImportColumns.has((h ?? "").trim() || h)
+              )
+            : undefined,
       });
     } catch {
       // onSubmit içinde formError zaten set ediliyor; modal kapanmasın.
@@ -464,7 +573,157 @@ function ProjectFormModal({
                 {importFile && (
                   <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                     <FileText className="h-4 w-4 shrink-0" />
-                    {importFile.name}
+                    <span className="truncate flex-1">{importFile.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => setImportFile(null)}
+                      className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                      aria-label="Dosyayı kaldır"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Önizleme ve sütun seçici */}
+                {importPreviewLoading && (
+                  <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-500 dark:border-slate-600 dark:bg-slate-800/60 dark:text-slate-400">
+                    Dosya okunuyor…
+                  </div>
+                )}
+                {importPreviewError && (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">
+                    {importPreviewError}
+                  </div>
+                )}
+                {importPreview && importPreview.headers.length > 0 && (
+                  <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-800/60">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-700">
+                      <div className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                        Sütun seçimi
+                        <span className="ml-2 text-slate-500 dark:text-slate-400">
+                          ({selectedImportColumns.size} / {importPreview.headers.length} seçili
+                          {importPreview.rows.length > 0 && ` · ${importPreview.rows.length}+ satır`})
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setAllImportColumns(true)}
+                          className="rounded px-2 py-0.5 text-[11px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+                        >
+                          Tümü
+                        </button>
+                        <span className="text-[11px] text-slate-300">·</span>
+                        <button
+                          type="button"
+                          onClick={() => setAllImportColumns(false)}
+                          className="rounded px-2 py-0.5 text-[11px] font-medium text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
+                        >
+                          Hiçbiri
+                        </button>
+                      </div>
+                    </div>
+                    {/* Chip toggleları */}
+                    <div className="flex flex-wrap gap-1.5 px-3 py-2">
+                      {importPreview.headers.map((h, idx) => {
+                        const label = (h ?? "").trim() || `Sütun ${idx + 1}`;
+                        const key = (h ?? "").trim() || h;
+                        const selected = selectedImportColumns.has(key);
+                        return (
+                          <button
+                            key={`${idx}-${label}`}
+                            type="button"
+                            onClick={() => toggleImportColumn(key)}
+                            aria-pressed={selected}
+                            className={cn(
+                              "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                              selected
+                                ? "border-blue-300 bg-blue-100 text-blue-800 hover:bg-blue-200 dark:border-blue-700 dark:bg-blue-900/40 dark:text-blue-200"
+                                : "border-slate-300 bg-white text-slate-500 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"
+                            )}
+                          >
+                            {selected ? (
+                              <Check className="h-3 w-3 shrink-0" aria-hidden />
+                            ) : (
+                              <X className="h-3 w-3 shrink-0 opacity-60" aria-hidden />
+                            )}
+                            <span className="truncate max-w-[140px]">{label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {/* Önizleme tablosu */}
+                    {importPreview.rows.length > 0 && (
+                      <div className="border-t border-slate-200 dark:border-slate-700">
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full text-xs">
+                            <thead className="bg-slate-50 dark:bg-slate-800/80">
+                              <tr>
+                                {importPreview.headers.map((h, idx) => {
+                                  const label = (h ?? "").trim() || `Sütun ${idx + 1}`;
+                                  const key = (h ?? "").trim() || h;
+                                  const selected = selectedImportColumns.has(key);
+                                  return (
+                                    <th
+                                      key={`th-${idx}`}
+                                      className={cn(
+                                        "border-b border-slate-200 px-2 py-1.5 text-left font-medium dark:border-slate-700",
+                                        selected
+                                          ? "text-slate-700 dark:text-slate-300"
+                                          : "text-slate-400 line-through dark:text-slate-500"
+                                      )}
+                                      title={selected ? "Bu sütun içe aktarılacak" : "Bu sütun atlanacak"}
+                                    >
+                                      <span className="block max-w-[140px] truncate">{label}</span>
+                                    </th>
+                                  );
+                                })}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {importPreview.rows.map((row, ri) => (
+                                <tr
+                                  key={`tr-${ri}`}
+                                  className="border-b border-slate-100 last:border-0 dark:border-slate-700/60"
+                                >
+                                  {importPreview.headers.map((h, ci) => {
+                                    const key = (h ?? "").trim() || h;
+                                    const selected = selectedImportColumns.has(key);
+                                    const cell = row[ci] ?? "";
+                                    return (
+                                      <td
+                                        key={`td-${ri}-${ci}`}
+                                        className={cn(
+                                          "border-r border-slate-100 px-2 py-1 align-top dark:border-slate-700/60",
+                                          selected
+                                            ? "text-slate-700 dark:text-slate-200"
+                                            : "text-slate-300 line-through dark:text-slate-600"
+                                        )}
+                                      >
+                                        <span className="block max-w-[160px] truncate">
+                                          {String(cell).trim() === "" ? "—" : cell}
+                                        </span>
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] dark:border-slate-700 dark:bg-slate-800/40">
+                          <span className="text-slate-500 dark:text-slate-400">
+                            İlk {importPreview.rows.length} satır gösteriliyor. Soluk + üstü çizili sütunlar içe aktarılmaz.
+                          </span>
+                          {selectedImportColumns.size === 0 && (
+                            <span className="font-medium text-amber-700 dark:text-amber-400">
+                              ⚠ Hiçbir sütun seçili değil — görev içe aktarılmayacak.
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
                 {importFile && assignedEmails.length >= 2 && (
@@ -661,6 +920,15 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
         const defaultAssignee =
           normalizeTaskAssigneeEmail(defaultRaw) ?? (defaultRaw || null);
         const projectPriority = normalizeProjectPriority(data.priority);
+        /**
+         * Kullanıcı önizleme üzerinden bazı sütunları kapatmış olabilir.
+         * Whitelist (trimlenmiş başlık adı). Undefined → tüm sütunlar dahil (geriye uyumluluk).
+         */
+        const columnWhitelist = data.selectedImportColumns
+          ? new Set(data.selectedImportColumns.map((s) => (s ?? "").trim()))
+          : null;
+        const isColumnIncluded = (rawKey: string) =>
+          columnWhitelist == null || columnWhitelist.has(rawKey.trim());
         type TaskInsert = { content: string; status: string; assignee: string | null; project_id: string; extra_data: Record<string, string> | null; priority?: string | null };
         const tasksToInsert: TaskInsert[] = [];
         let distributeIndex = 0;
@@ -672,6 +940,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
               const extra_data: Record<string, string> = {};
               headers.forEach((h) => {
                 const key = (h ?? "").trim() || "Sütun";
+                if (!isColumnIncluded(key)) return;
                 extra_data[key] = row[key] ?? "";
               });
               const hasAnyData = Object.values(extra_data).some((v) => String(v ?? "").trim() !== "");
@@ -701,6 +970,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
               const extra_data: Record<string, string> = {};
               headers.forEach((h, i) => {
                 const key = (h ?? "").trim() || `Sütun ${i + 1}`;
+                if (!isColumnIncluded(key)) return;
                 extra_data[key] = (row[i] != null ? String(row[i]).trim() : "") ?? "";
               });
               const hasAnyData = Object.values(extra_data).some((v) => String(v ?? "").trim() !== "");

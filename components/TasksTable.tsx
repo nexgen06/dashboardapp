@@ -74,6 +74,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
 import { RestrictedButton } from "@/components/ui/permission-gate";
 import { TaskCardMobile } from "@/components/TaskCardMobile";
+import { TaskDetailSheet } from "@/components/TaskDetailSheet";
 import { urgentPrioritySetFromCsv, isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
 import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban } from "lucide-react";
 
@@ -3466,50 +3467,36 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
           defaultPriority={settings.defaultTaskPriority}
         />
       )}
-      <Dialog open={!!detailTask} onOpenChange={(open) => !open && setDetailTask(null)}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>CSV sütunları (olduğu gibi)</DialogTitle>
-          </DialogHeader>
-          {detailTask?.extra_data && Object.keys(detailTask.extra_data).length > 0 ? (
-            <div className="rounded border border-slate-200 dark:border-slate-700 overflow-hidden">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
-                    <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Sütun</th>
-                    <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Değer</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(detailTask.extra_data).map(([key, value]) => {
-                    const val = value || "—";
-                    const isLink = key === EXTRA_DATA_LINK_KEY && typeof value === "string" && isSafeUrl(value);
-                    return (
-                      <tr key={key} className="border-b border-slate-100 dark:border-slate-700">
-                        <td className="px-3 py-2 font-medium text-slate-700 dark:text-slate-300 align-top">{key}</td>
-                        <td className="px-3 py-2 text-slate-600 dark:text-slate-400 break-words">
-                          {isLink ? (
-                            <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">
-                              {value}
-                            </a>
-                          ) : (
-                            val
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="text-sm text-slate-500 dark:text-slate-400">Bu satırda CSV sütunu yok.</p>
-          )}
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setDetailTask(null)}>Kapat</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {(() => {
+        if (!detailTask) return null;
+        // Sıralı + filtreli (paginate ÖNCESI) görev sırası — j/k tüm sayfalar arası gezer.
+        const orderedTasks = table.getSortedRowModel().rows.map((r) => r.original);
+        const idx = orderedTasks.findIndex((t) => t.id === detailTask.id);
+        const prevTask = idx > 0 ? orderedTasks[idx - 1] : null;
+        const nextTask = idx >= 0 && idx < orderedTasks.length - 1 ? orderedTasks[idx + 1] : null;
+        const positionLabel =
+          idx >= 0 ? `${idx + 1} / ${orderedTasks.length}` : undefined;
+        const proj = detailTask.project_id ? projectById.get(String(detailTask.project_id)) : null;
+        return (
+          <TaskDetailSheet
+            task={detailTask}
+            onClose={() => setDetailTask(null)}
+            onPrev={prevTask ? () => setDetailTask(prevTask) : undefined}
+            onNext={nextTask ? () => setDetailTask(nextTask) : undefined}
+            canPrev={!!prevTask}
+            canNext={!!nextTask}
+            positionLabel={positionLabel}
+            projectName={proj?.name ?? null}
+            dateFormat={settings.dateFormat}
+            urgentPrioritySet={urgentPrioritySetForTable}
+            canEdit={canEditTask}
+            onEdit={() => {
+              setEditTask(detailTask);
+              setDetailTask(null);
+            }}
+          />
+        );
+      })()}
       {/* Mutation feedback artık <Toaster /> üzerinden sağ-altta gösteriliyor. */}
       <div className="flex shrink-0 flex-col gap-3 px-2 py-3 sm:px-4">
         {/* Katman 1 — Hızlı filtreler (mobilde daraltılabilir) */}

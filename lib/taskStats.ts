@@ -3,7 +3,7 @@
  * Status sınıflandırması artık `lib/statusKind.ts` üzerinden tek noktada yönetilir.
  */
 import type { Task } from "@/types/tasks";
-import { isStatusDone, isStatusInProgress } from "@/lib/statusKind";
+import { isStatusDone, isStatusInProgress, isStatusTodo } from "@/lib/statusKind";
 
 export function isTaskCompleted(task: Pick<Task, "status">): boolean {
   return isStatusDone(task.status);
@@ -42,7 +42,9 @@ export function aggregateStatsByAssignee(tasks: Task[]): AssigneeStatsRow[] {
     const total = list.length;
     const completed = list.filter(isTaskCompleted).length;
     const inProgress = list.filter(isTaskInProgress).length;
-    const open = Math.max(0, total - completed - inProgress);
+    // "Kalan/açık" = gerçek todo statüsündekiler. Beklemede/İptal gibi "diğer" statüler
+    // burada sayılmaz (eski formül total-completed-inProgress yanlış davranıyordu).
+    const open = list.filter((t) => isStatusTodo(t.status)).length;
     rows.push({
       key,
       displayAssignee: display,
