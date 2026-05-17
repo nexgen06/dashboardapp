@@ -107,9 +107,9 @@ function InsightStat({
     slate: "border-slate-300/60 bg-white/70 text-slate-700 dark:border-slate-600/50 dark:bg-slate-900/40 dark:text-slate-200",
   }[tone];
   return (
-    <div className={`min-w-[5rem] rounded-xl border px-3 py-2 ${toneCls}`}>
-      <div className="text-ui-display leading-none">{value}</div>
-      <div className="mt-1 text-ui-caption leading-tight opacity-80">{label}</div>
+    <div className={`min-w-0 rounded-xl border px-2 py-2 text-center md:min-w-[5rem] md:px-3 md:text-left ${toneCls}`}>
+      <div className="text-3xl font-bold leading-none md:text-ui-display">{value}</div>
+      <div className="mt-1 text-[0.625rem] leading-tight opacity-80 md:text-ui-caption">{label}</div>
     </div>
   );
 }
@@ -247,18 +247,19 @@ export function DashboardSection() {
   return (
     <div className="min-h-0 space-y-6">
       {/* Hoş geldin + kişisel içgörü */}
-      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-500/10 via-slate-50 to-emerald-500/10 dark:from-blue-600/20 dark:via-slate-800 dark:to-emerald-600/20 border border-slate-200/80 dark:border-slate-700/80 p-6 sm:p-8">
+      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-500/10 via-slate-50 to-emerald-500/10 dark:from-blue-600/20 dark:via-slate-800 dark:to-emerald-600/20 border border-slate-200/80 dark:border-slate-700/80 p-4 sm:p-6 md:p-8">
         <div className="relative z-10 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
-            <h1 className="text-ui-h1 tracking-tight text-slate-900 dark:text-slate-50 sm:text-3xl">
-              {greetingByHour()}, {displayName}
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-50 sm:text-ui-h1 md:text-3xl">
+              {greetingByHour()}, <span className="break-all">{displayName}</span>
             </h1>
             <p className="mt-2 text-ui-body text-slate-700 dark:text-slate-200">
               {buildInsightSentence(personalInsight)}
             </p>
           </div>
-          {/* Hızlı sayım kartı: bana atanan açık görev / son tarihli */}
-          <div className="flex shrink-0 gap-2 md:gap-3">
+          {/* Hızlı sayım kartı: bana atanan açık görev / son tarihli.
+              Mobilde 3 eşit kolon (overflow yok); md+'da yan yana sabit genişlik. */}
+          <div className="grid grid-cols-3 gap-2 md:flex md:shrink-0 md:gap-3">
             <InsightStat
               label="Bana atanan açık"
               value={personalInsight.myOpenCount}
