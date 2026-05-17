@@ -5150,6 +5150,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                   : pinnedDefaultBg;
               const rowClassName = cn(
                 "border-b border-slate-100 transition-colors dark:border-slate-700",
+                "cursor-pointer",
                 !isEditedByOthers && "hover:bg-slate-50/50 dark:hover:bg-slate-700/30",
                 !isEditedByOthers &&
                   isCompleted &&
@@ -5198,8 +5199,22 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
               });
 
               const claimRowPresence = () => setEditingRow(row.original.id);
+              /**
+               * Satır tıklamasıyla detay panelini aç.
+               * Etkileşimli kontrollere (buton, input, checkbox, link, select,
+               * editable cell) tıklamada açılmamalı — bunlar kendi davranışlarını yapar.
+               */
+              const handleRowClick = (e: React.MouseEvent) => {
+                const target = e.target as HTMLElement | null;
+                if (!target) return;
+                if (target.closest("button,input,select,textarea,a,[role='button'],[contenteditable='true']")) {
+                  return;
+                }
+                setDetailTask(row.original);
+              };
               const rowPointerHandlers = {
                 onPointerDown: claimRowPresence,
+                onClick: handleRowClick,
               };
 
               if (rowTooltipBody != null && isEditedByOthers) {
