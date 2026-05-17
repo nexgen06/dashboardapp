@@ -55,3 +55,19 @@
     @apply bg-slate-50 text-slate-800 antialiased dark:bg-slate-900 dark:text-slate-100;
   }
 }
+
+/* GIZLILIK: hassas veri içeren öğeler (TCKN/sicil) print sırasında da maskeli kalmalı.
+   Components data-sensitive="true" niteliği ekler — print stylesheet print yetkisi
+   sayesinde ek garantili koruma sağlar (UI maskelemesinin yanı sıra). */
+@media print {
+  [data-sensitive="true"] {
+    color: transparent !important;
+    text-shadow: none !important;
+    background: #e2e8f0 !important;
+    border-radius: 4px;
+  }
+  [data-sensitive="true"]::before {
+    content: "•••••••" !important;
+    color: #64748b !important;
+  }
+}

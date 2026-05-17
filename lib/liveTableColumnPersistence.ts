@@ -5,6 +5,7 @@ import type {
   SortingState,
   VisibilityState,
 } from "@tanstack/react-table";
+import { isSensitiveExtraColumnKey } from "@/lib/extraColumnSensitiveDisplay";
 
 const STORAGE_KEY_PREFIX = "dashboardapp.liveTable.prefs.v1:";
 
@@ -108,10 +109,47 @@ function normalizeFilters(raw: unknown): LiveTablePersistedFilters | undefined {
   };
 }
 
+/**
+ * GIZLILIK: TCKN / sicil / personel no gibi hassas sütunlara uygulanan filtre
+ * değerleri localStorage'a yazılmamalı (XSS, browser geçmişi, paylaşılan cihaz
+ * gibi senaryolarda sızıntı riski). Persist'ten önce strip ediliyor.
+ *
+ * `isSensitiveExtraColumnKey` runtime'da `extra:KEY` formatında key bekler;
+ * hem ham (`KEY`) hem prefixli (`extra:KEY`) varyantları kontrol edilir.
+ */
+function stripSensitiveFiltersForStorage(
+  prefs: LiveTablePersistedPrefs
+): LiveTablePersistedPrefs {
+  if (!prefs.filters) return prefs;
+  const filters = prefs.filters;
+  const safeColumnFilters: Record<string, string[]> = {};
+  for (const [colId, values] of Object.entries(filters.columnFilters ?? {})) {
+    const key = colId.startsWith("extra:") ? colId.slice("extra:".length) : colId;
+    if (!isSensitiveExtraColumnKey(key)) {
+      safeColumnFilters[colId] = values;
+    }
+  }
+  const safeAdvancedRules = (filters.advancedFilterRules ?? []).filter((rule) => {
+    const r = rule as { field?: unknown };
+    const field = typeof r?.field === "string" ? r.field : "";
+    const key = field.startsWith("extra:") ? field.slice("extra:".length) : field;
+    return !isSensitiveExtraColumnKey(key);
+  });
+  return {
+    ...prefs,
+    filters: {
+      ...filters,
+      columnFilters: safeColumnFilters,
+      advancedFilterRules: safeAdvancedRules,
+    },
+  };
+}
+
 export function saveLiveTablePrefs(userId: string, prefs: LiveTablePersistedPrefs): void {
   if (typeof window === "undefined" || !userId) return;
   try {
-    localStorage.setItem(liveTableStorageKey(userId), JSON.stringify(prefs));
+    const safe = stripSensitiveFiltersForStorage(prefs);
+    localStorage.setItem(liveTableStorageKey(userId), JSON.stringify(safe));
   } catch {
     /* depolama dolu / gizli mod */
   }
