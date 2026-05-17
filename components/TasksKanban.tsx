@@ -25,6 +25,8 @@ import { cn } from "@/lib/utils";
 import { getStatusKind, type StatusKind } from "@/lib/statusKind";
 import { formatDate } from "@/lib/formatDate";
 import { urgentPrioritySetFromCsv } from "@/lib/urgentTaskPriority";
+import { getTaskDisplayLabel } from "@/lib/taskDisplayLabel";
+import { parseListOptionString } from "@/contexts/settings-context";
 
 type Column = {
   kind: StatusKind;
@@ -62,6 +64,11 @@ export function TasksKanban({ projectFilter = [] }: Props) {
   const urgentPrioritySet = useMemo(
     () => urgentPrioritySetFromCsv(settings.urgentPriorityTokens),
     [settings.urgentPriorityTokens]
+  );
+  /** Görev başlığı için fallback sırası: content → extra_data (Başlık/Görev/Ad/...) → "—" */
+  const preferredLabelKeys = useMemo(
+    () => parseListOptionString(settings.taskSummaryPreferredExtraKeys),
+    [settings.taskSummaryPreferredExtraKeys]
   );
   const [detailTask, setDetailTask] = useState<Task | null>(null);
   /** Sürüklenen görevin id'si — kolon hover stilleri için */
@@ -266,6 +273,7 @@ export function TasksKanban({ projectFilter = [] }: Props) {
                     <KanbanCard
                       key={t.id}
                       task={t}
+                      label={getTaskDisplayLabel(t, preferredLabelKeys)}
                       projectName={t.project_id ? projectNameById.get(String(t.project_id)) ?? null : null}
                       dateFormat={settings.dateFormat}
                       urgentPrioritySet={urgentPrioritySet}
@@ -334,6 +342,7 @@ export function TasksKanban({ projectFilter = [] }: Props) {
 
 function KanbanCard({
   task,
+  label,
   projectName,
   dateFormat,
   urgentPrioritySet,
@@ -343,6 +352,7 @@ function KanbanCard({
   onClick,
 }: {
   task: Task;
+  label: string;
   projectName: string | null;
   dateFormat: ReturnType<typeof useSettings>["settings"]["dateFormat"];
   urgentPrioritySet: Set<string>;
@@ -358,7 +368,8 @@ function KanbanCard({
     today.setHours(0, 0, 0, 0);
     return dueDate < today;
   })();
-  const content = task.content?.trim() || "(içerik yok)";
+  // CSV içe aktarımda content boş kalabilir; extra_data'dan başlık seçilir
+  const content = label && label !== "—" ? label : (task.content?.trim() || "İçerik yok");
 
   return (
     <article
