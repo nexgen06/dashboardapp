@@ -74,7 +74,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
 import { RestrictedButton } from "@/components/ui/permission-gate";
 import { TaskCardMobile } from "@/components/TaskCardMobile";
-import { urgentPrioritySetFromCsv } from "@/lib/urgentTaskPriority";
+import { urgentPrioritySetFromCsv, isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
 import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
@@ -2326,10 +2326,17 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         setDateFrom(bugun.toISOString().split("T")[0]);
         setDateTo(haftaSonu.toISOString().split("T")[0]);
         break;
-      case "priority":
-        // Yüksek öncelikli - globalSearch ile "high" ara
-        setGlobalSearch("high");
+      case "priority": {
+        // Öncelikli = projenin önceliği acil set'inde olan projeleri filtrele
+        // (Görev Özeti'ndeki "Acil öncelik" KPI'ı ile aynı kural).
+        const urgentProjectIds = projects
+          .filter((p) => isUrgentPriorityValue(p.priority, urgentPrioritySetForTable))
+          .map((p) => p.id);
+        if (urgentProjectIds.length > 0) {
+          setProjectFilter(urgentProjectIds);
+        }
         break;
+      }
       case "mine":
         // Bana atanan
         if (currentUserEmail) {
@@ -2341,9 +2348,12 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         setAssigneeFilter(["__unassigned__"]);
         break;
     }
-  }, [clearFilters, currentUserEmail]);
+  }, [clearFilters, currentUserEmail, projects, urgentPrioritySetForTable, setProjectFilter]);
 
   // Akıllı filtre sayıları
+  // Kapsam: tablonun gördüğü kapsamla hizalı olmalı — projesi olmayan ("orphan") görevler
+  // hariç (projectLinkedFilter === "proje" default'u) ve aktif proje filtresi uygulanır.
+  // Aksi halde Görev Özeti ile sayılar tutmaz.
   const smartFilterCounts = useMemo(() => {
     const bugun = new Date();
     bugun.setHours(0, 0, 0, 0);
@@ -2351,35 +2361,50 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     haftaSonu.setDate(bugun.getDate() + 7);
     haftaSonu.setHours(23, 59, 59, 999);
 
-    const overdue = tasks.filter((t) => {
+    let scoped = tasks;
+    if (projectLinkedFilter === "proje") {
+      scoped = scoped.filter((t) => t.project_id != null && String(t.project_id).trim() !== "");
+    }
+    const projectArr = Array.isArray(projectFilter) ? projectFilter : [];
+    if (projectArr.length > 0) {
+      const selected = new Set(projectArr);
+      scoped = scoped.filter((t) => t.project_id != null && selected.has(String(t.project_id)));
+    }
+
+    const overdue = scoped.filter((t) => {
       if (!t.due_date) return false;
       const dueDate = new Date(t.due_date);
       const isCompleted = /tamamlandı|tamamlandi|done|completed/i.test(t.status ?? "");
       return dueDate < bugun && !isCompleted;
     }).length;
 
-    const thisWeek = tasks.filter((t) => {
+    const thisWeek = scoped.filter((t) => {
       if (!t.due_date) return false;
       const dueDate = new Date(t.due_date);
       return dueDate >= bugun && dueDate <= haftaSonu;
     }).length;
 
-    const priority = tasks.filter((t) => {
-      const isHigh = (t.priority ?? "").toLowerCase() === "high";
+    // Öncelikli = projenin önceliği acil set'inde (Görev Özeti'ndeki "Acil öncelik" KPI'ı ile aynı kural).
+    // Görevin kendi priority alanı sayılmaz; aksi halde proje önceliği Low/boş olsa bile sayım kabarır.
+    const priority = scoped.filter((t) => {
+      if (!t.project_id) return false;
+      const proj = projectById.get(String(t.project_id));
+      const projPriority = proj?.priority ?? null;
+      if (!isUrgentPriorityValue(projPriority, urgentPrioritySetForTable)) return false;
       const isCompleted = /tamamlandı|tamamlandi|done|completed/i.test(t.status ?? "");
-      return isHigh && !isCompleted;
+      return !isCompleted;
     }).length;
 
-    const mine = tasks.filter((t) => 
+    const mine = scoped.filter((t) =>
       (t.assignee ?? "").toLowerCase().includes(currentUserEmail.toLowerCase())
     ).length;
 
-    const unassigned = tasks.filter((t) => 
+    const unassigned = scoped.filter((t) =>
       !t.assignee || t.assignee.trim() === ""
     ).length;
 
     return { overdue, thisWeek, priority, mine, unassigned };
-  }, [tasks, currentUserEmail]);
+  }, [tasks, currentUserEmail, projectById, urgentPrioritySetForTable, projectLinkedFilter, projectFilter]);
 
   const handleDragStart = useCallback((e: React.DragEvent, columnId: string) => {
     setDraggedColumnId(columnId);
