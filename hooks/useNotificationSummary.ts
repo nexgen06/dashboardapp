@@ -4,7 +4,9 @@ import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { useProjects } from "@/hooks/useProjects";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
 import { useAuth } from "@/contexts/auth-context";
+import { useProjectChatUnread } from "@/contexts/project-chat-unread-context";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { markProjectChatRead } from "@/lib/projectChatApi";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
   loadDerivedNotificationAck,
@@ -13,7 +15,7 @@ import {
 } from "@/lib/notificationAck";
 
 export type NotificationSummaryItem = {
-  type: "project_assigned" | "task_assigned" | "overdue" | "admin_team_done";
+  type: "project_assigned" | "task_assigned" | "overdue" | "admin_team_done" | "chat_unread";
   id?: string;
   label: string;
   href: string;
@@ -26,6 +28,8 @@ export type NotificationSummary = {
   isLoading: boolean;
   /** Bildirim paneli açıldığında: yönetici uyarıları + türetilmiş (proje/görev) okundu işaretleri */
   onPanelOpened?: () => void | Promise<void>;
+  /** "Hepsini okundu işaretle" — tüm proje sohbet bildirimleri dahil hepsini temizle */
+  onMarkAllRead?: () => void | Promise<void>;
 };
 
 type AdminAlertRow = {
@@ -41,6 +45,7 @@ export function useNotificationSummary(): NotificationSummary {
   const userId = user?.id ?? null;
   const { projects, isLoading: projectsLoading } = useProjects();
   const { tasks, isLoading: tasksLoading } = useTasksWithRealtime();
+  const { unreadByProjectId, refresh: refreshChatUnread } = useProjectChatUnread();
 
   const [adminUnread, setAdminUnread] = useState<AdminAlertRow[]>([]);
   const [adminAlertsLoading, setAdminAlertsLoading] = useState(false);
@@ -206,13 +211,49 @@ export function useNotificationSummary(): NotificationSummary {
       }
     }
 
+    // Proje sohbet okunmamış mesajları — her proje için ayrı item (proje sayfasına link)
+    for (const p of projects) {
+      const n = unreadByProjectId[p.id] ?? 0;
+      if (n > 0) {
+        items.push({
+          type: "chat_unread",
+          id: p.id,
+          label:
+            n === 1
+              ? `${p.name}: 1 yeni mesaj`
+              : `${p.name}: ${n} yeni mesaj`,
+          href: `/projeler/${p.id}`,
+          count: n,
+        });
+      }
+    }
+
     const totalCount = items.reduce((s, i) => s + i.count, 0);
     return { totalCount, items };
-  }, [currentUserEmail, projects, tasks, canAdminNotifications, adminUnread, derivedAck]);
+  }, [currentUserEmail, projects, tasks, canAdminNotifications, adminUnread, derivedAck, unreadByProjectId]);
+
+  /**
+   * "Hepsini okundu işaretle": türetilmiş ack + admin alert read + proje sohbet read'leri.
+   * Bell popover'daki butona bağlanır; auto-ACK ile aynı sonucu verir, kullanıcıya kontrol verir.
+   */
+  const onMarkAllRead = useCallback(async () => {
+    await onPanelOpened();
+    const email = (currentUserEmail ?? "").trim().toLowerCase();
+    if (!email) return;
+    const unreadProjectIds = Object.entries(unreadByProjectId)
+      .filter(([, n]) => n > 0)
+      .map(([id]) => id);
+    if (unreadProjectIds.length === 0) return;
+    await Promise.allSettled(
+      unreadProjectIds.map((pid) => markProjectChatRead(pid, email))
+    );
+    refreshChatUnread();
+  }, [onPanelOpened, currentUserEmail, unreadByProjectId, refreshChatUnread]);
 
   return {
     ...summary,
     isLoading: projectsLoading || tasksLoading || (canAdminNotifications && adminAlertsLoading),
     onPanelOpened: userId ? () => void onPanelOpened() : undefined,
+    onMarkAllRead: userId ? () => void onMarkAllRead() : undefined,
   };
 }
