@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AvatarStack } from "@/components/ui/avatar-stack";
+import { RestrictedButton } from "@/components/ui/permission-gate";
 import {
   Dialog,
   DialogContent,
@@ -855,17 +856,16 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
             placeholder="Bitiş"
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
           />
-          {canCreateProject && (
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => { setEditingProject(null); setFormOpen(true); }}
-              className="bg-blue-600 hover:bg-blue-700 shrink-0"
-            >
-              <PlusCircle className="mr-2 h-4 w-4" />
-              Yeni proje
-            </Button>
-          )}
+          <RestrictedButton
+            permission="projects.create"
+            type="button"
+            size="sm"
+            onClick={() => { setEditingProject(null); setFormOpen(true); }}
+            className="bg-blue-600 hover:bg-blue-700 shrink-0"
+          >
+            <PlusCircle className="mr-2 h-4 w-4" />
+            Yeni proje
+          </RestrictedButton>
         </div>
 
         {filteredProjects.length === 0 ? (

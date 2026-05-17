@@ -72,6 +72,7 @@ import * as XLSX from "xlsx";
 import Link from "next/link";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
+import { RestrictedButton } from "@/components/ui/permission-gate";
 import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
@@ -4284,8 +4285,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
             </DropdownMenuContent>
           </DropdownMenu>
           )}
-          {canCreateTask && (
-          <Button
+          <RestrictedButton
+            permission="liveTable.createTask"
             type="button"
             size="sm"
             onClick={() => setNewTaskOpen(true)}
@@ -4294,8 +4295,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
           >
             <PlusCircle className="h-4 w-4 shrink-0 sm:mr-2" aria-hidden />
             <span className="hidden sm:inline">Yeni görev</span>
-          </Button>
-          )}
+          </RestrictedButton>
         </div>
       </div>
       {selectedIds.length > 0 && (
