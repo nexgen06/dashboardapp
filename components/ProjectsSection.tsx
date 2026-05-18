@@ -61,6 +61,8 @@ export type NewProjectSubmitData = {
   extraColumnKeys?: string[];
   /** Görev başlığı (Kanban/Özet) için kullanılacak extra_data anahtarı. Boş → otomatik. */
   titleColumn?: string | null;
+  /** Kanban "Devam ediyor" kolonu için yumuşak WIP limiti. null/0 → limit yok. */
+  wipInProgressLimit?: number | null;
   /** Yeni proje + dosya: atanan e-posta listesine round-robin (en az 2 e-posta). */
   importRoundRobin?: boolean;
   /**
@@ -162,6 +164,7 @@ function ProjectFormModal({
   const [importRoundRobin, setImportRoundRobin] = useState(false);
   const [extraColumnKeysText, setExtraColumnKeysText] = useState("");
   const [titleColumn, setTitleColumn] = useState<string>("");
+  const [wipInProgressLimit, setWipInProgressLimit] = useState<string>("");
   /** 2-adım sihirbazı: 1 = proje bilgileri, 2 = opsiyonel görev içe aktarma. Edit modunda kullanılmaz. */
   const [step, setStep] = useState<1 | 2>(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -189,6 +192,11 @@ function ProjectFormModal({
       setImportRoundRobin(false);
       setExtraColumnKeysText((project.extra_column_keys ?? []).join("\n"));
       setTitleColumn(project.title_column ?? "");
+      setWipInProgressLimit(
+        project.wip_in_progress_limit != null && project.wip_in_progress_limit > 0
+          ? String(project.wip_in_progress_limit)
+          : ""
+      );
       setStep(1);
     } else if (open && !project) {
       setName("");
@@ -208,6 +216,7 @@ function ProjectFormModal({
       setImportRoundRobin(false);
       setExtraColumnKeysText("");
       setTitleColumn("");
+      setWipInProgressLimit("");
       setStep(1);
     }
   }, [open, project]);
@@ -340,6 +349,10 @@ function ProjectFormModal({
         importRoundRobin: !isEdit ? importRoundRobin : undefined,
         extraColumnKeys: extraColumnKeys.length > 0 ? extraColumnKeys : undefined,
         titleColumn: titleColumn.trim() || null,
+        wipInProgressLimit: (() => {
+          const n = Number(wipInProgressLimit);
+          return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+        })(),
         selectedImportColumns:
           !isEdit && importFile && importPreview
             ? importPreview.headers.filter((h) =>
@@ -553,6 +566,31 @@ function ProjectFormModal({
               </div>
             );
           })()}
+
+          {/* Kanban WIP limiti — yumuşak uyarı */}
+          <div>
+            <label
+              htmlFor="project-wip-limit"
+              className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300"
+            >
+              Kanban WIP limiti — &quot;Devam ediyor&quot; (opsiyonel)
+            </label>
+            <input
+              id="project-wip-limit"
+              type="number"
+              min={1}
+              max={999}
+              value={wipInProgressLimit}
+              onChange={(e) => setWipInProgressLimit(e.target.value)}
+              placeholder="örn. 5"
+              className="w-full max-w-[120px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+            />
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Kanban &quot;Devam ediyor&quot; kolonunda aynı anda kaç görev olabilir?
+              Limit aşılırsa kolon başlığı amber/kırmızı yanar — sürükleyi engellemez,
+              sadece ekip tıkanma sinyali alır. Boş bırakırsan limit yok.
+            </p>
+          </div>
 
           {/* Sütun tipi yönetimi — sadece edit mode + admin/PM */}
           {isEdit && project && (isAdmin || project) && (
@@ -1002,6 +1040,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
           extra_column_keys:
             data.extraColumnKeys && data.extraColumnKeys.length > 0 ? data.extraColumnKeys : [],
           title_column: data.titleColumn ?? null,
+          wip_in_progress_limit: data.wipInProgressLimit ?? null,
           ...(isAdmin
             ? { strict_assignee_visibility: data.strictAssigneeVisibility ?? false }
             : {}),
@@ -1022,6 +1061,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
         extra_column_keys:
           data.extraColumnKeys && data.extraColumnKeys.length > 0 ? data.extraColumnKeys : undefined,
         title_column: data.titleColumn ?? null,
+        wip_in_progress_limit: data.wipInProgressLimit ?? null,
       });
       if (data.importFile && projectId) {
         const text = await data.importFile.text();

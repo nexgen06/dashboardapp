@@ -172,6 +172,22 @@ export function TasksKanban({ projectFilter = [] }: Props) {
     return m;
   }, [projects]);
 
+  /**
+   * WIP limit (Devam ediyor) — kapsamdaki görevler tek bir projeye aitse o projenin
+   * limiti kullanılır. Karışık projelerde limit gösterilmez (anlamlı değil).
+   */
+  const inProgressWipLimit = useMemo<number | null>(() => {
+    const projectIds = new Set(
+      scopedTasks
+        .map((t) => (t.project_id ? String(t.project_id) : null))
+        .filter((x): x is string => !!x)
+    );
+    if (projectIds.size !== 1) return null;
+    const onlyId = Array.from(projectIds)[0];
+    const proj = projects.find((p) => p.id === onlyId);
+    return proj?.wip_in_progress_limit ?? null;
+  }, [scopedTasks, projects]);
+
   const handleDragStart = (taskId: string) => (e: React.DragEvent) => {
     setDraggingId(taskId);
     e.dataTransfer.setData("text/plain", taskId);
@@ -240,6 +256,16 @@ export function TasksKanban({ projectFilter = [] }: Props) {
         {columns.map((col) => {
           const list = tasksByKind[col.kind];
           const isHovered = dropTargetKind === col.kind;
+          // WIP limit yalnızca "Devam ediyor" kolonu için anlamlı
+          const wipLimit = col.kind === "in_progress" ? inProgressWipLimit : null;
+          const wipState: "ok" | "near" | "over" =
+            wipLimit == null
+              ? "ok"
+              : list.length > wipLimit
+                ? "over"
+                : list.length === wipLimit
+                  ? "near"
+                  : "ok";
           return (
             <section
               key={col.kind}
@@ -250,10 +276,20 @@ export function TasksKanban({ projectFilter = [] }: Props) {
                 "flex min-h-0 flex-col overflow-hidden rounded-lg border bg-slate-50 transition-colors dark:bg-slate-800/60",
                 isHovered
                   ? "border-blue-400 bg-blue-50/60 dark:border-blue-500 dark:bg-blue-950/30"
-                  : "border-slate-200 dark:border-slate-700"
+                  : wipState === "over"
+                    ? "border-red-300 dark:border-red-700"
+                    : wipState === "near"
+                      ? "border-amber-300 dark:border-amber-700"
+                      : "border-slate-200 dark:border-slate-700"
               )}
             >
-              <header className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800">
+              <header
+                className={cn(
+                  "flex shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800",
+                  wipState === "over" && "bg-red-50 dark:bg-red-950/30",
+                  wipState === "near" && "bg-amber-50 dark:bg-amber-950/30"
+                )}
+              >
                 <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", col.toneBar)} aria-hidden />
                 <span
                   className={cn(
@@ -265,9 +301,30 @@ export function TasksKanban({ projectFilter = [] }: Props) {
                   {col.icon}
                   {col.label}
                 </span>
-                <span className="ml-auto rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-                  {list.length}
-                </span>
+                {wipLimit != null ? (
+                  <span
+                    className={cn(
+                      "ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums",
+                      wipState === "over"
+                        ? "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200"
+                        : wipState === "near"
+                          ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                          : "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                    )}
+                    title={
+                      wipState === "over"
+                        ? `WIP limiti aşıldı! Limit: ${wipLimit}, mevcut: ${list.length}`
+                        : `WIP limiti: ${wipLimit}`
+                    }
+                  >
+                    {list.length} / {wipLimit}
+                    {wipState === "over" && " ⚠"}
+                  </span>
+                ) : (
+                  <span className="ml-auto rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                    {list.length}
+                  </span>
+                )}
               </header>
               <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
                 {list.length === 0 ? (

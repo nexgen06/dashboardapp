@@ -55,6 +55,12 @@ function mapRowToProject(row: Record<string, unknown>): Project {
     row.title_column != null && String(row.title_column).trim() !== ""
       ? String(row.title_column).trim()
       : null;
+  const wipLimit = (() => {
+    const v = row.wip_in_progress_limit;
+    if (v == null) return null;
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+  })();
   return {
     id: String(row.id),
     name: String(row.name ?? ""),
@@ -68,6 +74,7 @@ function mapRowToProject(row: Record<string, unknown>): Project {
     strict_assignee_visibility: strict_assignee_visibility,
     extra_column_keys,
     title_column: titleColumn,
+    wip_in_progress_limit: wipLimit,
   };
 }
 
@@ -169,6 +176,7 @@ export function useProjects() {
       strict_assignee_visibility?: boolean;
       extra_column_keys?: string[] | null;
       title_column?: string | null;
+      wip_in_progress_limit?: number | null;
     }): Promise<string | null> => {
       const baseRow: Record<string, unknown> = {
         name: payload.name.trim() || "İsimsiz proje",
@@ -194,6 +202,9 @@ export function useProjects() {
       }
       if (payload.title_column != null && String(payload.title_column).trim() !== "") {
         baseRow.title_column = String(payload.title_column).trim();
+      }
+      if (payload.wip_in_progress_limit != null && payload.wip_in_progress_limit > 0) {
+        baseRow.wip_in_progress_limit = Math.floor(payload.wip_in_progress_limit);
       }
       let { data, error: insertError } = await supabase
         .from("projects")
@@ -227,7 +238,7 @@ export function useProjects() {
   );
 
   const updateProject = useCallback(
-    async (id: string, payload: Partial<Pick<Project, "name" | "description" | "status" | "assigned_emails" | "due_date" | "priority" | "strict_assignee_visibility" | "extra_column_keys" | "title_column">>) => {
+    async (id: string, payload: Partial<Pick<Project, "name" | "description" | "status" | "assigned_emails" | "due_date" | "priority" | "strict_assignee_visibility" | "extra_column_keys" | "title_column" | "wip_in_progress_limit">>) => {
       const updateRow: Record<string, unknown> = { ...payload, updated_at: new Date().toISOString() };
       if (payload.assigned_emails !== undefined) {
         updateRow.assigned_emails =
@@ -251,6 +262,11 @@ export function useProjects() {
           payload.title_column == null || String(payload.title_column).trim() === ""
             ? null
             : String(payload.title_column).trim();
+      }
+      if (payload.wip_in_progress_limit !== undefined) {
+        const n = payload.wip_in_progress_limit;
+        updateRow.wip_in_progress_limit =
+          n == null || !Number.isFinite(n) || n <= 0 ? null : Math.floor(n);
       }
       const { error: updateError } = await supabase.from("projects").update(updateRow).eq("id", id);
       if (updateError) throw updateError;
