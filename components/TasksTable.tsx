@@ -57,6 +57,13 @@ import { parseJSON } from "@/lib/jsonParser";
 import { isSensitiveExtraColumnKey, maskSensitiveExtraValue } from "@/lib/extraColumnSensitiveDisplay";
 import { isStatusDone, isStatusInProgress, getStatusKind } from "@/lib/statusKind";
 import {
+  getDueUrgency,
+  URGENCY_ROW_CLASS,
+  URGENCY_LEFT_BORDER_CLASS,
+  URGENCY_LABEL,
+  URGENCY_BADGE_CLASS,
+} from "@/lib/dueUrgency";
+import {
   loadLiveTablePrefs,
   mergeColumnOrderWithDynamics,
   saveLiveTablePrefs,
@@ -5096,6 +5103,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
               const isEditedByOthers = rowEditors.length > 0;
               const isSelected = row.getIsSelected();
               const isCompleted = isTaskCompleted(row.original);
+              const urgency = getDueUrgency(row.original);
+              const showUrgency = !isCompleted && !isEditedByOthers && !isSelected;
               const visibleCells = row.getVisibleCells();
               let rowTooltipBody: ReactNode | undefined;
               if (isEditedByOthers) {
@@ -5188,7 +5197,9 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                   !isEditedByOthers &&
                   "bg-emerald-50/85 ring-2 ring-inset ring-blue-400/50 dark:bg-emerald-950/30 dark:ring-blue-500/45",
                 isEditedByOthers &&
-                  "relative z-[1] cursor-default border-l-4 border-l-violet-500 bg-violet-50/65 shadow-[inset_0_0_0_1px_rgba(139,92,246,0.14)] dark:border-l-violet-400 dark:bg-violet-950/35 dark:shadow-[inset_0_0_0_1px_rgba(167,139,250,0.2)] hover:bg-violet-50/90 dark:hover:bg-violet-950/45"
+                  "relative z-[1] cursor-default border-l-4 border-l-violet-500 bg-violet-50/65 shadow-[inset_0_0_0_1px_rgba(139,92,246,0.14)] dark:border-l-violet-400 dark:bg-violet-950/35 dark:shadow-[inset_0_0_0_1px_rgba(167,139,250,0.2)] hover:bg-violet-50/90 dark:hover:bg-violet-950/45",
+                showUrgency && URGENCY_ROW_CLASS[urgency],
+                showUrgency && URGENCY_LEFT_BORDER_CLASS[urgency]
               );
               const rowTooltipClass =
                 "z-[400] max-w-[min(22rem,calc(100vw-2rem))] border-2 border-violet-500 bg-violet-100 px-3 py-2.5 text-sm font-semibold leading-snug text-violet-950 shadow-[0_8px_32px_rgba(0,0,0,0.18)] animate-in fade-in-0 zoom-in-95 dark:border-violet-400 dark:bg-violet-900/95 dark:text-violet-50 md:text-base";

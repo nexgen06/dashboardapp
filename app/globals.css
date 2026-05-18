@@ -59,6 +59,33 @@
 /* GIZLILIK: hassas veri içeren öğeler (TCKN/sicil) print sırasında da maskeli kalmalı.
    Components data-sensitive="true" niteliği ekler — print stylesheet print yetkisi
    sayesinde ek garantili koruma sağlar (UI maskelemesinin yanı sıra). */
+/* Tarih duyarlı satırlar — yumuşak pulse (epilepsi dostu, 2sn döngü).
+   Sadece arka plan opaklığı değişir — boyut/parlak flash yok. */
+@keyframes pulse-overdue {
+  0%, 100% { background-color: rgb(254 226 226 / 0.6); }
+  50%      { background-color: rgb(252 165 165 / 0.55); }
+}
+@keyframes pulse-overdue-dark {
+  0%, 100% { background-color: rgb(127 29 29 / 0.30); }
+  50%      { background-color: rgb(153 27 27 / 0.50); }
+}
+@keyframes pulse-today {
+  0%, 100% { background-color: rgb(254 243 199 / 0.6); }
+  50%      { background-color: rgb(253 230 138 / 0.55); }
+}
+@keyframes pulse-today-dark {
+  0%, 100% { background-color: rgb(120 53 15 / 0.30); }
+  50%      { background-color: rgb(146 64 14 / 0.50); }
+}
+.animate-pulse-overdue { animation: pulse-overdue 2s ease-in-out infinite; }
+.animate-pulse-today   { animation: pulse-today 2s ease-in-out infinite; }
+.dark .animate-pulse-overdue { animation-name: pulse-overdue-dark; }
+.dark .animate-pulse-today   { animation-name: pulse-today-dark; }
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse-overdue,
+  .animate-pulse-today { animation: none; }
+}
+
 @media print {
   [data-sensitive="true"] {
     color: transparent !important;
