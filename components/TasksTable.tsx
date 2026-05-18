@@ -1923,6 +1923,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   /** Sürükleyerek genişletilen sütunlar: bunlar veri değişince otomatik ölçeklenmez */
   const userSizedColumnsRef = useRef<Set<string>>(new Set());
   const liveTableScrollRef = useRef<HTMLDivElement>(null);
+  /** Mobil kart listesi scroll konteyneri — sayfa değişiminde başa sarmak için. */
+  const mobileListScrollRef = useRef<HTMLDivElement>(null);
   const [liveTableViewportWidth, setLiveTableViewportWidth] = useState(0);
   const userIdForPrefs = user?.id ?? null;
 
@@ -2205,6 +2207,17 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       setPagination((prev) => ({ ...prev, pageIndex: maxPageIndex }));
     }
   }, [maxPageIndex, pagination.pageIndex]);
+
+  /**
+   * Sayfa değişiminde liste konteynerini başa sar — kullanıcı yeni sayfayı en üstten
+   * okur (önceki sayfanın son satırına yapışık kalmasın). Hem mobil hem desktop.
+   * pageSize değişiminde de baş döndürür çünkü görünür satırlar değişir.
+   */
+  useEffect(() => {
+    const opts: ScrollToOptions = { top: 0, behavior: "smooth" };
+    liveTableScrollRef.current?.scrollTo(opts);
+    mobileListScrollRef.current?.scrollTo(opts);
+  }, [pagination.pageIndex, pagination.pageSize]);
 
   /** Kullanıcının açıkça seçtiği filtre sayısı (varsayılan "projeye bağlı göster" sayılmaz) */
   const activeFilterCount = useMemo(() => {
@@ -4930,6 +4943,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       {/* MOBİL — kart listesi (md altı). Boşsa hiç render etme; EmptyState aşağıda zaten gösterilir. */}
       {table.getRowModel().rows.length > 0 && (
       <div
+        ref={mobileListScrollRef}
         className={cn(
           "flex-1 min-h-0 w-full overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/50 p-2 dark:border-slate-700 dark:bg-slate-900/30 md:hidden",
           !isFullWidth && "max-h-[calc(100dvh-22rem)] sm:max-h-[calc(100dvh-20rem)]"
