@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Search, PlusCircle, MoreVertical, Pencil, Archive, Trash2, RotateCw, Upload, FileText, UserPlus, X, Calendar, Flag, FolderKanban, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ProjectColumnManager } from "@/components/ProjectColumnManager";
 
 export type NewProjectSubmitData = {
   name: string;
@@ -126,6 +127,7 @@ function ProjectFormModal({
   formError,
   isAdmin,
   observedExtraKeys = [],
+  observedSampleValues = {},
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -137,6 +139,9 @@ function ProjectFormModal({
   /** Edit mode: bu projeye bağlı görevlerin extra_data'sında gerçekten kullanılan anahtarlar.
    *  "Görev başlığı sütunu" dropdown'ı şema + bunları birleşik gösterir. */
   observedExtraKeys?: string[];
+  /** Edit mode: bu projeye bağlı görevlerin extra_data örnek değerleri (anahtar başına).
+   *  Otomatik tip tahmini için ProjectColumnManager'a beslenir. */
+  observedSampleValues?: Record<string, string[]>;
 }) {
   const [name, setName] = useState(project?.name ?? "");
   const [description, setDescription] = useState(project?.description ?? "");
@@ -548,6 +553,22 @@ function ProjectFormModal({
               </div>
             );
           })()}
+
+          {/* Sütun tipi yönetimi — sadece edit mode + admin/PM */}
+          {isEdit && project && (isAdmin || project) && (
+            <details className="rounded-lg border border-slate-200 bg-slate-50/60 dark:border-slate-600 dark:bg-slate-800/40">
+              <summary className="cursor-pointer select-none rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100/60 dark:text-slate-200 dark:hover:bg-slate-700/40">
+                Sütun tipi yönetimi <span className="text-xs font-normal text-slate-500 dark:text-slate-400">(yeni)</span>
+              </summary>
+              <div className="border-t border-slate-200 px-3 py-3 dark:border-slate-600">
+                <ProjectColumnManager
+                  projectId={project.id}
+                  observedKeys={observedExtraKeys ?? []}
+                  sampleValuesByKey={observedSampleValues ?? {}}
+                />
+              </div>
+            </details>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
@@ -1484,6 +1505,25 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
                 return Array.from(out);
               })()
             : []
+        }
+        observedSampleValues={
+          editingProject
+            ? (() => {
+                const out: Record<string, string[]> = {};
+                for (const t of tasks) {
+                  if (String(t.project_id ?? "") !== editingProject.id) continue;
+                  if (!t.extra_data || typeof t.extra_data !== "object") continue;
+                  for (const [k, v] of Object.entries(t.extra_data)) {
+                    const key = String(k).trim();
+                    const value = String(v ?? "").trim();
+                    if (!key || !value) continue;
+                    if (!out[key]) out[key] = [];
+                    if (out[key].length < 20) out[key].push(value);
+                  }
+                }
+                return out;
+              })()
+            : {}
         }
       />
       <Dialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
