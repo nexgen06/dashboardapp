@@ -32,10 +32,8 @@ import {
 import { ArrowLeft, PlusCircle, Unlink, Loader2, ListTodo, User, Calendar, Upload, Users, ShieldCheck, X, CheckCircle2, AlertTriangle, Clock, UserX, ArrowRight, Table2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useProjectPresence } from "@/hooks/useProjectPresence";
-import { useProjectChatRoom } from "@/hooks/useProjectChatRoom";
-import { useProjectChatUnread } from "@/contexts/project-chat-unread-context";
 import { OnlineUsersPanel } from "@/components/OnlineUsersPanel";
-import { ProjectChatPanel } from "@/components/ProjectChatPanel";
+import { ProjectActivityFeed } from "@/components/ProjectActivityFeed";
 import {
   requestNotificationPermission,
   notificationApiAvailable,
@@ -149,8 +147,6 @@ export default function ProjeDetayPage() {
   const canPresenceSubscribe =
     !!id && !!project && (isAdmin || (assignedEmails.length > 0 && isAssigned));
 
-  const { refresh: refreshChatUnread } = useProjectChatUnread();
-
   const {
     onlineUsers,
     viewerNotice,
@@ -164,14 +160,6 @@ export default function ProjeDetayPage() {
     soundEnabled: settings.notificationsSound,
     browserPushEnabled: settings.notificationsPush,
     projectTitle: project?.name?.trim() || "Proje",
-  });
-
-  const { chatMessages, sendChatMessage, chatReady } = useProjectChatRoom({
-    projectId: id,
-    enabled: canPresenceSubscribe,
-    userEmail: user?.email,
-    userName: user?.displayName ?? user?.email,
-    onAfterMarkRead: refreshChatUnread,
   });
 
   const [browserNotifPerm, setBrowserNotifPerm] = useState<NotificationPermission | null>(null);
@@ -617,12 +605,6 @@ export default function ProjeDetayPage() {
               />
             </div>
           )}
-          <ProjectChatPanel
-            messages={chatMessages}
-            onSend={sendChatMessage}
-            currentUserEmail={currentUserEmail}
-            chatReady={chatReady}
-          />
         </div>
 
         <div className="p-4">
@@ -822,6 +804,20 @@ export default function ProjeDetayPage() {
               })}
             </ul>
           )}
+
+          {/* ───── Aktivite zaman çizelgesi ───── */}
+          <div className="mt-6">
+            <div className="mb-3 flex items-center gap-2">
+              <h2 className="text-sm font-medium text-slate-700 dark:text-slate-200">Aktivite</h2>
+              <span className="text-xs text-slate-400 dark:text-slate-500">
+                Bu projedeki son değişiklikler
+              </span>
+            </div>
+            <ProjectActivityFeed
+              projectId={id}
+              taskIds={rawProjectTasks.map((t) => t.id)}
+            />
+          </div>
         </div>
       </div>
 
