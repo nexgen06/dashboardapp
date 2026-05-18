@@ -72,19 +72,39 @@ export function TasksGantt({ projectFilter = [] }: Props) {
     let noDue = 0;
     let badDue = 0;
     const badSamples: Array<{ id: string; due: string; content: string }> = [];
+
+    /**
+     * task.due_date öncelik; yoksa extra_data'da "bitiş / deadline / tarih / due / son"
+     * geçen ANAHTAR adıyla eşleşen ilk parse edilebilir değeri kullan.
+     * Bu, CSV import edilmiş projelerde kullanıcı dedicated due_date alanı yerine
+     * "Bitiş Tarihi" gibi bir sütuna yazmış olabilir.
+     */
+    const DATE_KEY_RE = /(bitiş|bitis|deadline|son\s*tarih|son\s*g[uü]n|due|tamamlanma|teslim)/i;
+    const findDueFromExtra = (task: Task): string | null => {
+      if (!task.extra_data || typeof task.extra_data !== "object") return null;
+      for (const [k, v] of Object.entries(task.extra_data)) {
+        if (!DATE_KEY_RE.test(k)) continue;
+        const raw = String(v ?? "").trim();
+        if (!raw) continue;
+        if (parseDateFlexible(raw)) return raw;
+      }
+      return null;
+    };
+
     for (const t of scopedTasks) {
-      if (!t.due_date) {
+      const rawDue = t.due_date ?? findDueFromExtra(t);
+      if (!rawDue) {
         noDue++;
         continue;
       }
       // Tolerant parser — Türkçe (01.06.2026) ve ISO (2026-06-01) hepsini yakalar
-      const dueDate = parseDateFlexible(t.due_date);
+      const dueDate = parseDateFlexible(rawDue);
       if (!dueDate) {
         badDue++;
         if (badSamples.length < 3) {
           badSamples.push({
             id: t.id,
-            due: String(t.due_date),
+            due: String(rawDue),
             content: (t.content ?? "").slice(0, 40) || "(içerik yok)",
           });
         }
@@ -197,6 +217,13 @@ export function TasksGantt({ projectFilter = [] }: Props) {
               {l}
             </span>
           ))}
+          {diagnostics.noDue > 0 && diagnostics.badDue === 0 && (
+            <span className="mt-2 block rounded-md border border-blue-200 bg-blue-50 p-2 text-left text-xs text-blue-900 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-200">
+              <strong>İpucu:</strong> Görev detayında <em>Son tarih</em> alanını doldur, ya da
+              <em> extra_data</em>'da &quot;Bitiş&quot; / &quot;Deadline&quot; / &quot;Son tarih&quot; gibi
+              bir sütuna tarih yaz — Gantt her ikisini de tanır.
+            </span>
+          )}
           {diagnostics.badSamples.length > 0 && (
             <span className="mt-2 block rounded-md border border-amber-200 bg-amber-50 p-2 text-left text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
               <strong>Okunamayan örnek değerler:</strong>
