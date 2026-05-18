@@ -39,6 +39,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Search, PlusCircle, MoreVertical, Pencil, Archive, Trash2, RotateCw, Upload, FileText, UserPlus, X, Calendar, Flag, FolderKanban, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProjectColumnManager } from "@/components/ProjectColumnManager";
@@ -379,9 +380,272 @@ function ProjectFormModal({
     setExtraColumnKeysText("");
   };
 
+  // ───────────────────────────────────────────────────────────────
+  // Field grupları — edit modunda Tabs içine, yeni projede dikey stack'e konur
+  // ───────────────────────────────────────────────────────────────
+  const fieldsGeneral = (
+    <div className="grid gap-4">
+      <div>
+        <label htmlFor="project-name" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+          Ad
+        </label>
+        <input
+          id="project-name"
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Proje adı"
+          required
+          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+        />
+      </div>
+      <div>
+        <label htmlFor="project-desc" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+          Açıklama
+        </label>
+        <textarea
+          id="project-desc"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Kısa açıklama"
+          rows={3}
+          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 resize-none"
+        />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label htmlFor="project-status" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+            Durum
+          </label>
+          <select
+            id="project-status"
+            value={status}
+            onChange={(e) => setStatus(e.target.value as ProjectStatus)}
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+          >
+            {STATUS_OPTIONS.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="project-priority" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+            <Flag className="inline h-3.5 w-3.5 mr-1" />
+            Öncelik
+          </label>
+          <select
+            id="project-priority"
+            value={priority}
+            onChange={(e) => setPriority(e.target.value as ProjectPriority | "")}
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+          >
+            <option value="">Seçin</option>
+            {PRIORITY_OPTIONS.map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div>
+        <label htmlFor="project-due-date" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+          <Calendar className="inline h-3.5 w-3.5 mr-1" />
+          Hedef tarih
+        </label>
+        <input
+          id="project-due-date"
+          type="date"
+          value={dueDate}
+          onChange={(e) => setDueDate(e.target.value)}
+          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+        />
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+          Proje hedef / bitiş tarihi. Kartlarda &quot;Yaklaşan&quot; / &quot;Gecikmiş&quot; etiketi için kullanılır.
+        </p>
+      </div>
+    </div>
+  );
+
+  const fieldsTableView = (() => {
+    const schemaKeys = parseExtraColumnKeysFromForm(extraColumnKeysText);
+    const merged = new Set<string>();
+    for (const k of schemaKeys) if (k.trim()) merged.add(k.trim());
+    for (const k of observedExtraKeys ?? []) if (k && k.trim()) merged.add(k.trim());
+    const availableKeys = Array.from(merged).sort((a, b) =>
+      a.localeCompare(b, "tr", { sensitivity: "base" })
+    );
+    return (
+      <div className="grid gap-4">
+        <div>
+          <label htmlFor="project-extra-columns" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+            Canlı tablo ek sütunları
+          </label>
+          <textarea
+            id="project-extra-columns"
+            value={extraColumnKeysText}
+            onChange={(e) => setExtraColumnKeysText(e.target.value)}
+            placeholder={"Her satıra bir sütun adı\nÖrn: Sicil\nÖrn: Departman"}
+            rows={3}
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 resize-y font-mono"
+          />
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            CSV olmadan görünmesini istediğin <code className="text-[0.7rem]">extra_data</code> sütunları.
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label
+              htmlFor="project-title-column"
+              className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300"
+            >
+              Görev başlığı sütunu
+            </label>
+            <select
+              id="project-title-column"
+              value={titleColumn}
+              onChange={(e) => setTitleColumn(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+            >
+              <option value="">— Otomatik —</option>
+              {availableKeys.map((k) => (
+                <option key={k} value={k}>{k}</option>
+              ))}
+              {titleColumn && !availableKeys.includes(titleColumn) && (
+                <option value={titleColumn}>{titleColumn} (eski)</option>
+              )}
+            </select>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              <code className="text-[0.7rem]">content</code> boşsa Kanban/Özet kartlarında bu değer başlık olur.
+            </p>
+          </div>
+          <div>
+            <label
+              htmlFor="project-wip-limit"
+              className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300"
+            >
+              Kanban WIP limiti
+            </label>
+            <input
+              id="project-wip-limit"
+              type="number"
+              min={1}
+              max={999}
+              value={wipInProgressLimit}
+              onChange={(e) => setWipInProgressLimit(e.target.value)}
+              placeholder="örn. 5"
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+            />
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              &quot;Devam ediyor&quot; kolonu için soft limit. Boş = limitsiz.
+            </p>
+          </div>
+        </div>
+        {availableKeys.length === 0 && (
+          <p className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+            Henüz tanımlı sütun yok — yukarıya ekle ya da bu projeye CSV/Excel ile görev içe aktar.
+          </p>
+        )}
+      </div>
+    );
+  })();
+
+  const fieldsAssignees = (
+    <div className="grid gap-4">
+      <div>
+        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+          <UserPlus className="inline h-3.5 w-3.5 mr-1" />
+          Atanan kullanıcılar (e-posta)
+        </label>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+          Bu kişiler projeyi açıp canlı tablo verisini görüp düzenleyebilir.
+        </p>
+        <div className="flex flex-wrap gap-2 items-center">
+          <input
+            type="email"
+            value={emailInput}
+            onChange={(e) => setEmailInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addAssignedEmail(); } }}
+            placeholder="ornek@email.com"
+            className="flex-1 min-w-[180px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={addAssignedEmail}
+            disabled={!emailInput.trim()}
+          >
+            Ekle
+          </Button>
+        </div>
+        {assignedEmails.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {assignedEmails.map((email) => (
+              <span
+                key={email}
+                className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-700 px-2.5 py-0.5 text-xs text-slate-700 dark:text-slate-200"
+              >
+                {email}
+                <button
+                  type="button"
+                  onClick={() => removeAssignedEmail(email)}
+                  className="rounded-full p-0.5 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-500"
+                  aria-label={`${email} kaldır`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {isAdmin && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+          <label className="flex cursor-pointer items-start gap-2">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+              checked={strictAssigneeVisibility}
+              onChange={(e) => setStrictAssigneeVisibility(e.target.checked)}
+            />
+            <span className="text-sm text-slate-800 dark:text-slate-200">
+              <span className="font-medium">Katı atanan görünürlüğü</span>
+              <span className="mt-1 block text-xs font-normal text-slate-600 dark:text-slate-400">
+                Üye/izleyici roller yalnızca kendilerine atanmış ve atanmamış görevleri görür.
+                Admin ve PM her şeyi görür. (RLS bağımlı — SQL betiği çalışmış olmalı.)
+              </span>
+            </span>
+          </label>
+        </div>
+      )}
+    </div>
+  );
+
+  const fieldsAdvanced = isEdit && project ? (
+    <div className="grid gap-4">
+      <div>
+        <h4 className="text-sm font-medium text-slate-800 dark:text-slate-100">Sütun tipi yönetimi</h4>
+        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+          Her sütuna tip ata: metin, sayı, tarih, seçenek, vb. Tipli render &amp; filtre için kullanılır.
+        </p>
+      </div>
+      <ProjectColumnManager
+        projectId={project.id}
+        observedKeys={observedExtraKeys ?? []}
+        sampleValuesByKey={observedSampleValues ?? {}}
+      />
+    </div>
+  ) : null;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent showClose={true} className="max-w-lg">
+      <DialogContent
+        showClose={true}
+        className={cn(
+          isEdit ? "max-w-2xl" : "max-w-lg",
+          "max-h-[min(90vh,720px)] overflow-hidden flex flex-col"
+        )}
+      >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription className="sr-only">
@@ -417,9 +681,36 @@ function ProjectFormModal({
             {formError}
           </div>
         )}
-        <form onSubmit={handleSubmit} className="grid gap-4 py-2">
-          {/* Step 1 — Proje bilgileri (edit modunda her zaman görünür) */}
-          {(isEdit || step === 1) && (
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col gap-3 py-2">
+          {isEdit ? (
+            <Tabs defaultValue="general" className="flex min-h-0 flex-1 flex-col">
+              <TabsList className="self-start">
+                <TabsTrigger value="general">Genel</TabsTrigger>
+                <TabsTrigger value="table">Tablo &amp; Görünüm</TabsTrigger>
+                <TabsTrigger value="people">Atananlar</TabsTrigger>
+                {fieldsAdvanced && <TabsTrigger value="advanced">Gelişmiş</TabsTrigger>}
+              </TabsList>
+              <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
+                <TabsContent value="general" className="m-0 data-[state=inactive]:hidden">
+                  {fieldsGeneral}
+                </TabsContent>
+                <TabsContent value="table" className="m-0 data-[state=inactive]:hidden">
+                  {fieldsTableView}
+                </TabsContent>
+                <TabsContent value="people" className="m-0 data-[state=inactive]:hidden">
+                  {fieldsAssignees}
+                </TabsContent>
+                {fieldsAdvanced && (
+                  <TabsContent value="advanced" className="m-0 data-[state=inactive]:hidden">
+                    {fieldsAdvanced}
+                  </TabsContent>
+                )}
+              </div>
+            </Tabs>
+          ) : (
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+          {/* Step 1 — Proje bilgileri (yeni proje akışı) */}
+          {step === 1 && (
           <>
           <div>
             <label htmlFor="project-name" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
@@ -592,21 +883,7 @@ function ProjectFormModal({
             </p>
           </div>
 
-          {/* Sütun tipi yönetimi — sadece edit mode + admin/PM */}
-          {isEdit && project && (isAdmin || project) && (
-            <details className="rounded-lg border border-slate-200 bg-slate-50/60 dark:border-slate-600 dark:bg-slate-800/40">
-              <summary className="cursor-pointer select-none rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100/60 dark:text-slate-200 dark:hover:bg-slate-700/40">
-                Sütun tipi yönetimi <span className="text-xs font-normal text-slate-500 dark:text-slate-400">(yeni)</span>
-              </summary>
-              <div className="border-t border-slate-200 px-3 py-3 dark:border-slate-600">
-                <ProjectColumnManager
-                  projectId={project.id}
-                  observedKeys={observedExtraKeys ?? []}
-                  sampleValuesByKey={observedSampleValues ?? {}}
-                />
-              </div>
-            </details>
-          )}
+          {/* Sütun tipi yönetimi edit modunda Tabs > Gelişmiş'te gösteriliyor */}
 
           <div>
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
@@ -907,8 +1184,10 @@ function ProjectFormModal({
             </div>
           )}
           {/* /Step 2 */}
+          </div>
+          )}
 
-          <DialogFooter>
+          <DialogFooter className="mt-2 shrink-0 border-t border-slate-200 pt-3 dark:border-slate-700">
             {/* Sol: İptal veya Geri */}
             {!isEdit && step === 2 ? (
               <Button type="button" variant="outline" onClick={() => setStep(1)}>
