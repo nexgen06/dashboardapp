@@ -67,13 +67,29 @@ export function TasksGantt({ projectFilter = [] }: Props) {
    * Bar için lazımlık: due_date olmalı. Start = created_at (ya da due'dan 7 gün önce).
    * Sıralama: due_date'e göre (yakın → uzak).
    */
-  const ganttRows = useMemo(() => {
+  const { rows: ganttRows, diagnostics } = useMemo(() => {
     const rows: Array<{ task: Task; startMs: number; endMs: number }> = [];
+    let noDue = 0;
+    let badDue = 0;
+    const badSamples: Array<{ id: string; due: string; content: string }> = [];
     for (const t of scopedTasks) {
-      if (!t.due_date) continue;
+      if (!t.due_date) {
+        noDue++;
+        continue;
+      }
       // Tolerant parser — Türkçe (01.06.2026) ve ISO (2026-06-01) hepsini yakalar
       const dueDate = parseDateFlexible(t.due_date);
-      if (!dueDate) continue;
+      if (!dueDate) {
+        badDue++;
+        if (badSamples.length < 3) {
+          badSamples.push({
+            id: t.id,
+            due: String(t.due_date),
+            content: (t.content ?? "").slice(0, 40) || "(içerik yok)",
+          });
+        }
+        continue;
+      }
       const due = dueDate.getTime();
       // `created_at` Task tipinde doğrudan tanımlı değil ama Supabase'den her zaman gelir
       const rawCreated = (t as unknown as Record<string, unknown>).created_at;
@@ -88,7 +104,16 @@ export function TasksGantt({ projectFilter = [] }: Props) {
       rows.push({ task: t, startMs: start, endMs: due });
     }
     rows.sort((a, b) => a.endMs - b.endMs);
-    return rows;
+    return {
+      rows,
+      diagnostics: {
+        scoped: scopedTasks.length,
+        shown: rows.length,
+        noDue,
+        badDue,
+        badSamples,
+      },
+    };
   }, [scopedTasks]);
 
   const projectNameById = useMemo(() => {
@@ -158,16 +183,39 @@ export function TasksGantt({ projectFilter = [] }: Props) {
   }, [range.startMs, totalDays, dayPx]);
 
   if (ganttRows.length === 0) {
+    let description: React.ReactNode = "Bu projeye görev ekle ve bitiş tarihi belirle.";
+    if (scopedTasks.length > 0) {
+      const lines: string[] = [`${diagnostics.scoped} görev kapsamda.`];
+      if (diagnostics.noDue > 0) lines.push(`${diagnostics.noDue} tanesinin bitiş tarihi yok.`);
+      if (diagnostics.badDue > 0) {
+        lines.push(`${diagnostics.badDue} tanesinin bitiş tarihi okunamadı.`);
+      }
+      description = (
+        <span className="space-y-1">
+          {lines.map((l, i) => (
+            <span key={i} className="block">
+              {l}
+            </span>
+          ))}
+          {diagnostics.badSamples.length > 0 && (
+            <span className="mt-2 block rounded-md border border-amber-200 bg-amber-50 p-2 text-left text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+              <strong>Okunamayan örnek değerler:</strong>
+              {diagnostics.badSamples.map((s, i) => (
+                <span key={i} className="mt-0.5 block break-all font-mono">
+                  • {s.content}: <code>{s.due}</code>
+                </span>
+              ))}
+            </span>
+          )}
+        </span>
+      );
+    }
     return (
       <div className="flex h-full items-center justify-center p-6">
         <EmptyState
           icon={<Calendar className="h-10 w-10" aria-hidden />}
-          title="Gantt için bitiş tarihi olan görev yok"
-          description={
-            scopedTasks.length === 0
-              ? "Bu projeye görev ekle ve bitiş tarihi belirle."
-              : `${scopedTasks.length} görev var ama hiçbirinin bitiş tarihi yok. Görev detayından bitiş tarihi belirle.`
-          }
+          title="Gantt için uygun görev yok"
+          description={description}
         />
       </div>
     );
@@ -181,6 +229,18 @@ export function TasksGantt({ projectFilter = [] }: Props) {
           <strong className="text-slate-700 dark:text-slate-200">{ganttRows.length}</strong> görev
           {" · "}
           <strong className="text-slate-700 dark:text-slate-200">{totalDays}</strong> gün
+          {(diagnostics.noDue > 0 || diagnostics.badDue > 0) && (
+            <span
+              className="ml-2 text-amber-700 dark:text-amber-400"
+              title={
+                diagnostics.badSamples.length > 0
+                  ? `Okunamayan: ${diagnostics.badSamples.map((s) => s.due).join(", ")}`
+                  : undefined
+              }
+            >
+              ({diagnostics.noDue + diagnostics.badDue} görev dışarıda)
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1">
           <Button
