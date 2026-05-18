@@ -5,8 +5,9 @@ import Image from "next/image";
 import { useAuth } from "@/contexts/auth-context";
 import { TasksTable } from "@/components/TasksTable";
 import { TasksKanban } from "@/components/TasksKanban";
+import { TasksGantt } from "@/components/TasksGantt";
 import { GorevOzeti } from "@/components/GorevOzeti";
-import { Shield, Loader2, Table2, Columns3 } from "lucide-react";
+import { Shield, Loader2, Table2, Columns3, GanttChart } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Section } from "@/components/ui/section";
@@ -145,6 +146,10 @@ export default function CanliTabloPage() {
                   <Columns3 className="h-3.5 w-3.5" aria-hidden />
                   Kanban
                 </TabsTrigger>
+                <TabsTrigger value="gantt" className="gap-1.5">
+                  <GanttChart className="h-3.5 w-3.5" aria-hidden />
+                  Gantt
+                </TabsTrigger>
               </TabsList>
             </div>
             <TabsContent
@@ -158,6 +163,12 @@ export default function CanliTabloPage() {
               className="flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
             >
               <TasksKanban projectFilter={projectFilter} />
+            </TabsContent>
+            <TabsContent
+              value="gantt"
+              className="flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
+            >
+              <TasksGantt projectFilter={projectFilter} />
             </TabsContent>
           </Tabs>
         </Section>

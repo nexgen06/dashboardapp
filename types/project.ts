@@ -25,4 +25,6 @@ export type Project = {
   extra_column_keys?: string[] | null;
   /** Görev başlığı (Kanban kartı / Görev Özeti / mobil kart) için kullanılacak extra_data anahtarı. NULL → otomatik. */
   title_column?: string | null;
+  /** Kanban "Devam ediyor" kolonu için yumuşak WIP limiti. NULL → limit yok. */
+  wip_in_progress_limit?: number | null;
 };
