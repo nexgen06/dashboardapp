@@ -2598,6 +2598,69 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   );
 
   /**
+   * "Boş satır" kriteri — kullanıcının doldurmadan bıraktığı hızlı-ekleme satırlarını yakalar.
+   * Sadece TÜM kullanıcı alanları boşsa true (yanlışlıkla gerçek görev silmemek için sıkı).
+   */
+  const isEmptyTaskRow = useCallback((t: Task): boolean => {
+    if ((t.content ?? "").trim() !== "") return false;
+    if ((t.assignee ?? "").trim() !== "") return false;
+    if ((t.priority ?? "").trim() !== "") return false;
+    if ((t.due_date ?? "").trim() !== "") return false;
+    const ex = t.extra_data;
+    if (ex && typeof ex === "object") {
+      for (const v of Object.values(ex)) {
+        if (String(v ?? "").trim() !== "") return false;
+      }
+    }
+    return true;
+  }, []);
+
+  const handleDeleteEmptyRows = useCallback(async () => {
+    const emptyTasks = filteredData.filter(isEmptyTaskRow);
+    if (emptyTasks.length === 0) {
+      toast.info("Mevcut görünümde boş satır yok.");
+      return;
+    }
+    const ids = emptyTasks.map((t) => t.id);
+    const backups = emptyTasks.map((t) => ({ ...t }));
+    setDeletingIds((prev) => new Set([...Array.from(prev), ...ids]));
+    try {
+      await deleteTasks(ids);
+      toast.success(`${ids.length} boş satır silindi`, {
+        action: {
+          label: "Geri al",
+          onClick: async () => {
+            try {
+              await createTasksBulk(
+                backups.map((b) => ({
+                  content: b.content,
+                  status: b.status,
+                  assignee: b.assignee,
+                  priority: b.priority,
+                  project_id: b.project_id,
+                  due_date: b.due_date,
+                  extra_data: b.extra_data,
+                }))
+              );
+              toast.success(`${backups.length} satır geri yüklendi`);
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : "Geri alınamadı");
+            }
+          },
+        },
+      });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Boş satırlar silinemedi");
+    } finally {
+      setDeletingIds((prev) => {
+        const next = new Set(prev);
+        ids.forEach((id) => next.delete(id));
+        return next;
+      });
+    }
+  }, [filteredData, isEmptyTaskRow, deleteTasks, createTasksBulk, toast]);
+
+  /**
    * Hızlı satır ekleme: boş içerikli görev yaratır, content hücresini odakla.
    * Tek proje filtreliyse o projenin altına bağlar; yoksa serbest (project_id=null).
    * Enter ile zincir devam eder.
@@ -5341,18 +5404,31 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                   colSpan={table.getVisibleLeafColumns().length}
                   className="p-0"
                 >
-                  <button
-                    type="button"
-                    onClick={handleQuickAddRow}
-                    className="group flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-500 transition-colors hover:bg-blue-50/60 hover:text-blue-700 focus:bg-blue-50/60 focus:text-blue-700 focus:outline-none dark:text-slate-400 dark:hover:bg-blue-950/30 dark:hover:text-blue-300 dark:focus:bg-blue-950/30 dark:focus:text-blue-300"
-                    aria-label="Yeni satır ekle (Enter ile zincirleme)"
-                  >
-                    <PlusCircle className="h-4 w-4 shrink-0 opacity-70 group-hover:opacity-100" aria-hidden />
-                    <span>Yeni satır</span>
-                    <span className="ml-auto rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-700 dark:text-slate-300">
-                      Enter ile zincirle
-                    </span>
-                  </button>
+                  <div className="flex w-full items-stretch">
+                    <button
+                      type="button"
+                      onClick={handleQuickAddRow}
+                      className="group flex flex-1 items-center gap-2 px-3 py-2 text-left text-sm text-slate-500 transition-colors hover:bg-blue-50/60 hover:text-blue-700 focus:bg-blue-50/60 focus:text-blue-700 focus:outline-none dark:text-slate-400 dark:hover:bg-blue-950/30 dark:hover:text-blue-300 dark:focus:bg-blue-950/30 dark:focus:text-blue-300"
+                      aria-label="Yeni satır ekle (Enter ile zincirleme)"
+                    >
+                      <PlusCircle className="h-4 w-4 shrink-0 opacity-70 group-hover:opacity-100" aria-hidden />
+                      <span>Yeni satır</span>
+                      <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-700 dark:text-slate-300">
+                        Enter ile zincirle
+                      </span>
+                    </button>
+                    {canBulkDelete && (
+                      <button
+                        type="button"
+                        onClick={handleDeleteEmptyRows}
+                        className="flex shrink-0 items-center gap-1.5 border-l border-slate-200 px-3 py-2 text-xs text-slate-500 hover:bg-red-50/70 hover:text-red-700 focus:bg-red-50/70 focus:text-red-700 focus:outline-none dark:border-slate-700 dark:text-slate-400 dark:hover:bg-red-950/30 dark:hover:text-red-300 dark:focus:bg-red-950/30 dark:focus:text-red-300"
+                        title="Mevcut görünümdeki içeriksiz/boş satırları sil — geri alınabilir"
+                      >
+                        <Trash2 className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
+                        <span className="hidden sm:inline">Boş satırları sil</span>
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             )}
