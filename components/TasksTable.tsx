@@ -576,6 +576,10 @@ type EditableCellProps = {
   onFocus: () => void;
   onBlur: () => void;
   density?: LiveTableDensity;
+  /** Hücreyi mount'ta doğrudan edit moduna sok ve odakla (hızlı satır ekleme akışı için). */
+  autoEdit?: boolean;
+  /** Enter ile kaydedildikten sonra çağrılır — hızlı zincir ekleme için bir sonraki satırı doğurur. */
+  onChainEnter?: () => void;
 };
 
 function EditableCell({
@@ -587,9 +591,19 @@ function EditableCell({
   onFocus,
   onBlur,
   density = "normal",
+  autoEdit = false,
+  onChainEnter,
 }: EditableCellProps) {
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(autoEdit);
   const [localValue, setLocalValue] = useState(value);
+  // autoEdit yalnızca ilk mount'ta etkin olur; sonraki render'larda parent state'i resetler
+  useEffect(() => {
+    if (autoEdit) {
+      setIsEditing(true);
+      onFocus();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoEdit]);
   const cellText =
     density === "compact" ? "text-xs" : density === "comfortable" ? "text-base" : "text-sm";
   const cellPad =
@@ -621,6 +635,7 @@ function EditableCell({
     if (e.key === "Enter") {
       e.preventDefault();
       handleSave();
+      if (onChainEnter) onChainEnter();
     }
     if (e.key === "Escape") {
       setLocalValue(value);
@@ -1685,6 +1700,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const canAutoSizeColumns = hasPermission("liveTable.autoSizeColumns");
   const canEditProject = hasPermission("projects.edit");
   const [newTaskOpen, setNewTaskOpen] = useState(false);
+  /** Hızlı satır ekleme zinciri: id verilirse content sütunundaki EditableCell mount'ta edit moduna geçer. */
+  const [quickAddFocusId, setQuickAddFocusId] = useState<string | null>(null);
   const [editTask, setEditTask] = useState<Task | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
@@ -2580,6 +2597,31 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     [createTask]
   );
 
+  /**
+   * Hızlı satır ekleme: boş içerikli görev yaratır, content hücresini odakla.
+   * Tek proje filtreliyse o projenin altına bağlar; yoksa serbest (project_id=null).
+   * Enter ile zincir devam eder.
+   */
+  const handleQuickAddRow = useCallback(async () => {
+    if (!canCreateTask) return;
+    try {
+      const scopedProject =
+        Array.isArray(projectFilter) && projectFilter.length === 1 ? projectFilter[0] : null;
+      const newId = await createTask({
+        content: "",
+        status: "Yapılacak",
+        assignee: null,
+        priority: null,
+        project_id: scopedProject,
+      });
+      if (newId) {
+        setQuickAddFocusId(newId);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Satır oluşturulamadı");
+    }
+  }, [canCreateTask, createTask, projectFilter, toast]);
+
   const handleCSVImport = useCallback(
     async (
       imported: Array<{ content: string; status: string; assignee: string | null; priority?: string | null; extra_data?: Record<string, string> | null }>,
@@ -2811,8 +2853,15 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                   if ("content" in patch) handleSave(id, patch);
                 }}
                 onFocus={() => setEditingRow(task.id)}
-                onBlur={() => setEditingRow(null)}
+                onBlur={() => {
+                  setEditingRow(null);
+                  if (quickAddFocusId === task.id) setQuickAddFocusId(null);
+                }}
                 density={tableDensity}
+                autoEdit={quickAddFocusId === task.id}
+                onChainEnter={
+                  quickAddFocusId === task.id ? handleQuickAddRow : undefined
+                }
               />
             </span>
             {showLink && (
@@ -5286,6 +5335,27 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                 </tr>
               );
             })}
+            {canCreateTask && (
+              <tr className="border-b border-slate-100 dark:border-slate-700">
+                <td
+                  colSpan={table.getVisibleLeafColumns().length}
+                  className="p-0"
+                >
+                  <button
+                    type="button"
+                    onClick={handleQuickAddRow}
+                    className="group flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-500 transition-colors hover:bg-blue-50/60 hover:text-blue-700 focus:bg-blue-50/60 focus:text-blue-700 focus:outline-none dark:text-slate-400 dark:hover:bg-blue-950/30 dark:hover:text-blue-300 dark:focus:bg-blue-950/30 dark:focus:text-blue-300"
+                    aria-label="Yeni satır ekle (Enter ile zincirleme)"
+                  >
+                    <PlusCircle className="h-4 w-4 shrink-0 opacity-70 group-hover:opacity-100" aria-hidden />
+                    <span>Yeni satır</span>
+                    <span className="ml-auto rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-700 dark:text-slate-300">
+                      Enter ile zincirle
+                    </span>
+                  </button>
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
