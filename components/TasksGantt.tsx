@@ -15,6 +15,7 @@ import { getStatusKind } from "@/lib/statusKind";
 import { urgentPrioritySetFromCsv } from "@/lib/urgentTaskPriority";
 import { getTaskDisplayLabel } from "@/lib/taskDisplayLabel";
 import { parseListOptionString } from "@/contexts/settings-context";
+import { parseDateFlexible } from "@/lib/parseDate";
 
 type Props = {
   projectFilter?: string[];
@@ -70,14 +71,17 @@ export function TasksGantt({ projectFilter = [] }: Props) {
     const rows: Array<{ task: Task; startMs: number; endMs: number }> = [];
     for (const t of scopedTasks) {
       if (!t.due_date) continue;
-      const due = new Date(t.due_date).getTime();
-      if (!Number.isFinite(due)) continue;
+      // Tolerant parser — Türkçe (01.06.2026) ve ISO (2026-06-01) hepsini yakalar
+      const dueDate = parseDateFlexible(t.due_date);
+      if (!dueDate) continue;
+      const due = dueDate.getTime();
       // `created_at` Task tipinde doğrudan tanımlı değil ama Supabase'den her zaman gelir
       const rawCreated = (t as unknown as Record<string, unknown>).created_at;
-      const created =
+      const createdDate =
         typeof rawCreated === "string" || typeof rawCreated === "number"
-          ? new Date(rawCreated).getTime()
-          : NaN;
+          ? parseDateFlexible(rawCreated)
+          : null;
+      const created = createdDate ? createdDate.getTime() : NaN;
       // Start: created varsa ve due'dan önceyse onu kullan. Yoksa due - 3 gün.
       const start =
         Number.isFinite(created) && created < due ? created : due - 3 * DAY_MS;
