@@ -317,11 +317,16 @@ export function useTasksWithRealtime() {
       if (task.due_date != null && String(task.due_date).trim() !== "") row.due_date = task.due_date;
       if (task.priority != null && String(task.priority).trim() !== "") row.priority = task.priority;
       if (task.extra_data != null && Object.keys(task.extra_data).length > 0) row.extra_data = task.extra_data;
-      const { error: insertError } = await supabase.from("tasks").insert(row);
+      const { data, error: insertError } = await supabase
+        .from("tasks")
+        .insert(row)
+        .select("id")
+        .single();
       if (insertError) {
         throw insertError;
       }
       await fetchTasks();
+      return (data?.id as string | undefined) ?? null;
     },
     [fetchTasks]
   );
