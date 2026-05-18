@@ -130,6 +130,56 @@ export async function fetchAuditLog(
   return (data ?? []).map((r) => rowToEntry(r as RawRow));
 }
 
+/**
+ * Belirli bir projedeki son aktiviteyi getirir.
+ * - Projenin kendi audit log'u (projects tablosunda projectId kaydı)
+ * - Bu projeye bağlı görevlerin audit log'u (tasks tablosunda taskIds)
+ *
+ * @param projectId proje UUID'si
+ * @param taskIds projedeki görev UUID'leri (mevcut belleğe yüklenmiş olanlar)
+ * @param limit varsayılan 30
+ */
+export async function fetchProjectActivity(
+  projectId: string,
+  taskIds: string[],
+  limit: number = 30
+): Promise<AuditLogEntry[]> {
+  const select = "id, actor_id, actor_email, table_name, record_id, action, changed_fields, at";
+  const order = { column: "at", ascending: false } as const;
+
+  // Projenin kendi log'u
+  const projectQuery = supabase
+    .from("audit_log")
+    .select(select)
+    .eq("table_name", "projects")
+    .eq("record_id", projectId)
+    .order(order.column, { ascending: order.ascending })
+    .limit(limit);
+
+  // Bu projedeki görevlerin log'u — taskIds boşsa sorgu atlanır
+  const taskQuery =
+    taskIds.length > 0
+      ? supabase
+          .from("audit_log")
+          .select(select)
+          .eq("table_name", "tasks")
+          .in("record_id", taskIds)
+          .order(order.column, { ascending: order.ascending })
+          .limit(limit)
+      : Promise.resolve({ data: [] as RawRow[], error: null });
+
+  const [pRes, tRes] = await Promise.all([projectQuery, taskQuery]);
+  if (pRes.error) console.warn("[auditLog] project fetch failed:", pRes.error);
+  if (tRes.error) console.warn("[auditLog] tasks fetch failed:", tRes.error);
+
+  const all = [
+    ...((pRes.data ?? []) as RawRow[]),
+    ...((tRes.data ?? []) as RawRow[]),
+  ];
+  all.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+  return all.slice(0, limit).map(rowToEntry);
+}
+
 /** Insan-okunabilir alan adı (UI sözlüğü) — fallback: olduğu gibi */
 const FIELD_LABELS: Record<string, string> = {
   content: "İçerik",
