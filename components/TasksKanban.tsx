@@ -23,6 +23,13 @@ import { EmptyState } from "@/components/ui/empty-state";
 import type { Task } from "@/types/tasks";
 import { cn } from "@/lib/utils";
 import { getStatusKind, type StatusKind } from "@/lib/statusKind";
+import {
+  getDueUrgency,
+  URGENCY_ROW_CLASS,
+  URGENCY_LEFT_BORDER_CLASS,
+  URGENCY_LABEL,
+  URGENCY_BADGE_CLASS,
+} from "@/lib/dueUrgency";
 import { formatDate } from "@/lib/formatDate";
 import { urgentPrioritySetFromCsv } from "@/lib/urgentTaskPriority";
 import { getTaskDisplayLabel } from "@/lib/taskDisplayLabel";
@@ -436,6 +443,8 @@ function KanbanCard({
     today.setHours(0, 0, 0, 0);
     return dueDate < today;
   })();
+  const urgency = getDueUrgency(task);
+  const showUrgency = urgency !== "none";
   // CSV içe aktarımda content boş kalabilir; extra_data'dan başlık seçilir
   const content = label && label !== "—" ? label : (task.content?.trim() || "İçerik yok");
 
@@ -449,13 +458,26 @@ function KanbanCard({
         "group cursor-grab rounded-md border bg-white p-2.5 text-left shadow-sm transition-all hover:shadow-md active:cursor-grabbing dark:bg-slate-900",
         isDragging
           ? "border-blue-400 opacity-50 ring-2 ring-blue-300"
-          : "border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600"
+          : "border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600",
+        !isDragging && showUrgency && URGENCY_ROW_CLASS[urgency],
+        !isDragging && showUrgency && URGENCY_LEFT_BORDER_CLASS[urgency]
       )}
     >
       <p className="line-clamp-3 text-sm leading-snug text-slate-800 dark:text-slate-100">
         {content}
       </p>
       <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+        {showUrgency && (urgency === "overdue" || urgency === "today") && (
+          <span
+            className={cn(
+              "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+              URGENCY_BADGE_CLASS[urgency]
+            )}
+            title={URGENCY_LABEL[urgency]}
+          >
+            {URGENCY_LABEL[urgency]}
+          </span>
+        )}
         {task.priority && (
           <PriorityBadge priority={task.priority} urgentSet={urgentPrioritySet} />
         )}
