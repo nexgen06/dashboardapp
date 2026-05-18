@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import Image from "next/image";
 import { useAuth } from "@/contexts/auth-context";
 import { TasksTable } from "@/components/TasksTable";
@@ -67,6 +68,23 @@ export default function CanliTabloPage() {
     },
     [userId]
   );
+
+  /**
+   * URL query `?project=ID` ile gelen proje filtre tohumu — proje detayından
+   * "Canlı Tabloda Aç" tıklanınca buraya düşüyoruz. Filtre uygulanır ve URL
+   * temizlenir ki kullanıcı içinde sonra filtre değiştirirse param yapışmasın.
+   */
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  useEffect(() => {
+    if (!userId) return;
+    const projectParam = searchParams.get("project");
+    if (!projectParam) return;
+    setProjectFilter([projectParam]);
+    router.replace(pathname);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, searchParams]);
 
   if (!isLoaded) {
     return (
