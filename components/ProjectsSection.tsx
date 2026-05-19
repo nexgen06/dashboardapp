@@ -62,6 +62,8 @@ export type NewProjectSubmitData = {
   extraColumnKeys?: string[];
   /** Görev başlığı (Kanban/Özet) için kullanılacak extra_data anahtarı. Boş → otomatik. */
   titleColumn?: string | null;
+  /** Görev kartı altında gösterilecek alt başlık anahtarları (en fazla 3). */
+  subtitleColumns?: string[] | null;
   /** Kanban "Devam ediyor" kolonu için yumuşak WIP limiti. null/0 → limit yok. */
   wipInProgressLimit?: number | null;
   /** Yeni proje + dosya: atanan e-posta listesine round-robin (en az 2 e-posta). */
@@ -121,6 +123,96 @@ function getProjectDueLabel(project: Project): "Gecikmiş" | "Yaklaşan" | null 
   return null;
 }
 
+/**
+ * Alt başlık sütunları seçici — kart başlığının altında küçük gri satırda gösterilecek
+ * en fazla 3 anahtar. Başlık sütunuyla aynı olan adaylar listelenmez.
+ */
+function SubtitleColumnsPicker({
+  availableKeys,
+  titleColumn,
+  value,
+  onChange,
+}: {
+  availableKeys: string[];
+  titleColumn: string;
+  value: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const titleNorm = titleColumn.trim().toLowerCase();
+  // Aday listesi: başlık sütunu hariç + zaten seçili olanları kalıcı tutmak için onları da ekle
+  const candidatePool = new Set<string>();
+  for (const k of availableKeys) {
+    if (!k) continue;
+    if (titleNorm && k.trim().toLowerCase() === titleNorm) continue;
+    candidatePool.add(k);
+  }
+  for (const k of value) {
+    if (k && (!titleNorm || k.trim().toLowerCase() !== titleNorm)) candidatePool.add(k);
+  }
+  const candidates = Array.from(candidatePool).sort((a, b) =>
+    a.localeCompare(b, "tr", { sensitivity: "base" })
+  );
+  const toggle = (key: string) => {
+    if (value.includes(key)) {
+      onChange(value.filter((v) => v !== key));
+      return;
+    }
+    if (value.length >= 3) return;
+    onChange([...value, key]);
+  };
+  return (
+    <div className="mt-3">
+      <p className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+        Alt başlık sütunları (en fazla 3)
+      </p>
+      <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+        Kart başlığının altında küçük gri satırda gösterilir — &quot;Ahmet Yılmaz · 12345 · Ankara&quot; gibi
+        görevi ayırt etmeye yardım eder. Sıralama seçim sırasına göre.
+      </p>
+      {candidates.length === 0 ? (
+        <p className="rounded-md border border-dashed border-slate-300 px-3 py-2 text-xs italic text-slate-500 dark:border-slate-600 dark:text-slate-400">
+          Henüz sütun yok — önce &quot;Görev başlığı sütunu&quot; için liste oluşsun.
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {candidates.map((k) => {
+            const selected = value.includes(k);
+            const order = selected ? value.indexOf(k) + 1 : 0;
+            const disabled = !selected && value.length >= 3;
+            return (
+              <button
+                key={k}
+                type="button"
+                onClick={() => toggle(k)}
+                disabled={disabled}
+                className={
+                  selected
+                    ? "inline-flex items-center gap-1 rounded-full border border-blue-500 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-400 dark:bg-blue-900/40 dark:text-blue-200"
+                    : disabled
+                    ? "inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-400 opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500"
+                    : "inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-700 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-blue-950/30"
+                }
+              >
+                {selected && (
+                  <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white">
+                    {order}
+                  </span>
+                )}
+                {k}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {value.length > 0 && (
+        <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+          Seçili: {value.join(" · ")} · {value.length}/3
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ProjectFormModal({
   open,
   onOpenChange,
@@ -165,6 +257,7 @@ function ProjectFormModal({
   const [importRoundRobin, setImportRoundRobin] = useState(false);
   const [extraColumnKeysText, setExtraColumnKeysText] = useState("");
   const [titleColumn, setTitleColumn] = useState<string>("");
+  const [subtitleColumns, setSubtitleColumns] = useState<string[]>([]);
   const [wipInProgressLimit, setWipInProgressLimit] = useState<string>("");
   /** 2-adım sihirbazı: 1 = proje bilgileri, 2 = opsiyonel görev içe aktarma. Edit modunda kullanılmaz. */
   const [step, setStep] = useState<1 | 2>(1);
@@ -193,6 +286,7 @@ function ProjectFormModal({
       setImportRoundRobin(false);
       setExtraColumnKeysText((project.extra_column_keys ?? []).join("\n"));
       setTitleColumn(project.title_column ?? "");
+      setSubtitleColumns(project.subtitle_columns ?? []);
       setWipInProgressLimit(
         project.wip_in_progress_limit != null && project.wip_in_progress_limit > 0
           ? String(project.wip_in_progress_limit)
@@ -217,6 +311,7 @@ function ProjectFormModal({
       setImportRoundRobin(false);
       setExtraColumnKeysText("");
       setTitleColumn("");
+      setSubtitleColumns([]);
       setWipInProgressLimit("");
       setStep(1);
     }
@@ -350,6 +445,7 @@ function ProjectFormModal({
         importRoundRobin: !isEdit ? importRoundRobin : undefined,
         extraColumnKeys: extraColumnKeys.length > 0 ? extraColumnKeys : undefined,
         titleColumn: titleColumn.trim() || null,
+        subtitleColumns: subtitleColumns.length > 0 ? subtitleColumns : null,
         wipInProgressLimit: (() => {
           const n = Number(wipInProgressLimit);
           return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
@@ -378,6 +474,7 @@ function ProjectFormModal({
     setStrictAssigneeVisibility(false);
     setImportRoundRobin(false);
     setExtraColumnKeysText("");
+    setSubtitleColumns([]);
   };
 
   // ───────────────────────────────────────────────────────────────
@@ -516,6 +613,12 @@ function ProjectFormModal({
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               <code className="text-[0.7rem]">content</code> boşsa Kanban/Özet kartlarında bu değer başlık olur.
             </p>
+            <SubtitleColumnsPicker
+              availableKeys={availableKeys}
+              titleColumn={titleColumn}
+              value={subtitleColumns}
+              onChange={setSubtitleColumns}
+            />
           </div>
           <div>
             <label
@@ -848,12 +951,18 @@ function ProjectFormModal({
                   {availableKeys.length === 0 ? (
                     <span className="mt-1 block italic text-amber-700 dark:text-amber-400">
                       Henüz sütun yok — &quot;Canlı tablo ek sütunları&quot; alanına ekle veya
-                      bu projeye CSV/Excel'den görev içe aktar; ondan sonra burada listelenir.
+                      bu projeye CSV/Excel&apos;den görev içe aktar; ondan sonra burada listelenir.
                     </span>
                   ) : (
                     <> Boş bırakırsan otomatik fallback uygulanır.</>
                   )}
                 </p>
+                <SubtitleColumnsPicker
+                  availableKeys={availableKeys}
+                  titleColumn={titleColumn}
+                  value={subtitleColumns}
+                  onChange={setSubtitleColumns}
+                />
               </div>
             );
           })()}
@@ -962,7 +1071,7 @@ function ProjectFormModal({
           {!isEdit && step === 2 && (
             <div className="space-y-4">
               <p className="text-sm text-slate-600 dark:text-slate-300">
-                Bu adım <strong>opsiyonel</strong>. Hemen "Oluştur"a basabilir veya bir dosyadan toplu görev ekleyebilirsiniz.
+                Bu adım <strong>opsiyonel</strong>. Hemen &quot;Oluştur&quot;a basabilir veya bir dosyadan toplu görev ekleyebilirsiniz.
               </p>
 
               <div className="rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50/50 dark:bg-slate-800/50 p-3 space-y-3">
@@ -1319,6 +1428,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
           extra_column_keys:
             data.extraColumnKeys && data.extraColumnKeys.length > 0 ? data.extraColumnKeys : [],
           title_column: data.titleColumn ?? null,
+          subtitle_columns: data.subtitleColumns ?? null,
           wip_in_progress_limit: data.wipInProgressLimit ?? null,
           ...(isAdmin
             ? { strict_assignee_visibility: data.strictAssigneeVisibility ?? false }
@@ -1340,6 +1450,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
         extra_column_keys:
           data.extraColumnKeys && data.extraColumnKeys.length > 0 ? data.extraColumnKeys : undefined,
         title_column: data.titleColumn ?? null,
+        subtitle_columns: data.subtitleColumns ?? null,
         wip_in_progress_limit: data.wipInProgressLimit ?? null,
       });
       if (data.importFile && projectId) {
@@ -1672,9 +1783,42 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
                       </div>
                       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 line-clamp-2">{project.description || "—"}</p>
                     </div>
-                    <DropdownMenu>
+                    <div className="pointer-events-auto flex shrink-0 items-center gap-0.5">
+                      {/* Hover/odak ile beliren hızlı eylemler — Düzenle + Detay */}
+                      {canEditProject && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 opacity-100 transition-opacity duration-150 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 sm:focus-visible:opacity-100"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            openEdit(project);
+                          }}
+                          aria-label="Projeyi düzenle"
+                          title="Düzenle"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        asChild
+                        className="h-8 w-8 opacity-100 transition-opacity duration-150 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 sm:focus-visible:opacity-100"
+                        aria-label="Proje detayı"
+                        title="Detay"
+                      >
+                        <Link
+                          href={`/projeler/${project.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <FolderKanban className="h-3.5 w-3.5" />
+                        </Link>
+                      </Button>
+                      <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="pointer-events-auto h-8 w-8 shrink-0" aria-label="Proje menüsü">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Proje menüsü">
                           <MoreVertical className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -1708,6 +1852,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
                         )}
                       </DropdownMenuContent>
                     </DropdownMenu>
+                    </div>
                   </div>
                   <div className="relative z-10 mt-3 flex flex-wrap items-center gap-2 pointer-events-none">
                     <Badge variant="outline" className={cn("text-xs font-normal", STATUS_STYLES[project.status])}>

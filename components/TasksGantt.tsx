@@ -13,7 +13,7 @@ import type { Task } from "@/types/tasks";
 import { cn } from "@/lib/utils";
 import { getStatusKind } from "@/lib/statusKind";
 import { urgentPrioritySetFromCsv } from "@/lib/urgentTaskPriority";
-import { getTaskDisplayLabel } from "@/lib/taskDisplayLabel";
+import { getTaskDisplayLabel, getTaskDisplayCard } from "@/lib/taskDisplayLabel";
 import { parseListOptionString } from "@/contexts/settings-context";
 import { parseDateFlexible } from "@/lib/parseDate";
 
@@ -146,6 +146,11 @@ export function TasksGantt({ projectFilter = [] }: Props) {
     for (const p of projects) m.set(p.id, p.title_column ?? null);
     return m;
   }, [projects]);
+  const projectSubtitleColumnsById = useMemo(() => {
+    const m = new Map<string, string[] | null>();
+    for (const p of projects) m.set(p.id, p.subtitle_columns ?? null);
+    return m;
+  }, [projects]);
 
   // Zaman ekseni: en erken başlangıç - 7 gün → en geç bitiş + 7 gün
   const range = useMemo(() => {
@@ -220,7 +225,7 @@ export function TasksGantt({ projectFilter = [] }: Props) {
           {diagnostics.noDue > 0 && diagnostics.badDue === 0 && (
             <span className="mt-2 block rounded-md border border-blue-200 bg-blue-50 p-2 text-left text-xs text-blue-900 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-200">
               <strong>İpucu:</strong> Görev detayında <em>Son tarih</em> alanını doldur, ya da
-              <em> extra_data</em>'da &quot;Bitiş&quot; / &quot;Deadline&quot; / &quot;Son tarih&quot; gibi
+              <em> extra_data</em>&apos;da &quot;Bitiş&quot; / &quot;Deadline&quot; / &quot;Son tarih&quot; gibi
               bir sütuna tarih yaz — Gantt her ikisini de tanır.
             </span>
           )}
@@ -312,12 +317,16 @@ export function TasksGantt({ projectFilter = [] }: Props) {
               </div>
             </div>
             {ganttRows.map(({ task }) => {
-              const label = getTaskDisplayLabel(task, {
+              const card = getTaskDisplayCard(task, {
                 projectTitleColumn: task.project_id
                   ? projectTitleColumnById.get(String(task.project_id))
                   : null,
+                subtitleColumns: task.project_id
+                  ? projectSubtitleColumnsById.get(String(task.project_id))
+                  : null,
                 preferredExtraKeys: preferredLabelKeys,
               });
+              const subtitleStr = card.subtitle.map((s) => s.value).join(" · ");
               const projectName = task.project_id ? projectNameById.get(String(task.project_id)) : null;
               return (
                 <button
@@ -325,9 +334,17 @@ export function TasksGantt({ projectFilter = [] }: Props) {
                   type="button"
                   onClick={() => setDetailTask(task)}
                   className="flex h-9 w-full min-w-0 items-center gap-1.5 border-b border-slate-100 px-3 text-left text-xs transition-colors hover:bg-slate-100 dark:border-slate-700/60 dark:hover:bg-slate-700/40"
+                  title={subtitleStr ? `${card.label} — ${subtitleStr}` : card.label}
                 >
-                  <span className="min-w-0 flex-1 truncate text-slate-800 dark:text-slate-100">
-                    {label}
+                  <span className="flex min-w-0 flex-1 flex-col leading-tight">
+                    <span className="truncate text-slate-800 dark:text-slate-100">
+                      {card.label}
+                    </span>
+                    {subtitleStr && (
+                      <span className="truncate text-[10px] text-slate-500 dark:text-slate-400">
+                        {subtitleStr}
+                      </span>
+                    )}
                   </span>
                   {task.priority && (
                     <PriorityBadge priority={task.priority} urgentSet={urgentPrioritySet} />

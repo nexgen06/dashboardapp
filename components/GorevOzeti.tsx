@@ -7,18 +7,53 @@ import { useAuth } from "@/contexts/auth-context";
 import { useSettings, parseListOptionString } from "@/contexts/settings-context";
 import { cn } from "@/lib/utils";
 import { getRelativeTime } from "@/lib/relativeTime";
-import { getTaskDisplayLabel } from "@/lib/taskDisplayLabel";
+import { getTaskDisplayLabel, getTaskDisplayCard } from "@/lib/taskDisplayLabel";
 import { isTaskCompleted, isTaskInProgress } from "@/lib/taskStats";
 import { isStatusTodo } from "@/lib/statusKind";
 import { urgentPrioritySetFromCsv, isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
 import { isTaskAssignedToMe } from "@/lib/taskAssignment";
 import type { Task } from "@/types/tasks";
-import { Loader2, CheckCircle2, Clock, Circle, AlertCircle, AlertTriangle, Flame, User, Users, TrendingUp, X, ListTodo } from "lucide-react";
+import { CheckCircle2, Clock, Circle, Flame, Users, TrendingUp, ListTodo, HelpCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 
 const GECMIS_GOREV_SAYISI = 12;
+
+/** Durum dağılımı satırı — renkli nokta + label + sayı (kompakt). */
+function StatRow({
+  dotClass,
+  icon,
+  label,
+  count,
+  emphasize = false,
+}: {
+  dotClass: string;
+  icon?: React.ReactNode;
+  label: string;
+  count: number;
+  emphasize?: boolean;
+}) {
+  return (
+    <li
+      className={cn(
+        "flex items-center justify-between gap-2 py-1.5 text-sm",
+        emphasize && "text-red-700 dark:text-red-300"
+      )}
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        <span className={cn("h-2 w-2 shrink-0 rounded-full", dotClass)} aria-hidden />
+        <span className={cn("text-slate-600 dark:text-slate-300", emphasize && "font-medium text-red-700 dark:text-red-300")}>
+          {label}
+        </span>
+      </span>
+      <span className={cn("shrink-0 font-semibold tabular-nums text-slate-800 dark:text-slate-100", emphasize && "text-red-700 dark:text-red-300")}>
+        {count}
+      </span>
+    </li>
+  );
+}
+
 
 type GorevOzetiProps = {
   /**
@@ -55,6 +90,11 @@ export function GorevOzeti({ projectFilter = [] }: GorevOzetiProps = {}) {
     for (const p of projects) m.set(p.id, p.title_column ?? null);
     return m;
   }, [projects]);
+  const projectSubtitleColumnsById = useMemo(() => {
+    const m = new Map<string, string[] | null>();
+    for (const p of projects) m.set(p.id, p.subtitle_columns ?? null);
+    return m;
+  }, [projects]);
   const taskLabel = useCallback(
     (task: Task) =>
       getTaskDisplayLabel(task, {
@@ -64,6 +104,21 @@ export function GorevOzeti({ projectFilter = [] }: GorevOzetiProps = {}) {
         preferredExtraKeys: summaryExtraKeys,
       }),
     [summaryExtraKeys, projectTitleColumnById]
+  );
+  const taskSubtitle = useCallback(
+    (task: Task): string => {
+      const card = getTaskDisplayCard(task, {
+        projectTitleColumn: task.project_id
+          ? projectTitleColumnById.get(String(task.project_id))
+          : null,
+        subtitleColumns: task.project_id
+          ? projectSubtitleColumnsById.get(String(task.project_id))
+          : null,
+        preferredExtraKeys: summaryExtraKeys,
+      });
+      return card.subtitle.map((s) => s.value).join(" · ");
+    },
+    [summaryExtraKeys, projectTitleColumnById, projectSubtitleColumnsById]
   );
 
   // `projects` ve `tasks` Supabase RLS tarafından sunucu tarafında filtrelenmiş geliyor.
@@ -258,21 +313,47 @@ export function GorevOzeti({ projectFilter = [] }: GorevOzetiProps = {}) {
     );
   }
 
+  // Yeni tasarım: segmented control için tek state, "byAssignee" alt-modu listenin içinde toggle
+  const setFilterModeSimple = (m: "all" | "mine") => setFilterMode(m);
+  const isByAssignee = filterMode === "byAssignee";
+  const toggleByAssignee = () =>
+    setFilterMode(filterMode === "byAssignee" ? "all" : "byAssignee");
+  const baseFilter: "all" | "mine" =
+    filterMode === "mine" ? "mine" : "all";
+
   return (
-    <div className="flex flex-col gap-4">
-      {/* Scope label: hangi proje(ler) için sayım yapılıyor */}
-      <div className="flex items-center gap-1.5 text-ui-caption text-slate-600 dark:text-slate-300">
-        <Users className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
-        <span className="truncate">
-          <span className="font-medium">{scopeLabel}</span>
-          <span className="mx-1.5 text-slate-400 dark:text-slate-500">·</span>
-          <span>{projectScopedTasks.length} görev</span>
-        </span>
+    <div className="flex flex-col">
+      {/* ─── Başlık satırı ─── */}
+      <div className="flex items-center justify-between gap-2 pb-3">
+        <div className="flex min-w-0 items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+          <Users className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
+          <span className="truncate">
+            <span className="font-medium text-slate-800 dark:text-slate-100">{scopeLabel}</span>
+            <span className="ml-1.5 text-slate-400 dark:text-slate-500">· {projectScopedTasks.length}</span>
+          </span>
+        </div>
+        {realtimeConnection === "live" && (
+          <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" aria-hidden />
+            Canlı
+          </span>
+        )}
+        {realtimeConnection === "connecting" && (
+          <span className="text-[10px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
+            Bağlanıyor…
+          </span>
+        )}
+        {realtimeConnection === "disconnected" && (
+          <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+            Anlık yok
+          </span>
+        )}
       </div>
+
       {quickSaveError && (
         <div
           role="alert"
-          className="flex items-start justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-100"
+          className="mb-3 flex items-start justify-between gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-100"
         >
           <span>{quickSaveError}</span>
           <button
@@ -284,350 +365,302 @@ export function GorevOzeti({ projectFilter = [] }: GorevOzetiProps = {}) {
           </button>
         </div>
       )}
-      {/* Atanmamış kullanıcı veya kapsamda görev yoksa istatistik/görev listesi gösterilmez */}
+
+      {/* ─── Boş durum ─── */}
       {projectScopedTasks.length === 0 && (
-        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
-          {projectFilter.length > 0
-            ? "Seçili projelerde görev yok. Üstteki proje filtresini değiştirebilirsiniz."
-            : "Size atanmış bir proje bulunmuyor. Görev özeti yalnızca atandığınız projelerin görevlerini gösterir."}
-        </div>
+        <EmptyState
+          variant="inline"
+          icon={<ListTodo className="h-8 w-8" />}
+          title={projectFilter.length > 0 ? "Seçili projelerde görev yok" : "Henüz görev yok"}
+          description={
+            projectFilter.length > 0
+              ? "Üstteki proje filtresini değiştirebilirsiniz."
+              : "Size atanmış bir proje bulunmuyor."
+          }
+        />
       )}
-      {/* Filtre Butonları - sadece görünür projelere ait görev varsa göster */}
+
       {projectScopedTasks.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant={filterMode === "all" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setFilterMode("all")}
-            className="text-xs"
-          >
-            <Users className="mr-1.5 h-3.5 w-3.5" />
-            Tümü ({projectScopedTasks.length})
-          </Button>
+        <>
+          {/* ─── Segmented filter: Tümü / Bana atanan ─── */}
           {currentUserEmail && (
-            <Button
-              variant={filterMode === "mine" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setFilterMode("mine")}
-              className="text-xs"
-            >
-              <User className="mr-1.5 h-3.5 w-3.5" />
-              Bana atanan ({projectScopedTasks.filter((t) => isTaskAssignedToMe(t.assignee, currentUserEmail)).length})
-            </Button>
+            <div className="mb-3 inline-flex w-full rounded-md border border-slate-200 bg-slate-50 p-0.5 dark:border-slate-700 dark:bg-slate-800/50">
+              <button
+                type="button"
+                onClick={() => setFilterModeSimple("all")}
+                className={cn(
+                  "flex-1 rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                  baseFilter === "all"
+                    ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                    : "text-slate-600 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                )}
+              >
+                Tümü ({projectScopedTasks.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterModeSimple("mine")}
+                className={cn(
+                  "flex-1 rounded px-2.5 py-1 text-xs font-medium transition-colors",
+                  baseFilter === "mine"
+                    ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                    : "text-slate-600 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                )}
+              >
+                Bana atanan ({projectScopedTasks.filter((t) => isTaskAssignedToMe(t.assignee, currentUserEmail)).length})
+              </button>
+            </div>
           )}
-          <Button
-            variant={filterMode === "byAssignee" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setFilterMode("byAssignee")}
-            className="text-xs"
-          >
-            <Users className="mr-1.5 h-3.5 w-3.5" />
-            Kişilere göre grupla
-          </Button>
-          {filterMode !== "all" && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setFilterMode("all")}
-              className="text-xs text-slate-500"
-            >
-              <X className="mr-1 h-3 w-3" />
-              Filtreyi kaldır
-            </Button>
-          )}
-        </div>
-      )}
 
-      {/* Progress Bar + Haftalık Trend — sadece seçili filtreye uyan görev varken anlamlı */}
-      {filteredTasks.length > 0 && (
-        <div className="rounded-lg border border-slate-200 bg-gradient-to-r from-blue-50 to-purple-50 dark:border-slate-600 dark:from-slate-800 dark:to-slate-700 p-3">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                Tamamlanma: {stats.completionRate}%
-              </span>
-              {weeklyTrend > 0 && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-200">
-                  <TrendingUp className="h-3 w-3" />
-                  +{weeklyTrend} bu hafta
+          {/* ─── Tamamlanma satırı + haftalık trend ─── */}
+          {filteredTasks.length > 0 && (
+            <div className="mb-3">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                  %{stats.completionRate} tamamlandı
                 </span>
-              )}
-            </div>
-            <span className="text-xs text-slate-600 dark:text-slate-400">
-              {stats.tamamlandi} / {stats.total}
-            </span>
-          </div>
-          <div className="relative h-3 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-600">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-500"
-              style={{ width: `${stats.completionRate}%` }}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* İstatistik kartları — dar sütunda da okunaklı olsun (viewport lg değil panel genişliği); filtre boşken 0 göster */}
-      {projectScopedTasks.length > 0 && (
-        <div className="grid min-w-0 grid-cols-2 gap-2">
-          <div className="min-w-0 rounded-lg border border-emerald-200 bg-emerald-50 p-2.5 transition-all hover:shadow-sm dark:border-emerald-700 dark:bg-emerald-900/20">
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300 truncate">Tamamlandı</p>
-                <p className="text-lg font-bold text-emerald-900 dark:text-emerald-100">{stats.tamamlandi}</p>
-              </div>
-            </div>
-          </div>
-          <div className="min-w-0 rounded-lg border border-amber-200 bg-amber-50 p-2.5 transition-all hover:shadow-sm dark:border-amber-700 dark:bg-amber-900/20">
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white">
-                <Clock className="h-3.5 w-3.5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-amber-700 dark:text-amber-300 truncate">Devam ediyor</p>
-                <p className="text-lg font-bold text-amber-900 dark:text-amber-100">{stats.devam}</p>
-              </div>
-            </div>
-          </div>
-          <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-2.5 transition-all hover:shadow-sm dark:border-slate-600 dark:bg-slate-700/30">
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-400 text-white">
-                <Circle className="h-3.5 w-3.5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-slate-600 dark:text-slate-300 truncate">Yapılacak</p>
-                <p className="text-lg font-bold text-slate-800 dark:text-slate-100">{stats.yapilacak}</p>
-              </div>
-            </div>
-          </div>
-          <div
-            className="min-w-0 rounded-lg border border-purple-200 bg-purple-50 p-2.5 transition-all hover:shadow-sm dark:border-purple-700 dark:bg-purple-900/20"
-            title="Projenin önceliği 'High/Yüksek/Kritik' set'inde olan, tamamlanmamış görevler"
-          >
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-purple-500 text-white">
-                <AlertCircle className="h-3.5 w-3.5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-purple-700 dark:text-purple-300 truncate">Acil öncelik</p>
-                <p className="text-lg font-bold text-purple-900 dark:text-purple-100">{stats.highPriority}</p>
-              </div>
-            </div>
-          </div>
-          <div className="min-w-0 rounded-lg border border-blue-200 bg-blue-50 p-2.5 transition-all hover:shadow-sm dark:border-blue-700 dark:bg-blue-900/20">
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-500 text-white text-xs font-bold">
-                %
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-blue-700 dark:text-blue-300 truncate">Tamamlanma</p>
-                <p className="text-lg font-bold text-blue-900 dark:text-blue-100">{stats.completionRate}%</p>
-              </div>
-            </div>
-          </div>
-          <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-2.5 transition-all hover:shadow-sm dark:border-slate-600 dark:bg-slate-700/30">
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-600 text-xs font-bold text-white">
-                Σ
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-slate-600 dark:text-slate-300 truncate">Toplam</p>
-                <p className="text-lg font-bold text-slate-800 dark:text-slate-100">{stats.total}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Acil Görevler */}
-      {acilGorevler.length > 0 && (
-        <div>
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-red-700 dark:text-red-300 mb-1">
-            <Flame className="h-4 w-4" />
-            Acil Görevler ({acilGorevler.length})
-          </h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
-            Projesinin önceliği ayarlardaki “acil öncelik” listesine uyan görevler veya bugün / geçmiş son tarihi olan tamamlanmamış görevler. Satır başlığı için önce görev metni, yoksa belirttiğiniz ek sütun adları kullanılır.
-          </p>
-          <ul className="space-y-1.5 max-h-[180px] overflow-auto pr-1">
-            {acilGorevler.map((task) => {
-              const urgency = getTaskUrgency(task);
-              const isOverdue = urgency === "overdue";
-              const isToday = urgency === "today";
-              return (
-                <li
-                  key={task.id}
-                  className={cn(
-                    "flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-all",
-                    isOverdue && "border-red-300 bg-red-50 dark:border-red-700 dark:bg-red-900/20 shadow-sm",
-                    isToday && "border-orange-300 bg-orange-50 dark:border-orange-700 dark:bg-orange-900/20",
-                    !isOverdue && !isToday && "border-purple-200 bg-purple-50 dark:border-purple-700 dark:bg-purple-900/20"
-                  )}
-                >
-                  {isOverdue ? (
-                    <AlertTriangle className="h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
-                  ) : isToday ? (
-                    <Clock className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-400" />
-                  ) : (
-                    <AlertCircle className="h-4 w-4 shrink-0 text-purple-600 dark:text-purple-400" />
-                  )}
-                  <span className="min-w-0 flex-1 truncate font-medium" title={taskLabel(task)}>
-                    {taskLabel(task)}
-                  </span>
-                  {task.due_date && (
-                    <span
-                      className={cn(
-                        "shrink-0 text-xs font-semibold",
-                        isOverdue && "text-red-700 dark:text-red-300",
-                        isToday && "text-orange-700 dark:text-orange-300",
-                        !isOverdue && !isToday && "text-purple-700 dark:text-purple-300"
-                      )}
-                    >
-                      {isOverdue ? "GECİKMİŞ" : isToday ? "BUGÜN" : new Date(task.due_date).toLocaleDateString("tr-TR", { day: "numeric", month: "short" })}
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {stats.tamamlandi} / {stats.total}
+                  {weeklyTrend > 0 && (
+                    <span className="ml-1.5 inline-flex items-center gap-0.5 text-emerald-600 dark:text-emerald-400">
+                      <TrendingUp className="h-3 w-3" aria-hidden /> +{weeklyTrend}
                     </span>
                   )}
-                  {taskInheritsUrgentProject(task) && !task.due_date && (
-                    <span
-                      className="shrink-0 rounded-full bg-purple-600 px-2 py-0.5 text-xs font-bold text-white"
-                      title="Bu görevin bağlı olduğu projenin önceliği acil"
-                    >
-                      {(projectPriorityById.get(String(task.project_id ?? "")) ?? "").toString().trim() || "Acil proje"}
-                    </span>
-                  )}
-                  {task.assignee && (
-                    <span className="shrink-0 max-w-[80px] truncate text-xs text-slate-600 dark:text-slate-400" title={task.assignee}>
-                      {task.assignee}
-                    </span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
-
-      {/* Kişilere göre gruplandırma */}
-      {filterMode === "byAssignee" && tasksByAssignee.length > 0 && (
-        <div>
-          <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-            Takım üyelerine göre görevler
-          </h3>
-          <div className="space-y-3 max-h-[300px] overflow-auto pr-1">
-            {tasksByAssignee.map(([assignee, assigneeTasks]) => {
-              const completed = assigneeTasks.filter((t) => isTaskCompleted(t)).length;
-              const rate = assigneeTasks.length > 0 ? Math.round((completed / assigneeTasks.length) * 100) : 0;
-              return (
-                <div key={assignee} className="rounded-lg border border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-800 p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{assignee}</span>
-                    <span className="text-xs text-slate-500 dark:text-slate-400">
-                      {completed}/{assigneeTasks.length} ({rate}%)
-                    </span>
-                  </div>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
-                    <div
-                      className="h-full rounded-full bg-emerald-500 transition-all"
-                      style={{ width: `${rate}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Son güncellenen görevler listesi */}
-      {filterMode !== "byAssignee" && (
-        <div>
-          <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-            Son güncellenen görevler
-            {realtimeConnection === "live" && (
-              <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-200">
-                Canlı
-              </span>
-            )}
-            {realtimeConnection === "connecting" && (
-              <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
-                Bağlanıyor…
-              </span>
-            )}
-            {realtimeConnection === "disconnected" && (
-              <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                Anlık yok
-              </span>
-            )}
-          </h3>
-          {filteredTasks.length === 0 ? (
-            <p className="text-sm text-slate-500 dark:text-slate-400 py-2">
-              {filterMode === "mine" ? "Size atanmış görev yok." : "Henüz görev yok."}
-            </p>
-          ) : (
-          <ul className="space-y-1.5 max-h-[200px] overflow-auto pr-1">
-            {sonGorevler.map((task) => {
-              const urgency = getTaskUrgency(task);
-              const isOverdue = urgency === "overdue";
-              const isToday = urgency === "today";
-              const isHigh = urgency === "high";
-              const isHovered = hoveredTaskId === task.id;
-              return (
-                <li
-                  key={task.id}
-                  onMouseEnter={() => setHoveredTaskId(task.id)}
-                  onMouseLeave={() => setHoveredTaskId(null)}
-                  className={cn(
-                    "group relative flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-all",
-                    isTaskCompleted(task) && "border-emerald-200 bg-emerald-50/50 dark:border-emerald-800 dark:bg-emerald-900/10",
-                    !isTaskCompleted(task) && isOverdue && "border-red-200 bg-red-50/30 dark:border-red-800 dark:bg-red-900/10",
-                    !isTaskCompleted(task) && !isOverdue && isToday && "border-orange-200 bg-orange-50/30 dark:border-orange-800 dark:bg-orange-900/10",
-                    !isTaskCompleted(task) && !isOverdue && !isToday && isHigh && "border-purple-200 bg-purple-50/30 dark:border-purple-800 dark:bg-purple-900/10",
-                    !isTaskCompleted(task) && !isOverdue && !isToday && !isHigh && "border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-800/50",
-                    isHovered && "shadow-md ring-2 ring-blue-200 dark:ring-blue-700"
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "h-2 w-2 shrink-0 rounded-full",
-                      isTaskCompleted(task) && "bg-emerald-500",
-                      !isTaskCompleted(task) && isOverdue && "bg-red-500",
-                      !isTaskCompleted(task) && !isOverdue && isToday && "bg-orange-500",
-                      !isTaskCompleted(task) && !isOverdue && !isToday && isHigh && "bg-purple-500",
-                      !isTaskCompleted(task) && !isOverdue && !isToday && !isHigh && "bg-amber-500"
-                    )}
-                    aria-hidden
-                  />
-                  <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-200" title={taskLabel(task)}>
-                    {taskLabel(task)}
-                  </span>
-                  <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">
-                    {task.updated_at ? getRelativeTime(new Date(task.updated_at), now) : "—"}
-                  </span>
-                  {task.assignee && (
-                    <span className="shrink-0 max-w-[80px] truncate text-xs text-slate-500 dark:text-slate-400" title={task.assignee}>
-                      {task.assignee}
-                    </span>
-                  )}
-                  {/* Hızlı Tamamla Butonu (hover'da görünür) */}
-                  {!isTaskCompleted(task) && isHovered && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleQuickComplete(task.id)}
-                      className="absolute right-1 top-1/2 -translate-y-1/2 h-6 px-2 text-xs bg-emerald-500 text-white hover:bg-emerald-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <CheckCircle2 className="h-3 w-3 mr-1" />
-                      Tamamla
-                    </Button>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+                </span>
+              </div>
+              <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+                <div
+                  className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+                  style={{ width: `${stats.completionRate}%` }}
+                />
+              </div>
+            </div>
           )}
-        </div>
+
+          {/* ─── Durum dağılımı (3 sade satır + acil vurgu) ─── */}
+          <ul className="mb-1 divide-y divide-slate-100 dark:divide-slate-700/60">
+            <StatRow
+              dotClass="bg-emerald-500"
+              icon={<CheckCircle2 className="h-3 w-3" />}
+              label="Tamamlandı"
+              count={stats.tamamlandi}
+            />
+            <StatRow
+              dotClass="bg-amber-500"
+              icon={<Clock className="h-3 w-3" />}
+              label="Devam ediyor"
+              count={stats.devam}
+            />
+            <StatRow
+              dotClass="bg-slate-400"
+              icon={<Circle className="h-3 w-3" />}
+              label="Yapılacak"
+              count={stats.yapilacak}
+            />
+            {stats.highPriority > 0 && (
+              <StatRow
+                dotClass="bg-red-500"
+                icon={<Flame className="h-3 w-3" />}
+                label="Acil öncelik"
+                count={stats.highPriority}
+                emphasize
+              />
+            )}
+          </ul>
+
+          {/* ─── Acil görevler bölümü ─── */}
+          {acilGorevler.length > 0 && (
+            <section className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-700">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Flame className="h-3.5 w-3.5 text-red-600 dark:text-red-400" aria-hidden />
+                  <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                    Acil ({acilGorevler.length})
+                  </h3>
+                  <button
+                    type="button"
+                    className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                    title='Projenin önceliği "acil öncelik" listesine uyan veya bugün / geçmiş son tarihi olan tamamlanmamış görevler.'
+                    aria-label="Acil görev tanımı"
+                  >
+                    <HelpCircle className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+              <ul className="space-y-1 max-h-[180px] overflow-auto pr-1">
+                {acilGorevler.map((task) => {
+                  const urgency = getTaskUrgency(task);
+                  const isOverdue = urgency === "overdue";
+                  const isToday = urgency === "today";
+                  return (
+                    <li
+                      key={task.id}
+                      className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                    >
+                      <span
+                        className={cn(
+                          "h-1.5 w-1.5 shrink-0 rounded-full",
+                          isOverdue && "bg-red-500",
+                          !isOverdue && isToday && "bg-orange-500",
+                          !isOverdue && !isToday && "bg-slate-400"
+                        )}
+                        aria-hidden
+                      />
+                      <span
+                        className="flex min-w-0 flex-1 flex-col leading-tight"
+                        title={taskSubtitle(task) ? `${taskLabel(task)} — ${taskSubtitle(task)}` : taskLabel(task)}
+                      >
+                        <span className="truncate font-medium text-slate-800 dark:text-slate-100">
+                          {taskLabel(task)}
+                        </span>
+                        {taskSubtitle(task) && (
+                          <span className="truncate text-[10px] text-slate-500 dark:text-slate-400">
+                            {taskSubtitle(task)}
+                          </span>
+                        )}
+                      </span>
+                      {task.due_date && (
+                        <span
+                          className={cn(
+                            "shrink-0 text-[10px] font-semibold uppercase tracking-wide",
+                            isOverdue && "text-red-600 dark:text-red-400",
+                            isToday && "text-orange-600 dark:text-orange-400",
+                            !isOverdue && !isToday && "text-slate-500 dark:text-slate-400"
+                          )}
+                        >
+                          {isOverdue
+                            ? "gecikmiş"
+                            : isToday
+                            ? "bugün"
+                            : new Date(task.due_date).toLocaleDateString("tr-TR", { day: "numeric", month: "short" })}
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
+
+          {/* ─── Son liste — sekmeli (Liste / Kişilere göre) ─── */}
+          <section className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-700">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                {isByAssignee ? "Kişilere göre" : "Son güncellenenler"}
+              </h3>
+              <button
+                type="button"
+                onClick={toggleByAssignee}
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700/60 dark:hover:text-slate-200"
+                title={isByAssignee ? "Listeye dön" : "Kişilere göre grupla"}
+              >
+                {isByAssignee ? (
+                  <>
+                    <ListTodo className="h-3 w-3" /> Liste
+                  </>
+                ) : (
+                  <>
+                    <Users className="h-3 w-3" /> Kişiler
+                  </>
+                )}
+              </button>
+            </div>
+
+            {isByAssignee ? (
+              tasksByAssignee.length === 0 ? (
+                <p className="py-2 text-xs text-slate-500 dark:text-slate-400">Görev yok.</p>
+              ) : (
+                <ul className="max-h-[280px] space-y-2 overflow-auto pr-1">
+                  {tasksByAssignee.map(([assignee, assigneeTasks]) => {
+                    const completed = assigneeTasks.filter((t) => isTaskCompleted(t)).length;
+                    const rate = assigneeTasks.length > 0 ? Math.round((completed / assigneeTasks.length) * 100) : 0;
+                    return (
+                      <li key={assignee}>
+                        <div className="mb-1 flex items-baseline justify-between gap-2">
+                          <span className="truncate text-xs font-medium text-slate-700 dark:text-slate-200">
+                            {assignee}
+                          </span>
+                          <span className="shrink-0 text-[10px] text-slate-500 dark:text-slate-400 tabular-nums">
+                            {completed}/{assigneeTasks.length} · %{rate}
+                          </span>
+                        </div>
+                        <div className="h-1 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+                          <div
+                            className="h-full rounded-full bg-emerald-500 transition-all"
+                            style={{ width: `${rate}%` }}
+                          />
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )
+            ) : filteredTasks.length === 0 ? (
+              <p className="py-2 text-xs text-slate-500 dark:text-slate-400">
+                {filterMode === "mine" ? "Size atanmış görev yok." : "Henüz görev yok."}
+              </p>
+            ) : (
+              <ul className="max-h-[220px] space-y-0.5 overflow-auto pr-1">
+                {sonGorevler.map((task) => {
+                  const urgency = getTaskUrgency(task);
+                  const isOverdue = urgency === "overdue";
+                  const isToday = urgency === "today";
+                  const isHigh = urgency === "high";
+                  const isHovered = hoveredTaskId === task.id;
+                  return (
+                    <li
+                      key={task.id}
+                      onMouseEnter={() => setHoveredTaskId(task.id)}
+                      onMouseLeave={() => setHoveredTaskId(null)}
+                      className="group relative flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                    >
+                      <span
+                        className={cn(
+                          "h-1.5 w-1.5 shrink-0 rounded-full",
+                          isTaskCompleted(task) && "bg-emerald-500",
+                          !isTaskCompleted(task) && isOverdue && "bg-red-500",
+                          !isTaskCompleted(task) && !isOverdue && isToday && "bg-orange-500",
+                          !isTaskCompleted(task) && !isOverdue && !isToday && isHigh && "bg-red-400",
+                          !isTaskCompleted(task) && !isOverdue && !isToday && !isHigh && "bg-slate-300 dark:bg-slate-600"
+                        )}
+                        aria-hidden
+                      />
+                      <span
+                        className="flex min-w-0 flex-1 flex-col leading-tight text-slate-700 dark:text-slate-200"
+                        title={taskSubtitle(task) ? `${taskLabel(task)} — ${taskSubtitle(task)}` : taskLabel(task)}
+                      >
+                        <span className={cn("truncate", isTaskCompleted(task) && "line-through opacity-60")}>
+                          {taskLabel(task)}
+                        </span>
+                        {taskSubtitle(task) && (
+                          <span className="truncate text-[10px] text-slate-500 dark:text-slate-400">
+                            {taskSubtitle(task)}
+                          </span>
+                        )}
+                      </span>
+                      <span className="shrink-0 text-[10px] text-slate-400 dark:text-slate-500">
+                        {task.updated_at ? getRelativeTime(new Date(task.updated_at), now) : "—"}
+                      </span>
+                      {!isTaskCompleted(task) && isHovered && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleQuickComplete(task.id)}
+                          className="absolute right-1 top-1/2 h-6 -translate-y-1/2 bg-emerald-500 px-2 text-xs text-white opacity-0 transition-opacity hover:bg-emerald-600 group-hover:opacity-100"
+                          title="Tamamla"
+                        >
+                          <CheckCircle2 className="h-3 w-3" />
+                        </Button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        </>
       )}
+
     </div>
   );
 }

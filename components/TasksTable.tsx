@@ -86,7 +86,7 @@ import { TaskDetailSheet } from "@/components/TaskDetailSheet";
 import { SavedViewsControl } from "@/components/SavedViewsControl";
 import type { SavedViewConfig } from "@/lib/savedViews";
 import { urgentPrioritySetFromCsv, isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
-import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban } from "lucide-react";
+import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, Expand, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
 const STATUS_FILTER_OPTIONS = ["Tümü", "Yapılacak", "Devam ediyor", "Devam", "Tamamlandı"] as const;
@@ -1716,6 +1716,37 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   });
   const [detailTask, setDetailTask] = useState<Task | null>(null);
   const [isFullWidth, setIsFullWidth] = useState(false);
+
+  /**
+   * Klavye kısayolları — tablonun tam ekran toggle'ı:
+   *  - F (form alanında değilken)  → genişlet / daralt
+   *  - Esc (genişletilmişken)       → daralt
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handler = (e: KeyboardEvent) => {
+      // Yazı yazılan bir alana fokus varsa kısayolları yutma
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName;
+      const isTyping =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        (t as HTMLElement | null)?.isContentEditable === true;
+      if (e.key === "Escape" && isFullWidth) {
+        e.preventDefault();
+        setIsFullWidth(false);
+        return;
+      }
+      if (!isTyping && (e.key === "f" || e.key === "F") && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        setIsFullWidth((p) => !p);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isFullWidth]);
+
   /** Dar ekranda hızlı filtre satırı varsayılan kapalı */
   const [quickFiltersOpen, setQuickFiltersOpen] = useState(false);
   const [draggedColumnId, setDraggedColumnId] = useState<string | null>(null);
@@ -3205,10 +3236,27 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     return () => ro.disconnect();
   }, [isLoading, error, isFullWidth]);
 
-  /** Sütunları görünür alana ve veriye göre orantılar; elle genişletilen sütunları sıfırlayıp tümünü yeniden ölçer */
+  /**
+   * "İçeriğe göre ölçeklendir" toggle:
+   *  - KAPALI → AÇIK: Görünür sütunlar her birinin en uzun metnine göre genişler (viewport'a sığması
+   *    zorlanmaz — gerekiyorsa yatay scroll çıkar). Sütunlar "user-sized" işaretlenir ki otomatik
+   *    yeniden dengeleme effect'i bu manuel boyutları ezmesin.
+   *  - AÇIK → KAPALI: Manuel boyutlar sıfırlanır, mevcut dengeli (viewport'a sığdır) davranış uygulanır.
+   */
+  const [fitToContent, setFitToContent] = useState(false);
   const handleAutoSizeColumns = useCallback(() => {
-    userSizedColumnsRef.current.clear();
     const visibleIds = table.getVisibleLeafColumns().map((c) => c.id);
+    if (!fitToContent) {
+      // AÇ — gerçek içerik genişlikleri (viewport bağımsız)
+      const intrinsic = measureIntrinsicColumnWidths(filteredData, visibleIds, tableDensity);
+      // Her sütunu kullanıcı-boyutlandırılmış say (auto-balance effect'i ezmesin)
+      for (const id of visibleIds) userSizedColumnsRef.current.add(id);
+      setColumnSizing((prev) => ({ ...prev, ...intrinsic }));
+      setFitToContent(true);
+      return;
+    }
+    // KAPAT — manuel işaretleri temizle, viewport'a sığdır
+    userSizedColumnsRef.current.clear();
     const vw =
       liveTableScrollRef.current?.clientWidth ??
       liveTableViewportWidth ??
@@ -3220,7 +3268,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       tableDensity
     );
     setColumnSizing((prev) => ({ ...prev, ...next }));
-  }, [table, filteredData, tableDensity, liveTableViewportWidth]);
+    setFitToContent(false);
+  }, [table, filteredData, tableDensity, liveTableViewportWidth, fitToContent]);
 
   /** Veri, sütun görünümü veya genişlik değişince otomatik orantı (elle boyutlanan sütunlar hariç) */
   useEffect(() => {
@@ -3768,9 +3817,9 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         );
       })()}
       {/* Mutation feedback artık <Toaster /> üzerinden sağ-altta gösteriliyor. */}
-      <div className="flex shrink-0 flex-col gap-3 px-2 py-3 sm:px-4">
-        {/* Katman 1 — Hızlı filtreler (mobilde daraltılabilir) */}
-        <div className="rounded-lg border border-slate-200/90 bg-slate-50/80 px-2 py-2 dark:border-slate-600/80 dark:bg-slate-800/45 sm:px-3 sm:py-2.5">
+      <div className="flex shrink-0 flex-col gap-2 px-2 py-2 sm:px-4">
+        {/* Katman 1 — Hızlı filtre çipleri (mobilde daraltılabilir, masaüstünde tek satır) */}
+        <div className="px-0.5">
           <button
             type="button"
             aria-expanded={quickFiltersOpen}
@@ -3897,11 +3946,11 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         </div>
         </div>
 
-        {/* Katman 2 — Arama ve ayrıntılı filtreler */}
-        <div className="rounded-lg border border-slate-200/90 bg-white px-3 py-3 dark:border-slate-600/80 dark:bg-slate-900/25 sm:px-4 sm:py-3">
-        <div className="flex flex-col gap-3">
+        {/* Katman 2 — Arama + Kapsam + Hızlı filtreler tek satırda akan kompakt toolbar */}
+        <div className="px-0.5">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Grup A — Arama */}
-          <div className="relative w-full max-w-md">
+          <div className="relative w-full max-w-md flex-1 min-w-[180px]">
             <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
             <input
               type="text"
@@ -3912,18 +3961,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
             />
           </div>
 
-          {/* Filtre satırı: Grup B (kapsam) ve Grup C (hızlı filtreler) */}
-          <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
-
-          {/* Grup B — Kapsam ve gelişmiş */}
-          <div className="flex flex-wrap items-center gap-2">
-          <span
-            className="flex items-center gap-1.5 text-ui-caption font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400"
-            title="Görüntüleme kapsamı"
-          >
-            <Filter className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            Kapsam
-          </span>
+          {/* Grup B + C — Kapsam, Gelişmiş filtre ve hızlı filtre dropdownları (aynı flex row içinde) */}
           <select
             value={projectLinkedFilter}
             onChange={(e) => setProjectLinkedFilter(e.target.value as "proje" | "tümü")}
@@ -3954,18 +3992,9 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
               </span>
             )}
           </Button>
-          </div>
           {/* /Grup B */}
 
-          {/* Grup C — Hızlı filtreler */}
-          <div className="flex flex-wrap items-center gap-2">
-          <span
-            className="flex items-center gap-1.5 text-ui-caption font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400"
-            title="Hızlı filtreler"
-          >
-            <SlidersHorizontal className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            Hızlı filtre
-          </span>
+          {/* Hızlı filtre dropdownları (Durum / Atanan / Öncelik / Tarih) — aynı flex row */}
           {/* Çoklu Durum Seçimi */}
           <div className="relative">
             <button
@@ -4233,16 +4262,69 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
               {dateFrom} → {dateTo}
             </span>
           )}
-          </div>
-          {/* /Grup C */}
+          {/* /Hızlı filtre dropdownları */}
 
+          {/* Sütun kontrolleri — sağa hizalı (autosize / density / genişlet) */}
+          <div
+            className="ml-auto flex items-center gap-1.5 shrink-0"
+            onDoubleClick={(e) => {
+              const tag = (e.target as HTMLElement).tagName;
+              if (["BUTTON", "INPUT", "SELECT", "TEXTAREA", "LABEL"].includes(tag)) return;
+              if ((e.target as HTMLElement).closest("button, input, select, textarea, [role=button]")) return;
+              setIsFullWidth((p) => !p);
+            }}
+            title="Çift tık ile tabloyu genişlet/daralt · F ile kısayol"
+          >
+            {canAutoSizeColumns && (
+              <Button
+                type="button"
+                variant={fitToContent ? "default" : "outline"}
+                size="icon"
+                onClick={handleAutoSizeColumns}
+                aria-pressed={fitToContent}
+                className="h-8 w-8"
+                aria-label={fitToContent ? "Varsayılan sütun genişliğine dön" : "Sütunları içeriğe göre genişlet"}
+                title={
+                  fitToContent
+                    ? "Aktif: tüm sütunlar içerik genişliğinde · tıkla, varsayılana dön"
+                    : "Sütunları metin uzunluğuna açar (yatay scroll çıkabilir)"
+                }
+              >
+                {fitToContent ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
+              </Button>
+            )}
+            <label htmlFor="live-table-density" className="sr-only">
+              Görünüm yoğunluğu
+            </label>
+            <select
+              id="live-table-density"
+              value={tableDensity}
+              onChange={(e) => updateSetting("liveTableDensity", e.target.value as LiveTableDensity)}
+              title="Satır aralığı ve yazı boyutu"
+              className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+            >
+              <option value="compact">Yoğun</option>
+              <option value="normal">Normal</option>
+              <option value="comfortable">Büyük</option>
+            </select>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={() => setIsFullWidth((p) => !p)}
+              className="h-8 w-8 text-slate-700 dark:text-slate-300"
+              aria-label={isFullWidth ? "Daralt (Esc)" : "Tabloyu genişlet (F)"}
+              title={isFullWidth ? "Daralt — Esc" : "Tabloyu genişlet — F · çift tık"}
+              aria-pressed={isFullWidth}
+            >
+              {isFullWidth ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            </Button>
           </div>
-          {/* /Filtre satırı */}
         </div>
         </div>
-        {/* Filtre Özeti Çubuğu - Aktif Filtre Badge'leri */}
+        {/* Aktif filtre özeti — sadece varsa gösterilir, minimum yer kaplar */}
         {activeFilterCount > 0 && (
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200/90 bg-slate-50/90 px-3 py-2 dark:border-slate-600/90 dark:bg-slate-800/55">
+          <div className="flex flex-wrap items-center gap-1.5 px-0.5">
             <span className="flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-400">
               <Filter className="h-3.5 w-3.5" />
               Aktif filtreler:
@@ -4421,55 +4503,6 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
             </button>
           </div>
         )}
-      </div>
-      <div className="shrink-0 rounded-lg border border-slate-200/70 bg-slate-50/50 px-2 py-2 dark:border-slate-700/80 dark:bg-slate-800/35 sm:px-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            Sütunları sürükleyerek sıralayın, kenardan genişletin; menü ile sabitleyin.
-          </span>
-          <div className="flex items-center gap-2 shrink-0">
-            {canAutoSizeColumns && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleAutoSizeColumns}
-                className="text-slate-700 dark:text-slate-300"
-                title="Sütunları görünür alana ve içeriğe göre orantılı ölçeklendir"
-              >
-                <Shrink className="mr-2 h-4 w-4" />
-                İçeriğe göre ölçeklendir
-              </Button>
-            )}
-            <div className="flex items-center gap-1.5 shrink-0">
-              <label htmlFor="live-table-density" className="sr-only">
-                Görünüm yoğunluğu
-              </label>
-              <Rows3 className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden />
-              <select
-                id="live-table-density"
-                value={tableDensity}
-                onChange={(e) => updateSetting("liveTableDensity", e.target.value as LiveTableDensity)}
-                title="Satır aralığı ve yazı boyutu"
-                className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
-              >
-                <option value="compact">Yoğun</option>
-                <option value="normal">Normal</option>
-                <option value="comfortable">Büyük</option>
-              </select>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setIsFullWidth((p) => !p)}
-              className="text-slate-700 dark:text-slate-300"
-            >
-              {isFullWidth ? <Minimize2 className="mr-2 h-4 w-4" /> : <Maximize2 className="mr-2 h-4 w-4" />}
-              {isFullWidth ? "Daralt" : "Tablo genişlet"}
-            </Button>
-          </div>
-        </div>
       </div>
       <div
         className={cn(

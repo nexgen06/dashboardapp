@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect } from "react";
-import { useSettings } from "@/contexts/settings-context";
+import { useSettings, ACCENT_COLORS } from "@/contexts/settings-context";
 import type { Theme } from "@/contexts/settings-context";
+
+const ACCENT_VALUES = ACCENT_COLORS.map((c) => c.value);
 
 function getEffectiveDark(theme: Theme): boolean {
   if (theme === "light") return false;
@@ -22,6 +24,16 @@ export function ApplySettings() {
   useEffect(() => {
     document.documentElement.lang = settings.language;
   }, [settings.language]);
+
+  // Accent rengi: HTML root'a `accent-<renk>` class'ı uygula; diğer accent class'ları temizle.
+  useEffect(() => {
+    const root = document.documentElement;
+    for (const v of ACCENT_VALUES) root.classList.remove(`accent-${v}`);
+    if (settings.accentColor && settings.accentColor !== "blue") {
+      // "blue" varsayılan (override yok)
+      root.classList.add(`accent-${settings.accentColor}`);
+    }
+  }, [settings.accentColor]);
 
   useEffect(() => {
     if (settings.theme !== "system") return;

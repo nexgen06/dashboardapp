@@ -14,6 +14,15 @@ const STORAGE_KEY = "dashboard-settings";
 const SAVE_DEBOUNCE_MS = 800;
 
 export type Theme = "light" | "dark" | "system";
+/** Vurgu (accent) rengi — primary butonlar, focus ring, vurgular bu renge bağlı. */
+export type AccentColor = "blue" | "green" | "purple" | "orange" | "red";
+export const ACCENT_COLORS: ReadonlyArray<{ value: AccentColor; label: string; preview: string }> = [
+  { value: "blue", label: "Mavi", preview: "hsl(221 83% 53%)" },
+  { value: "green", label: "Yeşil", preview: "hsl(142 71% 45%)" },
+  { value: "purple", label: "Mor", preview: "hsl(262 83% 58%)" },
+  { value: "orange", label: "Turuncu", preview: "hsl(25 95% 53%)" },
+  { value: "red", label: "Kırmızı", preview: "hsl(0 72% 51%)" },
+];
 export type Language = "tr" | "en";
 export type DateFormat = "DD.MM.YYYY" | "YYYY-MM-DD" | "MM/DD/YYYY";
 export type LogLevel = "error" | "warn" | "info" | "debug";
@@ -25,6 +34,8 @@ const DEFAULT_PRIORITY_LIST = "High, Medium, Low";
 
 export type Settings = {
   theme: Theme;
+  /** Vurgu (accent) rengi — primary butonlar, focus ring, link rengi. */
+  accentColor: AccentColor;
   language: Language;
   dateFormat: DateFormat;
   sidebarCollapsedByDefault: boolean;
@@ -58,6 +69,7 @@ export type Settings = {
 
 const DEFAULT_SETTINGS: Settings = {
   theme: "system",
+  accentColor: "blue",
   language: "tr",
   dateFormat: "DD.MM.YYYY",
   sidebarCollapsedByDefault: false,
@@ -146,7 +158,7 @@ const SettingsContext = createContext<SettingsContextType | undefined>(undefined
 
 const SECTION_KEYS: Record<SettingsSection, (keyof Settings)[]> = {
   genel: ["language", "dateFormat"],
-  gorunum: ["theme", "sidebarCollapsedByDefault", "liveTableDensity"],
+  gorunum: ["theme", "accentColor", "sidebarCollapsedByDefault", "liveTableDensity"],
   bildirimler: ["notificationsEmail", "notificationsPush", "notificationsSound"],
   gorevler: [
     "customStatusList",

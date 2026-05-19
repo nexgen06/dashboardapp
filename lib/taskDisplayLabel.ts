@@ -84,3 +84,58 @@ export function getTaskDisplayLabel(
   const first = Object.values(ed).find((v) => v != null && String(v).trim() !== "");
   return first != null ? String(first).trim() : "—";
 }
+
+/**
+ * Görev kartında başlık + alt satır (anahtar/değer çiftleri) döner.
+ *
+ * Alt satır kaynağı:
+ *   - project.subtitle_columns dolu ise oradaki anahtarlar (sırayla, atlamadan)
+ *   - boş ise null (kart sadece başlık gösterir)
+ *
+ * Eğer alt başlık anahtarı extra_data'da yoksa veya değer boşsa, o eleman atlanır
+ * (kart sessizce kısalır — boş "—" göstermez).
+ */
+export function getTaskDisplayCard(
+  task: {
+    content?: string | null;
+    extra_data?: Record<string, string> | null;
+  },
+  options?: {
+    projectTitleColumn?: string | null;
+    subtitleColumns?: string[] | null;
+    preferredExtraKeys?: string[];
+  }
+): { label: string; subtitle: Array<{ key: string; value: string }> } {
+  const label = getTaskDisplayLabel(task, {
+    projectTitleColumn: options?.projectTitleColumn ?? null,
+    preferredExtraKeys: options?.preferredExtraKeys ?? [],
+  });
+  const subtitleKeys = (options?.subtitleColumns ?? []).filter(Boolean);
+  if (subtitleKeys.length === 0) return { label, subtitle: [] };
+  const ed = task.extra_data;
+  if (!ed || typeof ed !== "object") return { label, subtitle: [] };
+  const subtitle: Array<{ key: string; value: string }> = [];
+  for (const key of subtitleKeys) {
+    const k = String(key).trim();
+    if (!k) continue;
+    // Aynı sütun başlık olarak da kullanılıyorsa alt satırda tekrarlama.
+    if (
+      options?.projectTitleColumn &&
+      k.toLowerCase() === options.projectTitleColumn.toLowerCase()
+    ) {
+      continue;
+    }
+    // Anahtar varyantlarını dene (case fark etmesin)
+    const variants = [k, k.charAt(0).toUpperCase() + k.slice(1), k.toLowerCase(), k.toUpperCase()];
+    let value: string | null = null;
+    for (const v of variants) {
+      const val = ed[v];
+      if (val != null && String(val).trim() !== "") {
+        value = String(val).trim();
+        break;
+      }
+    }
+    if (value) subtitle.push({ key: k, value });
+  }
+  return { label, subtitle };
+}

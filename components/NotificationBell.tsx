@@ -108,19 +108,15 @@ export function NotificationBell({ summary }: { summary: NotificationSummary }) 
             })}
           </div>
         )}
-        {items.length > 0 && (
-          <>
-            <DropdownMenuSeparator className="my-0" />
-            <div className="p-2">
-              <Link
-                href="/canli-tablo"
-                className="block rounded-md px-2 py-1.5 text-center text-sm font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
-              >
-                Canlı Tabloya git
-              </Link>
-            </div>
-          </>
-        )}
+        <DropdownMenuSeparator className="my-0" />
+        <div className="p-2">
+          <Link
+            href="/bildirimler"
+            className="block rounded-md px-2 py-1.5 text-center text-sm font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+          >
+            Tüm bildirimleri gör →
+          </Link>
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
   );
