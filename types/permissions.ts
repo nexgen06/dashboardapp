@@ -9,6 +9,7 @@ export type Permission =
   | "area.liveTable"
   | "area.settings"
   | "area.userManagement"
+  | "area.reports"
   // Projeler
   | "projects.view"
   | "projects.create"
@@ -40,7 +41,9 @@ export type Permission =
   | "userManagement.view"
   | "userManagement.edit"
   // Bildirimler
-  | "notifications.send";
+  | "notifications.send"
+  // Raporlar
+  | "reports.view";
 
 /** Rol kimliği */
 export type RoleId = "admin" | "project_manager" | "member" | "viewer";
@@ -89,6 +92,8 @@ export const ROLES: Record<RoleId, Role> = {
       "userManagement.view",
       "userManagement.edit",
       "notifications.send",
+      "area.reports",
+      "reports.view",
     ],
   },
   project_manager: {
@@ -123,6 +128,8 @@ export const ROLES: Record<RoleId, Role> = {
       "settings.edit",
       "userManagement.view",
       "notifications.send",
+      "area.reports",
+      "reports.view",
     ],
   },
   member: {
@@ -252,6 +259,8 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "userManagement.view": "Yetki listesini görüntüleme",
   "userManagement.edit": "Kullanıcı rol / yetki düzenleme",
   "notifications.send": "Mesaj / bildirim gönderme",
+  "area.reports": "Raporlar sekmesi",
+  "reports.view": "Raporları görüntüleme",
 };
 
 export type User = {
