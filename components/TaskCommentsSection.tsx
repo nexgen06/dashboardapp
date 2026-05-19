@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/modals";
 import { UserAvatar } from "@/components/ui/user-avatar";
+import { useProfileLookup } from "@/contexts/profile-lookup-context";
 import { getRelativeTime } from "@/lib/relativeTime";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +27,7 @@ export function TaskCommentsSection({ taskId }: Props) {
   const { user } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
+  const profileLookup = useProfileLookup();
   const { comments, isLoading, error } = useTaskComments(taskId);
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -152,8 +154,10 @@ export function TaskCommentsSection({ taskId }: Props) {
                 className="group flex gap-2 rounded-md px-1 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/40"
               >
                 <UserAvatar
+                  avatarUrl={profileLookup.byEmail(c.user_email).avatarUrl}
                   email={c.user_email}
-                  nickname={c.user_display_name}
+                  nickname={profileLookup.byEmail(c.user_email).nickname || c.user_display_name}
+                  fullName={profileLookup.byEmail(c.user_email).fullName}
                   className="h-7 w-7 text-[10px]"
                 />
                 <div className="min-w-0 flex-1">
