@@ -10,8 +10,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { useSettings, getStatusOptions, getPriorityOptions } from "@/contexts/settings-context";
-import type { Theme, Language, DateFormat, LogLevel, SettingsSection, LiveTableDensity } from "@/contexts/settings-context";
+import { useSettings, getStatusOptions, getPriorityOptions, ACCENT_COLORS } from "@/contexts/settings-context";
+import type { Theme, Language, DateFormat, LogLevel, SettingsSection, LiveTableDensity, AccentColor } from "@/contexts/settings-context";
 import { useAuth } from "@/contexts/auth-context";
 import { Settings2, Globe, Palette, Bell, RotateCcw, Check, Shield, Key, Zap, LogOut, Monitor, Smartphone, Search, AlertTriangle, Trash2, Loader2, Database, ListTodo } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -227,13 +227,14 @@ function GorusAyarlar({ searchQuery, resetSection, canResetSettings }: { searchQ
   const { settings, updateSetting } = useSettings();
 
   const themeMatch = matchesSearch(searchQuery, "Tema", "Açık, koyu veya sistem ayarına göre.");
+  const accentMatch = matchesSearch(searchQuery, "Vurgu rengi", "Butonların ve seçili öğelerin rengi.");
   const sidebarMatch = matchesSearch(searchQuery, "Sidebar varsayılan", "Sayfa açıldığında sidebar dar mı açık mı olsun.");
   const densityMatch = matchesSearch(
     searchQuery,
     "Canlı Tablo yoğunluğu",
     "Satır aralığı ve yazı boyutu: Yoğun, Normal veya Büyük."
   );
-  const noneMatch = searchQuery.trim() && !themeMatch && !sidebarMatch && !densityMatch;
+  const noneMatch = searchQuery.trim() && !themeMatch && !accentMatch && !sidebarMatch && !densityMatch;
 
   return (
     <div className="space-y-2">
@@ -251,6 +252,55 @@ function GorusAyarlar({ searchQuery, resetSection, canResetSettings }: { searchQ
           <option value="dark">Koyu</option>
           <option value="system">Sisteme uy</option>
         </select>
+      </SettingRow>
+      )}
+      {accentMatch && (
+      <SettingRow
+        label="Vurgu rengi"
+        description="Butonların, link rengi ve odak halkasının rengi. Diğer renkler etkilenmez."
+      >
+        <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="Vurgu rengi">
+          {ACCENT_COLORS.map((c) => {
+            const selected = settings.accentColor === c.value;
+            return (
+              <button
+                key={c.value}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                aria-label={c.label}
+                title={c.label}
+                onClick={() => updateSetting("accentColor", c.value as AccentColor)}
+                className={
+                  selected
+                    ? "relative h-8 w-8 rounded-full ring-2 ring-offset-2 ring-slate-900 dark:ring-slate-100 dark:ring-offset-slate-800 transition-transform"
+                    : "relative h-8 w-8 rounded-full transition-transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-800"
+                }
+                style={{ backgroundColor: c.preview }}
+              >
+                {selected && (
+                  <span
+                    className="absolute inset-0 flex items-center justify-center text-white"
+                    aria-hidden
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="h-4 w-4"
+                    >
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </SettingRow>
       )}
       {sidebarMatch && (
