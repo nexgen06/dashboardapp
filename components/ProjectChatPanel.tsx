@@ -6,6 +6,8 @@ import { MessageCircle, Send } from "lucide-react";
 import type { ProjectChatMessage } from "@/types/projectChat";
 import { cn } from "@/lib/utils";
 import { userInitialsFromDisplay } from "@/lib/userDisplayName";
+import { UserAvatar } from "@/components/ui/user-avatar";
+import { useProfileLookup } from "@/contexts/profile-lookup-context";
 
 type ProjectChatPanelProps = {
   messages: ProjectChatMessage[];
@@ -107,6 +109,7 @@ export function ProjectChatPanel({
   className,
 }: ProjectChatPanelProps) {
   const [draft, setDraft] = useState("");
+  const profileLookup = useProfileLookup();
   const [sending, setSending] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -191,15 +194,13 @@ export function ProjectChatPanel({
                     {/* Avatar — sadece grup başlığında göster, ardışıklarda boşluk bırak */}
                     <div className="w-7 shrink-0">
                       {m.isGroupHead ? (
-                        <span
-                          className={cn(
-                            "flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-semibold",
-                            accent
-                          )}
-                          title={mine ? "Sen" : label}
-                        >
-                          {initials}
-                        </span>
+                        <UserAvatar
+                          avatarUrl={profileLookup.byEmail(m.email).avatarUrl}
+                          nickname={profileLookup.byEmail(m.email).nickname}
+                          fullName={profileLookup.byEmail(m.email).fullName}
+                          email={m.email}
+                          className={cn("h-7 w-7 text-[10px]", !profileLookup.byEmail(m.email).avatarUrl && accent)}
+                        />
                       ) : null}
                     </div>
                     <div className={cn("min-w-0 max-w-[80%]", mine ? "items-end" : "items-start")}>

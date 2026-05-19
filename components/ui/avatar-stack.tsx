@@ -1,40 +1,17 @@
+"use client";
+
 import { cn } from "@/lib/utils";
+import { useProfileLookup } from "@/contexts/profile-lookup-context";
+import { getInitials, getAvatarColor } from "@/lib/avatarUtils";
 
 /**
  * Atanan kullanıcılar için yığılmış avatar dizisi.
  *
- * Avatar yok, sadece e-posta var: e-postanın baş harfinden initial üretir,
- * deterministik bir renk seçer (aynı e-posta hep aynı renk). Maksimum N
- * avatar göster, fazlasını "+M" rozetinde topla.
+ * Profil lookup ile:
+ *  - Kullanıcının avatar_url'i varsa fotoğraf gösterilir.
+ *  - Yoksa nickname/full_name/email'den baş harf + deterministik renk.
+ * Maksimum N avatar, fazlasını "+M" rozetinde topla.
  */
-const TONE_CLASSES = [
-  "bg-blue-500 text-white",
-  "bg-emerald-500 text-white",
-  "bg-amber-500 text-white",
-  "bg-violet-500 text-white",
-  "bg-rose-500 text-white",
-  "bg-cyan-500 text-white",
-  "bg-indigo-500 text-white",
-  "bg-fuchsia-500 text-white",
-];
-
-function pickTone(email: string): string {
-  let h = 0;
-  for (let i = 0; i < email.length; i++) h = (h * 31 + email.charCodeAt(i)) >>> 0;
-  return TONE_CLASSES[h % TONE_CLASSES.length];
-}
-
-function initialsOf(email: string): string {
-  const e = (email ?? "").trim();
-  if (!e) return "?";
-  const local = e.split("@")[0] ?? e;
-  // Tire/nokta/alt çizgili e-postalarda iki harf: "ali.veli@x" → "AV"
-  const parts = local.split(/[._\-+]/).filter(Boolean);
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[1][0]).toUpperCase();
-  }
-  return (local.slice(0, 2) || local).toUpperCase();
-}
 
 type AvatarStackProps = {
   emails: string[];
@@ -55,12 +32,14 @@ export function AvatarStack({
   className,
   highlightEmail,
 }: AvatarStackProps) {
+  const lookup = useProfileLookup();
   if (!emails || emails.length === 0) return null;
   const visible = emails.slice(0, max);
   const overflow = emails.length - visible.length;
   const px = size;
   const overlap = Math.round(size * 0.3);
   const me = (highlightEmail ?? "").trim().toLowerCase();
+
   return (
     <div
       className={cn("inline-flex items-center", className)}
@@ -69,13 +48,19 @@ export function AvatarStack({
     >
       {visible.map((email, idx) => {
         const isMe = !!me && email.trim().toLowerCase() === me;
+        const profile = lookup.byEmail(email);
+        const initials = getInitials({
+          nickname: profile.nickname,
+          fullName: profile.fullName,
+          email,
+        });
+        const color = getAvatarColor(email);
         return (
           <span
             key={email}
             className={cn(
-              "relative inline-flex shrink-0 items-center justify-center rounded-full font-semibold ring-2 ring-white dark:ring-slate-800",
-              isMe && "ring-emerald-400 dark:ring-emerald-500",
-              pickTone(email)
+              "relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full font-semibold ring-2 ring-white dark:ring-slate-800",
+              isMe && "ring-emerald-400 dark:ring-emerald-500"
             )}
             style={{
               width: px,
@@ -84,9 +69,21 @@ export function AvatarStack({
               fontSize: Math.round(px * 0.42),
               zIndex: visible.length - idx,
             }}
-            aria-label={email}
+            aria-label={profile.nickname || profile.fullName || email}
+            title={profile.nickname || profile.fullName || email}
           >
-            {initialsOf(email)}
+            {profile.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={profile.avatarUrl}
+                alt={initials}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <span className={cn("flex h-full w-full items-center justify-center", color.bg, color.text)}>
+                {initials}
+              </span>
+            )}
           </span>
         );
       })}
