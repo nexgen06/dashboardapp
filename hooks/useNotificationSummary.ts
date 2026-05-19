@@ -13,9 +13,21 @@ import {
   saveDerivedNotificationAck,
   type DerivedNotificationAck,
 } from "@/lib/notificationAck";
+import {
+  listAnnouncements,
+  getMyReadAnnouncementIds,
+  markAllAnnouncementsRead,
+  type Announcement,
+} from "@/lib/announcements";
 
 export type NotificationSummaryItem = {
-  type: "project_assigned" | "task_assigned" | "overdue" | "admin_team_done" | "chat_unread";
+  type:
+    | "project_assigned"
+    | "task_assigned"
+    | "overdue"
+    | "admin_team_done"
+    | "chat_unread"
+    | "announcement";
   id?: string;
   label: string;
   href: string;
@@ -51,6 +63,54 @@ export function useNotificationSummary(): NotificationSummary {
   const [adminAlertsLoading, setAdminAlertsLoading] = useState(false);
   const adminUnreadRef = useRef<AdminAlertRow[]>([]);
   adminUnreadRef.current = adminUnread;
+
+  // Duyurular (announcements) — herkes okur
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [readAnnouncementIds, setReadAnnouncementIds] = useState<Set<string>>(new Set());
+  const announcementsRef = useRef<Announcement[]>([]);
+  announcementsRef.current = announcements;
+
+  const fetchAnnouncements = useCallback(async () => {
+    if (!isSupabaseConfigured() || !userId || userId === "demo") {
+      setAnnouncements([]);
+      setReadAnnouncementIds(new Set());
+      return;
+    }
+    try {
+      const [list, reads] = await Promise.all([
+        listAnnouncements(),
+        getMyReadAnnouncementIds(),
+      ]);
+      setAnnouncements(list);
+      setReadAnnouncementIds(reads);
+    } catch (e) {
+      console.warn("[Notifications] announcements:", e);
+      setAnnouncements([]);
+      setReadAnnouncementIds(new Set());
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    void fetchAnnouncements();
+  }, [fetchAnnouncements]);
+
+  // Realtime: yeni duyuru gelirse anında listeye düşer
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !userId || userId === "demo") return;
+    const ch: RealtimeChannel = supabase
+      .channel("announcements-notify")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "announcements" },
+        () => {
+          void fetchAnnouncements();
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [userId, fetchAnnouncements]);
 
   const [derivedAck, setDerivedAck] = useState<DerivedNotificationAck>({
     projectIds: [],
@@ -142,11 +202,41 @@ export function useNotificationSummary(): NotificationSummary {
     };
     saveDerivedNotificationAck(userId, next);
     setDerivedAck(next);
-  }, [userId, canAdminNotifications, currentUserEmail, projects, tasks]);
+
+    // Tüm okunmamış duyuruları okundu işaretle
+    const unreadAnnouncements = announcementsRef.current.filter(
+      (a) => !readAnnouncementIds.has(a.id)
+    );
+    if (unreadAnnouncements.length > 0) {
+      await markAllAnnouncementsRead(unreadAnnouncements);
+      setReadAnnouncementIds((prev) => {
+        const next = new Set(prev);
+        for (const a of unreadAnnouncements) next.add(a.id);
+        return next;
+      });
+    }
+  }, [userId, canAdminNotifications, currentUserEmail, projects, tasks, readAnnouncementIds]);
 
   const summary = useMemo(() => {
     const email = (currentUserEmail ?? "").trim().toLowerCase();
     const items: NotificationSummaryItem[] = [];
+
+    // Okunmamış duyurular (herkes görür) — pinli olanlar önce
+    const unreadAnnouncements = announcements
+      .filter((a) => !readAnnouncementIds.has(a.id))
+      .sort((a, b) => {
+        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+    for (const a of unreadAnnouncements) {
+      items.push({
+        type: "announcement",
+        id: a.id,
+        label: a.title,
+        href: "/bildirimler",
+        count: 1,
+      });
+    }
 
     if (canAdminNotifications && adminUnread.length > 0) {
       for (const a of adminUnread) {
@@ -230,7 +320,7 @@ export function useNotificationSummary(): NotificationSummary {
 
     const totalCount = items.reduce((s, i) => s + i.count, 0);
     return { totalCount, items };
-  }, [currentUserEmail, projects, tasks, canAdminNotifications, adminUnread, derivedAck, unreadByProjectId]);
+  }, [currentUserEmail, projects, tasks, canAdminNotifications, adminUnread, derivedAck, unreadByProjectId, announcements, readAnnouncementIds]);
 
   /**
    * "Hepsini okundu işaretle": türetilmiş ack + admin alert read + proje sohbet read'leri.
