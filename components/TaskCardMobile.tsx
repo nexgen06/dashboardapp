@@ -19,6 +19,7 @@ import type { Project } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PriorityBadge } from "@/components/ui/priority-badge";
+import { AssigneeBadge } from "@/components/ui/assignee-badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -212,12 +213,7 @@ export function TaskCardMobile({
             {URGENCY_LABEL[urgency]}
           </span>
         )}
-        {task.assignee && (
-          <span className="inline-flex items-center gap-1">
-            <User className="h-3 w-3 shrink-0 opacity-70" aria-hidden />
-            <span className="truncate max-w-[160px]">{task.assignee}</span>
-          </span>
-        )}
+        {task.assignee && <AssigneeBadge assignee={task.assignee} />}
         {projectId && projectName && (
           <span className="inline-flex items-center gap-1">
             <FolderKanban className="h-3 w-3 shrink-0 opacity-70" aria-hidden />

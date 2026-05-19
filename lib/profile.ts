@@ -154,3 +154,16 @@ export async function getProfilesByIds(ids: string[]): Promise<Map<string, UserP
   }
   return m;
 }
+
+/**
+ * Tüm görünür profilleri tek seferde çek (genelde <500 kullanıcı).
+ * ProfileLookupProvider içinde bir kez çağrılır.
+ */
+export async function listAllProfiles(): Promise<UserProfile[]> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .order("nickname", { ascending: true, nullsFirst: false });
+  if (error) throw error;
+  return (data ?? []).map((row) => rowToProfile(row as Record<string, unknown>));
+}

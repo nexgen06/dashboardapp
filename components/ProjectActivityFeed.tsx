@@ -19,6 +19,8 @@ import {
 import { supabase } from "@/lib/supabaseClient";
 import { getRelativeTime } from "@/lib/relativeTime";
 import { cn } from "@/lib/utils";
+import { UserAvatar } from "@/components/ui/user-avatar";
+import { useProfileLookup } from "@/contexts/profile-lookup-context";
 import {
   Loader2,
   Plus,
@@ -68,6 +70,9 @@ function EntryLine({ entry, now }: { entry: AuditLogEntry; now: Date }) {
   const meta = ACTION_META[entry.action];
   const Icon = meta.Icon;
   const actor = entry.actorEmail || "Sistem";
+  const profileLookup = useProfileLookup();
+  const actorProfile = profileLookup.byEmail(entry.actorEmail);
+  const actorDisplay = actorProfile.nickname || actorProfile.fullName || actor;
   // UPDATE değişen alanları (en fazla 3 alan; üzeri "+N alan daha")
   const updateFields = useMemo(() => {
     if (entry.action !== "update") return [];
@@ -83,20 +88,33 @@ function EntryLine({ entry, now }: { entry: AuditLogEntry; now: Date }) {
 
   return (
     <li className="flex gap-3 px-3 py-2.5">
-      <span
-        className={cn(
-          "mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
-          meta.cls
-        )}
-        aria-hidden
-      >
-        <Icon className="h-3.5 w-3.5" />
-      </span>
+      {actorProfile.avatarUrl || actorProfile.profile ? (
+        <UserAvatar
+          avatarUrl={actorProfile.avatarUrl}
+          nickname={actorProfile.nickname}
+          fullName={actorProfile.fullName}
+          email={entry.actorEmail}
+          className="mt-0.5 h-7 w-7 text-[10px]"
+        />
+      ) : (
+        <span
+          className={cn(
+            "mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
+            meta.cls
+          )}
+          aria-hidden
+        >
+          <Icon className="h-3.5 w-3.5" />
+        </span>
+      )}
       <div className="min-w-0 flex-1">
         <p className="text-sm text-slate-700 dark:text-slate-200">
-          <span className="inline-flex items-center gap-1 font-medium text-slate-800 dark:text-slate-100">
-            <User className="h-3 w-3 opacity-60" aria-hidden />
-            {actor}
+          <span
+            className="inline-flex items-center gap-1 font-medium text-slate-800 dark:text-slate-100"
+            title={actor}
+          >
+            <Icon className={cn("h-3 w-3", meta.cls.split(" ").find((c) => c.startsWith("text-")) ?? "opacity-60")} aria-hidden />
+            {actorDisplay}
           </span>{" "}
           <TargetLabel entry={entry} /> {meta.label}.
         </p>

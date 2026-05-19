@@ -34,6 +34,7 @@ import { formatDate } from "@/lib/formatDate";
 import { urgentPrioritySetFromCsv } from "@/lib/urgentTaskPriority";
 import { getTaskDisplayLabel, getTaskDisplayCard } from "@/lib/taskDisplayLabel";
 import { parseListOptionString } from "@/contexts/settings-context";
+import { AssigneeBadge } from "@/components/ui/assignee-badge";
 
 type Column = {
   kind: StatusKind;
@@ -507,12 +508,7 @@ function KanbanCard({
             <span className="truncate">{projectName}</span>
           </span>
         )}
-        {task.assignee && (
-          <span className="inline-flex items-center gap-0.5">
-            <User className="h-2.5 w-2.5 opacity-70" aria-hidden />
-            <span className="max-w-[100px] truncate">{task.assignee}</span>
-          </span>
-        )}
+        {task.assignee && <AssigneeBadge assignee={task.assignee} />}
         {dueDate && (
           <span
             className={cn(
