@@ -189,6 +189,7 @@ export function TemplateListDialog({
     try {
       await deleteProjectTemplate(t.id);
       await refresh();
+      toast.success("Şablon silindi");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Silinemedi");
     } finally {
@@ -202,6 +203,7 @@ export function TemplateListDialog({
     try {
       await setProjectTemplateScope(t.id, next);
       await refresh();
+      toast.success(next === "shared" ? "Şablon ekiple paylaşıldı" : "Şablon özele alındı");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Değiştirilemedi");
     } finally {
