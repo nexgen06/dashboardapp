@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useState, useCallback } from "react";
-import { User, Settings, LogOut, LogIn, Shield, Copy, Check, Search } from "lucide-react";
+import { User, Settings, LogOut, LogIn, Shield, Copy, Check, Search, UserCircle2 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useNotificationSummary } from "@/hooks/useNotificationSummary";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -176,6 +176,12 @@ export function Header() {
                 )}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem className="cursor-pointer" asChild>
+                <Link href="/profil">
+                  <UserCircle2 className="mr-2 h-4 w-4" />
+                  Profilim
+                </Link>
+              </DropdownMenuItem>
               <DropdownMenuItem className="cursor-pointer" asChild>
                 <Link href="/yonetim/kullanici-yetkileri">
                   {showUserManagementNav ? (

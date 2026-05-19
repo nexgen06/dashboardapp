@@ -13,25 +13,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/modals";
+import { UserAvatar } from "@/components/ui/user-avatar";
 import { getRelativeTime } from "@/lib/relativeTime";
 import { cn } from "@/lib/utils";
 
 type Props = {
   taskId: string;
 };
-
-/** Avatar baş harfleri (kullanıcı adı / email'den). */
-function initials(name: string, email: string): string {
-  const n = (name ?? "").trim();
-  if (n) {
-    const parts = n.split(/\s+/).filter(Boolean);
-    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-  }
-  const e = (email ?? "").trim();
-  if (e) return e.slice(0, 2).toUpperCase();
-  return "?";
-}
 
 /** Görev detay panelinde "Yorumlar" bölümü — liste + ekleme + sahibi için düzenle/sil. */
 export function TaskCommentsSection({ taskId }: Props) {
@@ -163,13 +151,11 @@ export function TaskCommentsSection({ taskId }: Props) {
                 key={c.id}
                 className="group flex gap-2 rounded-md px-1 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/40"
               >
-                <span
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[10px] font-semibold uppercase text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
-                  aria-hidden
-                  title={c.user_email}
-                >
-                  {initials(c.user_display_name ?? "", c.user_email)}
-                </span>
+                <UserAvatar
+                  email={c.user_email}
+                  nickname={c.user_display_name}
+                  className="h-7 w-7 text-[10px]"
+                />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-1.5">
                     <span className="truncate text-xs font-semibold text-slate-800 dark:text-slate-100">
