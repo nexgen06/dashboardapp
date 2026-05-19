@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import Image from "next/image";
 import { useAuth } from "@/contexts/auth-context";
 import { TasksTable } from "@/components/TasksTable";
 import { TasksKanban } from "@/components/TasksKanban";
@@ -16,7 +15,6 @@ import { Section } from "@/components/ui/section";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
-import ankaraHeader from "@/images/ankara.png";
 
 /** Proje filtresinin tutulduğu localStorage anahtarı (kullanıcı id bazlı). */
 const projectFilterStorageKey = (userId: string) =>
@@ -114,37 +112,20 @@ export default function CanliTabloPage() {
 
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-[1920px] flex-1 flex-col overflow-hidden px-3 pb-4 sm:px-4 lg:px-6 lg:pb-6">
-      {/* Başlık bandı: görsel ortada header yüksekliğine kadar büyür, alt çizgi (border-b) içinde kalır */}
-      <Breadcrumb
-        className="mb-2 shrink-0"
-        items={[{ label: "Canlı Tablo" }]}
-      />
-      <header className="mb-3 shrink-0 border-b border-slate-200/80 pb-3 dark:border-slate-700/80">
-        <div className="flex flex-col items-stretch gap-3 md:flex-row md:items-stretch md:gap-3 lg:gap-5">
-          <div className="flex min-w-0 shrink-0 flex-col justify-center md:max-w-[min(100%,22rem)] lg:max-w-[24rem]">
-            <h1 className="text-ui-h1 tracking-tight text-slate-900 dark:text-slate-50">
-              Canlı Tablo
-            </h1>
-            <p className="mt-1 text-ui-body text-slate-500 dark:text-slate-400">
-              Google Tablolar benzeri: CSV içe aktarın, birlikte düzenleyin.
-            </p>
-          </div>
-          <div className="relative min-h-[6rem] w-full flex-1 min-w-0 sm:min-h-[7rem] md:min-h-[7.5rem] lg:min-h-[8.5rem]">
-            <Image
-              src={ankaraHeader}
-              alt=""
-              fill
-              priority
-              className="object-contain object-center"
-              sizes="(max-width: 768px) 100vw, (max-width: 1280px) 55vw, 900px"
-            />
-          </div>
-          <div className="flex shrink-0 items-center justify-end md:justify-end md:py-1">
-            <Button variant="outline" size="sm" asChild>
-              <Link href="/">{`Dashboard'a dön`}</Link>
-            </Button>
-          </div>
+      {/* Kompakt başlık şeridi — breadcrumb + h1 + Dashboard butonu tek satır */}
+      <header className="mb-2 flex shrink-0 flex-wrap items-baseline justify-between gap-2 border-b border-slate-200/80 pb-2 dark:border-slate-700/80">
+        <div className="flex min-w-0 flex-1 items-baseline gap-3">
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+            Canlı Tablo
+          </h1>
+          <Breadcrumb
+            className="min-w-0"
+            items={[{ label: "Canlı Tablo" }]}
+          />
         </div>
+        <Button variant="ghost" size="sm" asChild>
+          <Link href="/">{`← Dashboard`}</Link>
+        </Button>
       </header>
 
       {/* Mobilde tablo önce (üstte), özet altta; xl'de sol özet + sağ tablo */}
