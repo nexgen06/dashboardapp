@@ -49,6 +49,7 @@ export function Sidebar() {
     },
     { href: "/canli-tablo", label: "Canlı Tablo", icon: Table2, permission: "area.liveTable" as const, alsoRequire: "liveTable.view" as const },
     { href: "/bildirimler", label: "Bildirimler", tooltip: "Atama, gecikme ve sohbet bildirimleri", icon: Bell, permission: null as Permission | null, alsoRequire: null as Permission | null },
+    { href: "/raporlar", label: "Raporlar", tooltip: "Proje ve ekip performans raporları", icon: BarChart3, permission: "area.reports" as const, alsoRequire: "reports.view" as const },
     { href: "/ayarlar", label: "Ayarlar", icon: Settings, permission: "area.settings" as const, alsoRequire: "settings.view" as const },
     { href: "/yonetim/kullanici-yetkileri", label: "Kullanıcı yetkileri", icon: Shield, permission: "area.userManagement" as const, alsoRequire: null },
     { href: "/yonetim/gorev-istatistikleri", label: "Görev istatistikleri", icon: BarChart3, permission: "area.userManagement" as const, alsoRequire: null },
