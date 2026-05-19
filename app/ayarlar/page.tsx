@@ -435,6 +435,7 @@ function BildirimAyarlar({ searchQuery, resetSection, canResetSettings }: { sear
 }
 
 function GuvenlikAyarlar({ searchQuery }: { searchQuery: string }) {
+  const { settings, updateSetting } = useSettings();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -474,7 +475,8 @@ function GuvenlikAyarlar({ searchQuery }: { searchQuery: string }) {
   const twoFaMatch = matchesSearch(searchQuery, "İki adımlı doğrulama (2FA)", "Hesabınıza girişte ek doğrulama kodu istenir.");
   const sessionMatch = matchesSearch(searchQuery, "Oturum yönetimi", "Açık cihazlar ve oturumları kapat.");
   const dangerMatch = matchesSearch(searchQuery, "Tehlikeli işlemler", "Geri alınamaz işlemler. Onay gerekir.");
-  const noneMatch = searchQuery.trim() && !pwdMatch && !twoFaMatch && !sessionMatch && !dangerMatch;
+  const piiLimitMatch = matchesSearch(searchQuery, "PII kopyalama limiti", "TCKN/Sicil gibi hassas alanlar için saatlik kopyalama eşiği.");
+  const noneMatch = searchQuery.trim() && !pwdMatch && !twoFaMatch && !sessionMatch && !dangerMatch && !piiLimitMatch;
 
   return (
     <div className="space-y-2">
@@ -577,6 +579,27 @@ function GuvenlikAyarlar({ searchQuery }: { searchQuery: string }) {
               Tüm diğer oturumları kapat
             </Button>
           )}
+        </div>
+      </SettingRow>
+      )}
+      {piiLimitMatch && (
+      <SettingRow
+        label="PII kopyalama limiti"
+        description="TCKN/Sicil gibi hassas alanlar için bir kullanıcının saatlik kopyalama eşiği. Aşılırsa kopya engellenir ve admin'e alarm yansır. 0 = limit yok."
+      >
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={0}
+            max={9999}
+            value={settings.piiCopyHourlyLimit}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              updateSetting("piiCopyHourlyLimit", Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0);
+            }}
+            className="w-24 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+          />
+          <span className="text-xs text-slate-500 dark:text-slate-400">kopya / saat</span>
         </div>
       </SettingRow>
       )}

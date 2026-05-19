@@ -53,6 +53,7 @@ export function Sidebar() {
     { href: "/ayarlar", label: "Ayarlar", icon: Settings, permission: "area.settings" as const, alsoRequire: "settings.view" as const },
     { href: "/yonetim/kullanici-yetkileri", label: "Kullanıcı yetkileri", icon: Shield, permission: "area.userManagement" as const, alsoRequire: null },
     { href: "/yonetim/gorev-istatistikleri", label: "Görev istatistikleri", icon: BarChart3, permission: "area.userManagement" as const, alsoRequire: null },
+    { href: "/yonetim/pii-access", label: "PII erişim kayıtları", tooltip: "TCKN/Sicil kopya/export izleme", icon: Shield, permission: "area.piiAccess" as const, alsoRequire: "piiAccess.view" as const },
   ].filter((item) => {
     if (item.permission && !hasPermission(item.permission)) return false;
     if (item.alsoRequire && !hasPermission(item.alsoRequire)) return false;

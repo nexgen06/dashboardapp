@@ -55,6 +55,7 @@ import { getRelativeTime } from "@/lib/relativeTime";
 import { parseCSV } from "@/lib/csvParser";
 import { parseJSON } from "@/lib/jsonParser";
 import { isSensitiveExtraColumnKey, maskSensitiveExtraValue } from "@/lib/extraColumnSensitiveDisplay";
+import { logPiiAccess, countPiiAccessLastHour } from "@/lib/piiAccessLog";
 import { isStatusDone, isStatusInProgress, getStatusKind } from "@/lib/statusKind";
 import {
   getDueUrgency,
@@ -688,10 +689,32 @@ function EditableCell({
   );
 }
 
-/** Dinamik (extra) sütunlarda: hover ile panoya — hassas sütunlarda tam değer kopyalanır */
-function ExtraCellCopyButton({ text, density }: { text: string; density: LiveTableDensity }) {
+/**
+ * Dinamik (extra) sütunlarda: hover ile panoya — hassas sütunlarda tam değer kopyalanır.
+ *
+ * Hassas alan (isSensitive=true) kopyalanırsa:
+ *   - pii_access_log'a kayıt düşer (KVKK denetim)
+ *   - settings.piiCopyHourlyLimit aşılmışsa kopya engellenir
+ *   - kullanıcı "Bu işlem kaydedildi" toast'u görür (caydırıcı)
+ */
+function ExtraCellCopyButton({
+  text,
+  density,
+  isSensitive,
+  fieldName,
+  recordId,
+}: {
+  text: string;
+  density: LiveTableDensity;
+  isSensitive?: boolean;
+  fieldName?: string;
+  recordId?: string;
+}) {
   const [copied, setCopied] = useState(false);
   const iconClass = density === "comfortable" ? "h-4 w-4" : "h-3.5 w-3.5";
+  const toast = useToast();
+  const { user } = useAuth();
+  const { settings } = useSettings();
 
   const handleCopy = useCallback(
     async (e: React.MouseEvent) => {
@@ -699,15 +722,40 @@ function ExtraCellCopyButton({ text, density }: { text: string; density: LiveTab
       e.preventDefault();
       const t = text.trim();
       if (!t || typeof navigator === "undefined" || !navigator.clipboard?.writeText) return;
+
+      // Hassas alan rate-limit kontrolü
+      if (isSensitive && user?.id && settings.piiCopyHourlyLimit > 0) {
+        try {
+          const count = await countPiiAccessLastHour(user.id, "copy");
+          if (count >= settings.piiCopyHourlyLimit) {
+            toast.error(`Saatlik hassas alan kopyalama limiti aşıldı (${settings.piiCopyHourlyLimit}). Bu eylem geçici olarak engellendi.`);
+            return;
+          }
+        } catch {
+          // Sayım başarısız — eylemi engellemek yerine devam et
+        }
+      }
+
       try {
         await navigator.clipboard.writeText(t);
         setCopied(true);
         window.setTimeout(() => setCopied(false), 1600);
+
+        // Hassas alan: denetim logu + caydırıcı toast
+        if (isSensitive && user?.email && fieldName) {
+          void logPiiAccess({
+            userEmail: user.email,
+            action: "copy",
+            fieldName,
+            recordId: recordId ?? null,
+          });
+          toast.info("Bu işlem kaydedildi", { durationMs: 2000 });
+        }
       } catch {
         setCopied(false);
       }
     },
-    [text]
+    [text, isSensitive, fieldName, recordId, user, settings.piiCopyHourlyLimit, toast]
   );
 
   return (
@@ -3110,7 +3158,15 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                   density={tableDensity}
                 />
               </div>
-              {showCopy && <ExtraCellCopyButton text={raw} density={tableDensity} />}
+              {showCopy && (
+                <ExtraCellCopyButton
+                  text={raw}
+                  density={tableDensity}
+                  isSensitive={sensitive}
+                  fieldName={key}
+                  recordId={taskId}
+                />
+              )}
             </div>
           );
         },
@@ -3303,6 +3359,35 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
    *  ama bir sızıntı senaryosunda da yine sunucu/UI iki katmanda korunur. */
   const effectiveUnmaskSensitive = isAdmin && exportUnmaskSensitive;
 
+  /**
+   * Ham (unmasked) export sonrası PII denetim logu — her hassas extra_data
+   * anahtarı için tek bir kayıt (record_count = satır sayısı).
+   * "Bu işlem kaydedildi" caydırıcı toast'u da burada.
+   */
+  const logSensitiveExport = useCallback(
+    (rows: Task[]) => {
+      if (!effectiveUnmaskSensitive || !user?.email) return;
+      const sensitiveKeys = new Set<string>();
+      for (const id of visibleColumnIds) {
+        if (id.startsWith("extra:")) {
+          const k = id.replace(/^extra:/, "");
+          if (isSensitiveExtraColumnKey(k)) sensitiveKeys.add(k);
+        }
+      }
+      if (sensitiveKeys.size === 0) return;
+      sensitiveKeys.forEach((key) => {
+        void logPiiAccess({
+          userEmail: user.email!,
+          action: "export",
+          fieldName: key,
+          recordCount: rows.length,
+        });
+      });
+      toast.info("Hassas alanlar denetim kayıtlarına yazıldı", { durationMs: 2500 });
+    },
+    [effectiveUnmaskSensitive, user, visibleColumnIds, toast]
+  );
+
   const handleExportCSV = useCallback(
     (scope: "current" | "all") => {
       const rows = scope === "all" ? tasks : filteredData;
@@ -3316,9 +3401,10 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       );
       if (effectiveUnmaskSensitive) {
         toast.success("Hassas veriler AÇIK olarak indirildi (admin onayı)");
+        logSensitiveExport(rows);
       }
     },
-    [tasks, filteredData, visibleColumnIds, settings.dateFormat, projectById, effectiveUnmaskSensitive, toast]
+    [tasks, filteredData, visibleColumnIds, settings.dateFormat, projectById, effectiveUnmaskSensitive, toast, logSensitiveExport]
   );
   const handleExportExcel = useCallback(
     (scope: "current" | "all") => {
@@ -3333,9 +3419,10 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       );
       if (effectiveUnmaskSensitive) {
         toast.success("Hassas veriler AÇIK olarak indirildi (admin onayı)");
+        logSensitiveExport(rows);
       }
     },
-    [tasks, filteredData, visibleColumnIds, settings.dateFormat, projectById, effectiveUnmaskSensitive, toast]
+    [tasks, filteredData, visibleColumnIds, settings.dateFormat, projectById, effectiveUnmaskSensitive, toast, logSensitiveExport]
   );
   const handleExportPDF = useCallback(
     async (scope: "current" | "all") => {
@@ -3351,12 +3438,13 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         );
         if (effectiveUnmaskSensitive) {
           toast.success("Hassas veriler AÇIK olarak indirildi (admin onayı)");
+          logSensitiveExport(rows);
         }
       } catch (e) {
         console.error("[Export] PDF oluşturulamadı:", e);
       }
     },
-    [tasks, filteredData, visibleColumnIds, settings.dateFormat, projectById, effectiveUnmaskSensitive, toast]
+    [tasks, filteredData, visibleColumnIds, settings.dateFormat, projectById, effectiveUnmaskSensitive, toast, logSensitiveExport]
   );
 
   const openColumnPicker = useCallback(() => {

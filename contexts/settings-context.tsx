@@ -65,6 +65,11 @@ export type Settings = {
    * Virgül veya satır ile ayırın. Boşsa high, yüksek, kritik, p1, acil, urgent kullanılır.
    */
   urgentPriorityTokens: string;
+  /**
+   * TCKN/Sicil gibi hassas alanlar için bir kullanıcının saatlik kopyalama limiti.
+   * 0 = limit yok. Bu eşik aşılırsa kopya işlemi engellenir + admin'e alarm.
+   */
+  piiCopyHourlyLimit: number;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -86,6 +91,7 @@ const DEFAULT_SETTINGS: Settings = {
   liveTableDensity: "normal",
   taskSummaryPreferredExtraKeys: "",
   urgentPriorityTokens: "",
+  piiCopyHourlyLimit: 50,
 };
 
 function coerceLiveTableDensity(v: unknown): LiveTableDensity {
