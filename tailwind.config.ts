@@ -51,6 +51,25 @@ const config: Config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        /**
+         * "blue" paleti artık accent CSS değişkenlerine bağlı.
+         * Kullanıcı Ayarlar > Görünüm > Vurgu rengi seçtiğinde tüm `bg-blue-*`,
+         * `text-blue-*`, `border-blue-*`, `ring-blue-*` referansları o renge döner.
+         * Varsayılan değerler globals.css :root içinde Tailwind v3 blue HSL'leri.
+         */
+        blue: {
+          50: "hsl(var(--accent-50))",
+          100: "hsl(var(--accent-100))",
+          200: "hsl(var(--accent-200))",
+          300: "hsl(var(--accent-300))",
+          400: "hsl(var(--accent-400))",
+          500: "hsl(var(--accent-500))",
+          600: "hsl(var(--accent-600))",
+          700: "hsl(var(--accent-700))",
+          800: "hsl(var(--accent-800))",
+          900: "hsl(var(--accent-900))",
+          950: "hsl(var(--accent-950))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",

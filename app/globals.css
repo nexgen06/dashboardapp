@@ -24,6 +24,18 @@
     --input: 214 32% 88%;
     --ring: 221 83% 53%;
     --radius: 0.5rem;
+    /* Tailwind blue paleti — accent CSS değişkenleri (default: blue) */
+    --accent-50: 213 100% 96%;
+    --accent-100: 214 95% 93%;
+    --accent-200: 213 97% 87%;
+    --accent-300: 212 96% 78%;
+    --accent-400: 213 94% 68%;
+    --accent-500: 217 91% 60%;
+    --accent-600: 221 83% 53%;
+    --accent-700: 224 76% 48%;
+    --accent-800: 226 71% 40%;
+    --accent-900: 224 64% 33%;
+    --accent-950: 226 57% 21%;
   }
 
   .dark {
@@ -49,45 +61,73 @@
 
   /* ───────────────────────────────────────────────────────────────
      Accent (vurgu) renk paletleri.
-     Varsayılan "blue" zaten :root/.dark içinde; aşağıdakiler override.
-     Her palet primary + ring değerlerini değiştirir; primary-foreground
-     beyaz kalır (yeterli kontrast var).
+     Her palet:
+       1. Tailwind blue paletini (--accent-50..950) o renge çevirir
+          → tüm `bg-blue-*`, `text-blue-*` referansları otomatik geçer
+       2. --primary ve --ring değişkenlerini günceller
+          → bg-primary kullanan butonlar da geçer
+     Değerler Tailwind v3 referansından alındı; ışıklı/koyu mod fark etmez
+     çünkü Tailwind blue zaten her iki modda aynı paleti kullanır.
      ─────────────────────────────────────────────────────────────── */
   .accent-green {
+    --accent-50: 138 76% 97%;
+    --accent-100: 141 84% 93%;
+    --accent-200: 141 79% 85%;
+    --accent-300: 142 77% 73%;
+    --accent-400: 142 69% 58%;
+    --accent-500: 142 71% 45%;
+    --accent-600: 142 76% 36%;
+    --accent-700: 142 72% 29%;
+    --accent-800: 143 64% 24%;
+    --accent-900: 144 61% 20%;
+    --accent-950: 145 80% 10%;
     --primary: 142 71% 45%;
     --ring: 142 71% 45%;
   }
-  .dark.accent-green,
-  .accent-green.dark {
-    --primary: 142 65% 50%;
-    --ring: 142 65% 50%;
-  }
   .accent-purple {
+    --accent-50: 250 100% 98%;
+    --accent-100: 251 91% 95%;
+    --accent-200: 251 95% 92%;
+    --accent-300: 252 95% 85%;
+    --accent-400: 255 92% 76%;
+    --accent-500: 258 90% 66%;
+    --accent-600: 262 83% 58%;
+    --accent-700: 263 70% 50%;
+    --accent-800: 263 69% 42%;
+    --accent-900: 264 67% 35%;
+    --accent-950: 261 73% 23%;
     --primary: 262 83% 58%;
     --ring: 262 83% 58%;
   }
-  .dark.accent-purple,
-  .accent-purple.dark {
-    --primary: 262 78% 64%;
-    --ring: 262 78% 64%;
-  }
   .accent-orange {
+    --accent-50: 33 100% 96%;
+    --accent-100: 34 100% 92%;
+    --accent-200: 32 98% 83%;
+    --accent-300: 31 97% 72%;
+    --accent-400: 27 96% 61%;
+    --accent-500: 25 95% 53%;
+    --accent-600: 21 90% 48%;
+    --accent-700: 17 88% 40%;
+    --accent-800: 15 79% 34%;
+    --accent-900: 15 75% 28%;
+    --accent-950: 13 81% 15%;
     --primary: 25 95% 53%;
     --ring: 25 95% 53%;
   }
-  .dark.accent-orange,
-  .accent-orange.dark {
-    --primary: 25 90% 58%;
-    --ring: 25 90% 58%;
-  }
   .accent-red {
+    --accent-50: 0 86% 97%;
+    --accent-100: 0 93% 94%;
+    --accent-200: 0 96% 89%;
+    --accent-300: 0 94% 82%;
+    --accent-400: 0 91% 71%;
+    --accent-500: 0 84% 60%;
+    --accent-600: 0 72% 51%;
+    --accent-700: 0 74% 42%;
+    --accent-800: 0 70% 35%;
+    --accent-900: 0 63% 31%;
+    --accent-950: 0 75% 15%;
     --primary: 0 72% 51%;
     --ring: 0 72% 51%;
-  }
-  .dark.accent-red,
-  .accent-red.dark {
-    --primary: 0 70% 58%;
-    --ring: 0 70% 58%;
   }
 
   * {
