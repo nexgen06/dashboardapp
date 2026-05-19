@@ -31,6 +31,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/modals";
 import {
   createSavedView,
   deleteSavedView,
@@ -64,6 +65,7 @@ export function SavedViewsControl({
   target = "live_table",
 }: Props) {
   const toast = useToast();
+  const confirm = useConfirm();
   const [views, setViews] = useState<SavedView[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
@@ -187,7 +189,13 @@ export function SavedViewsControl({
   };
 
   const handleDelete = async (v: SavedView) => {
-    if (!window.confirm(`"${v.name}" görünümü kalıcı olarak silinsin mi?`)) return;
+    const ok = await confirm({
+      title: "Görünümü sil",
+      message: `"${v.name}" görünümü kalıcı olarak silinsin mi?`,
+      confirmLabel: "Sil",
+      variant: "destructive",
+    });
+    if (!ok) return;
     try {
       await deleteSavedView(v.id);
       await refresh();

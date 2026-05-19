@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useProjects } from "@/hooks/useProjects";
 import { useTaskCountByProject } from "@/hooks/useTaskCountByProject";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
+import { usePrompt } from "@/components/ui/modals";
 import { useSettings } from "@/contexts/settings-context";
 import { useAuth } from "@/contexts/auth-context";
 import { useProjectChatUnread } from "@/contexts/project-chat-unread-context";
@@ -1359,6 +1360,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
     archiveProject,
   } = useProjects();
   const { createTasksBulk, tasks } = useTasksWithRealtime();
+  const promptUser = usePrompt();
   const taskCountByProject = useTaskCountByProject();
   const { unreadByProjectId } = useProjectChatUnread();
 
@@ -1589,10 +1591,13 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
   const handleUseTemplate = async (template: ProjectTemplate) => {
     try {
       const td = template.template_data ?? {};
-      const newName = window.prompt(
-        `Şablon: "${template.name}"\nYeni proje adı:`,
-        template.name.replace(/\s+—\s+şablonu$/i, "")
-      );
+      const newName = await promptUser({
+        title: `Şablondan yeni proje`,
+        message: `"${template.name}" şablonundan oluşturulacak projenin adını gir:`,
+        defaultValue: template.name.replace(/\s+—\s+şablonu$/i, ""),
+        placeholder: "Yeni proje adı",
+        confirmLabel: "Oluştur",
+      });
       if (!newName || !newName.trim()) return;
       const projectId = await createProject({
         name: newName.trim(),
