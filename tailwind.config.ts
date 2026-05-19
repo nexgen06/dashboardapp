@@ -7,6 +7,11 @@ const config: Config = {
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
   ],
+  /**
+   * Accent renk paletleri JS ile <html>'e dinamik eklenir; Tailwind content scanner
+   * bu class'ları görmediği için CSS purge'ünde kaybolurlardı. Safelist ile koruyoruz.
+   */
+  safelist: ["accent-green", "accent-purple", "accent-orange", "accent-red"],
   theme: {
     extend: {
       fontFamily: {
