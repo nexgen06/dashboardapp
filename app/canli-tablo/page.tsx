@@ -7,13 +7,15 @@ import { useAuth } from "@/contexts/auth-context";
 import { TasksTable } from "@/components/TasksTable";
 import { TasksKanban } from "@/components/TasksKanban";
 import { TasksGantt } from "@/components/TasksGantt";
+import { TasksCalendar } from "@/components/TasksCalendar";
 import { GorevOzeti } from "@/components/GorevOzeti";
-import { Shield, Loader2, Table2, Columns3, GanttChart } from "lucide-react";
+import { Shield, Loader2, Table2, Columns3, GanttChart, CalendarDays } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Section } from "@/components/ui/section";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 import ankaraHeader from "@/images/ankara.png";
 
 /** Proje filtresinin tutulduğu localStorage anahtarı (kullanıcı id bazlı). */
@@ -113,6 +115,10 @@ export default function CanliTabloPage() {
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-[1920px] flex-1 flex-col overflow-hidden px-3 pb-4 sm:px-4 lg:px-6 lg:pb-6">
       {/* Başlık bandı: görsel ortada header yüksekliğine kadar büyür, alt çizgi (border-b) içinde kalır */}
+      <Breadcrumb
+        className="mb-2 shrink-0"
+        items={[{ label: "Canlı Tablo" }]}
+      />
       <header className="mb-3 shrink-0 border-b border-slate-200/80 pb-3 dark:border-slate-700/80">
         <div className="flex flex-col items-stretch gap-3 md:flex-row md:items-stretch md:gap-3 lg:gap-5">
           <div className="flex min-w-0 shrink-0 flex-col justify-center md:max-w-[min(100%,22rem)] lg:max-w-[24rem]">
@@ -168,6 +174,10 @@ export default function CanliTabloPage() {
                   <GanttChart className="h-3.5 w-3.5" aria-hidden />
                   Gantt
                 </TabsTrigger>
+                <TabsTrigger value="calendar" className="gap-1.5">
+                  <CalendarDays className="h-3.5 w-3.5" aria-hidden />
+                  Takvim
+                </TabsTrigger>
               </TabsList>
             </div>
             <TabsContent
@@ -187,6 +197,12 @@ export default function CanliTabloPage() {
               className="flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
             >
               <TasksGantt projectFilter={projectFilter} />
+            </TabsContent>
+            <TabsContent
+              value="calendar"
+              className="flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
+            >
+              <TasksCalendar projectFilter={projectFilter} />
             </TabsContent>
           </Tabs>
         </Section>

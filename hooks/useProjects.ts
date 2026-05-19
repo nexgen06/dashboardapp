@@ -55,6 +55,15 @@ function mapRowToProject(row: Record<string, unknown>): Project {
     row.title_column != null && String(row.title_column).trim() !== ""
       ? String(row.title_column).trim()
       : null;
+  let subtitle_columns: string[] | null = null;
+  const rawSubs = row.subtitle_columns;
+  if (Array.isArray(rawSubs)) {
+    const list = rawSubs
+      .filter((x): x is string => typeof x === "string")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    subtitle_columns = list.length > 0 ? list : null;
+  }
   const wipLimit = (() => {
     const v = row.wip_in_progress_limit;
     if (v == null) return null;
@@ -74,6 +83,7 @@ function mapRowToProject(row: Record<string, unknown>): Project {
     strict_assignee_visibility: strict_assignee_visibility,
     extra_column_keys,
     title_column: titleColumn,
+    subtitle_columns,
     wip_in_progress_limit: wipLimit,
   };
 }
@@ -176,6 +186,7 @@ export function useProjects() {
       strict_assignee_visibility?: boolean;
       extra_column_keys?: string[] | null;
       title_column?: string | null;
+      subtitle_columns?: string[] | null;
       wip_in_progress_limit?: number | null;
     }): Promise<string | null> => {
       const baseRow: Record<string, unknown> = {
@@ -202,6 +213,12 @@ export function useProjects() {
       }
       if (payload.title_column != null && String(payload.title_column).trim() !== "") {
         baseRow.title_column = String(payload.title_column).trim();
+      }
+      if (payload.subtitle_columns != null && payload.subtitle_columns.length > 0) {
+        baseRow.subtitle_columns = payload.subtitle_columns
+          .map((k) => String(k).trim())
+          .filter(Boolean)
+          .slice(0, 3);
       }
       if (payload.wip_in_progress_limit != null && payload.wip_in_progress_limit > 0) {
         baseRow.wip_in_progress_limit = Math.floor(payload.wip_in_progress_limit);
@@ -238,7 +255,7 @@ export function useProjects() {
   );
 
   const updateProject = useCallback(
-    async (id: string, payload: Partial<Pick<Project, "name" | "description" | "status" | "assigned_emails" | "due_date" | "priority" | "strict_assignee_visibility" | "extra_column_keys" | "title_column" | "wip_in_progress_limit">>) => {
+    async (id: string, payload: Partial<Pick<Project, "name" | "description" | "status" | "assigned_emails" | "due_date" | "priority" | "strict_assignee_visibility" | "extra_column_keys" | "title_column" | "subtitle_columns" | "wip_in_progress_limit">>) => {
       const updateRow: Record<string, unknown> = { ...payload, updated_at: new Date().toISOString() };
       if (payload.assigned_emails !== undefined) {
         updateRow.assigned_emails =
@@ -263,6 +280,15 @@ export function useProjects() {
             ? null
             : String(payload.title_column).trim();
       }
+      if (payload.subtitle_columns !== undefined) {
+        updateRow.subtitle_columns =
+          payload.subtitle_columns == null || payload.subtitle_columns.length === 0
+            ? []
+            : payload.subtitle_columns
+                .map((k) => String(k).trim())
+                .filter(Boolean)
+                .slice(0, 3);
+      }
       if (payload.wip_in_progress_limit !== undefined) {
         const n = payload.wip_in_progress_limit;
         updateRow.wip_in_progress_limit =
@@ -283,6 +309,15 @@ export function useProjects() {
           payload.extra_column_keys == null || payload.extra_column_keys.length === 0
             ? null
             : [...payload.extra_column_keys];
+      }
+      if (payload.subtitle_columns !== undefined) {
+        normalizedPayload.subtitle_columns =
+          payload.subtitle_columns == null || payload.subtitle_columns.length === 0
+            ? null
+            : payload.subtitle_columns
+                .map((k) => String(k).trim())
+                .filter(Boolean)
+                .slice(0, 3);
       }
       setProjects((prev) =>
         prev.map((p) => (p.id === id ? { ...p, ...normalizedPayload } : p))

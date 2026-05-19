@@ -86,7 +86,7 @@ import { TaskDetailSheet } from "@/components/TaskDetailSheet";
 import { SavedViewsControl } from "@/components/SavedViewsControl";
 import type { SavedViewConfig } from "@/lib/savedViews";
 import { urgentPrioritySetFromCsv, isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
-import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban } from "lucide-react";
+import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, Expand, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
 const STATUS_FILTER_OPTIONS = ["Tümü", "Yapılacak", "Devam ediyor", "Devam", "Tamamlandı"] as const;
@@ -1716,6 +1716,37 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   });
   const [detailTask, setDetailTask] = useState<Task | null>(null);
   const [isFullWidth, setIsFullWidth] = useState(false);
+
+  /**
+   * Klavye kısayolları — tablonun tam ekran toggle'ı:
+   *  - F (form alanında değilken)  → genişlet / daralt
+   *  - Esc (genişletilmişken)       → daralt
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handler = (e: KeyboardEvent) => {
+      // Yazı yazılan bir alana fokus varsa kısayolları yutma
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName;
+      const isTyping =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        (t as HTMLElement | null)?.isContentEditable === true;
+      if (e.key === "Escape" && isFullWidth) {
+        e.preventDefault();
+        setIsFullWidth(false);
+        return;
+      }
+      if (!isTyping && (e.key === "f" || e.key === "F") && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        setIsFullWidth((p) => !p);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isFullWidth]);
+
   /** Dar ekranda hızlı filtre satırı varsayılan kapalı */
   const [quickFiltersOpen, setQuickFiltersOpen] = useState(false);
   const [draggedColumnId, setDraggedColumnId] = useState<string | null>(null);
@@ -3205,10 +3236,27 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     return () => ro.disconnect();
   }, [isLoading, error, isFullWidth]);
 
-  /** Sütunları görünür alana ve veriye göre orantılar; elle genişletilen sütunları sıfırlayıp tümünü yeniden ölçer */
+  /**
+   * "İçeriğe göre ölçeklendir" toggle:
+   *  - KAPALI → AÇIK: Görünür sütunlar her birinin en uzun metnine göre genişler (viewport'a sığması
+   *    zorlanmaz — gerekiyorsa yatay scroll çıkar). Sütunlar "user-sized" işaretlenir ki otomatik
+   *    yeniden dengeleme effect'i bu manuel boyutları ezmesin.
+   *  - AÇIK → KAPALI: Manuel boyutlar sıfırlanır, mevcut dengeli (viewport'a sığdır) davranış uygulanır.
+   */
+  const [fitToContent, setFitToContent] = useState(false);
   const handleAutoSizeColumns = useCallback(() => {
-    userSizedColumnsRef.current.clear();
     const visibleIds = table.getVisibleLeafColumns().map((c) => c.id);
+    if (!fitToContent) {
+      // AÇ — gerçek içerik genişlikleri (viewport bağımsız)
+      const intrinsic = measureIntrinsicColumnWidths(filteredData, visibleIds, tableDensity);
+      // Her sütunu kullanıcı-boyutlandırılmış say (auto-balance effect'i ezmesin)
+      for (const id of visibleIds) userSizedColumnsRef.current.add(id);
+      setColumnSizing((prev) => ({ ...prev, ...intrinsic }));
+      setFitToContent(true);
+      return;
+    }
+    // KAPAT — manuel işaretleri temizle, viewport'a sığdır
+    userSizedColumnsRef.current.clear();
     const vw =
       liveTableScrollRef.current?.clientWidth ??
       liveTableViewportWidth ??
@@ -3220,7 +3268,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       tableDensity
     );
     setColumnSizing((prev) => ({ ...prev, ...next }));
-  }, [table, filteredData, tableDensity, liveTableViewportWidth]);
+    setFitToContent(false);
+  }, [table, filteredData, tableDensity, liveTableViewportWidth, fitToContent]);
 
   /** Veri, sütun görünümü veya genişlik değişince otomatik orantı (elle boyutlanan sütunlar hariç) */
   useEffect(() => {
@@ -4422,23 +4471,42 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
           </div>
         )}
       </div>
-      <div className="shrink-0 rounded-lg border border-slate-200/70 bg-slate-50/50 px-2 py-2 dark:border-slate-700/80 dark:bg-slate-800/35 sm:px-3">
+      <div
+        className="shrink-0 rounded-lg border border-slate-200/70 bg-slate-50/50 px-2 py-2 dark:border-slate-700/80 dark:bg-slate-800/35 sm:px-3"
+        onDoubleClick={(e) => {
+          // Sadece toolbar zemininde — buton/select/input üzerinden çift tık genişletmesin
+          const tag = (e.target as HTMLElement).tagName;
+          if (["BUTTON", "INPUT", "SELECT", "TEXTAREA", "LABEL"].includes(tag)) return;
+          if ((e.target as HTMLElement).closest("button, input, select, textarea, [role=button]")) return;
+          setIsFullWidth((p) => !p);
+        }}
+        title="Çift tık ile tabloyu genişlet/daralt"
+      >
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            Sütunları sürükleyerek sıralayın, kenardan genişletin; menü ile sabitleyin.
+          <span className="text-xs text-slate-500 dark:text-slate-400 select-none">
+            Sütunları sürükleyerek sıralayın, kenardan genişletin · <kbd className="rounded border border-slate-300 bg-white px-1 text-[10px] font-semibold text-slate-600 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">F</kbd> ile genişlet
           </span>
           <div className="flex items-center gap-2 shrink-0">
             {canAutoSizeColumns && (
               <Button
                 type="button"
-                variant="outline"
+                variant={fitToContent ? "default" : "outline"}
                 size="sm"
                 onClick={handleAutoSizeColumns}
-                className="text-slate-700 dark:text-slate-300"
-                title="Sütunları görünür alana ve içeriğe göre orantılı ölçeklendir"
+                aria-pressed={fitToContent}
+                className={fitToContent ? "" : "text-slate-700 dark:text-slate-300"}
+                title={
+                  fitToContent
+                    ? "Aktif: tüm sütunlar gerçek içerik genişliğine açıldı — tıkla, varsayılana dön"
+                    : "Tıkla: tüm sütunlar metin uzunluğuna açılsın (yatay scroll çıkabilir)"
+                }
               >
-                <Shrink className="mr-2 h-4 w-4" />
-                İçeriğe göre ölçeklendir
+                {fitToContent ? (
+                  <Shrink className="mr-2 h-4 w-4" />
+                ) : (
+                  <Expand className="mr-2 h-4 w-4" />
+                )}
+                {fitToContent ? "Varsayılana dön" : "İçeriğe göre ölçeklendir"}
               </Button>
             )}
             <div className="flex items-center gap-1.5 shrink-0">
@@ -4461,12 +4529,14 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
             <Button
               type="button"
               variant="outline"
-              size="sm"
+              size="icon"
               onClick={() => setIsFullWidth((p) => !p)}
-              className="text-slate-700 dark:text-slate-300"
+              className="h-8 w-8 text-slate-700 dark:text-slate-300"
+              aria-label={isFullWidth ? "Daralt (Esc)" : "Tabloyu genişlet (F)"}
+              title={isFullWidth ? "Daralt — Esc" : "Tabloyu genişlet — F · veya toolbar'a çift tıkla"}
+              aria-pressed={isFullWidth}
             >
-              {isFullWidth ? <Minimize2 className="mr-2 h-4 w-4" /> : <Maximize2 className="mr-2 h-4 w-4" />}
-              {isFullWidth ? "Daralt" : "Tablo genişlet"}
+              {isFullWidth ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
             </Button>
           </div>
         </div>

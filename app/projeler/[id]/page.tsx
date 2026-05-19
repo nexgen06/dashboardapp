@@ -30,6 +30,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { ArrowLeft, PlusCircle, Unlink, Loader2, ListTodo, User, Calendar, Upload, Users, ShieldCheck, X, CheckCircle2, AlertTriangle, Clock, UserX, ArrowRight, Table2 } from "lucide-react";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { cn } from "@/lib/utils";
 import { useProjectPresence } from "@/hooks/useProjectPresence";
 import { OnlineUsersPanel } from "@/components/OnlineUsersPanel";
@@ -500,11 +501,17 @@ export default function ProjeDetayPage() {
 
   return (
     <div className="container max-w-4xl py-6">
-      <div className="mb-6">
-        <Button variant="ghost" size="sm" asChild className="text-slate-600 dark:text-slate-400 -ml-2">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <Breadcrumb
+          items={[
+            { label: "Projeler", href: "/?tab=projeler" },
+            { label: project.name || "İsimsiz proje" },
+          ]}
+        />
+        <Button variant="ghost" size="sm" asChild className="shrink-0 text-slate-600 dark:text-slate-400">
           <Link href="/?tab=projeler" className="inline-flex items-center gap-2">
             <ArrowLeft className="h-4 w-4" />
-            Projelere dön
+            <span className="hidden sm:inline">Projelere dön</span>
           </Link>
         </Button>
       </div>

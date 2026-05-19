@@ -32,7 +32,7 @@ import {
 } from "@/lib/dueUrgency";
 import { formatDate } from "@/lib/formatDate";
 import { urgentPrioritySetFromCsv } from "@/lib/urgentTaskPriority";
-import { getTaskDisplayLabel } from "@/lib/taskDisplayLabel";
+import { getTaskDisplayLabel, getTaskDisplayCard } from "@/lib/taskDisplayLabel";
 import { parseListOptionString } from "@/contexts/settings-context";
 
 type Column = {
@@ -176,6 +176,12 @@ export function TasksKanban({ projectFilter = [] }: Props) {
   const projectTitleColumnById = useMemo(() => {
     const m = new Map<string, string | null>();
     for (const p of projects) m.set(p.id, p.title_column ?? null);
+    return m;
+  }, [projects]);
+  /** Proje-bazlı alt başlık sütunları — kart başlığının altında küçük gri satır */
+  const projectSubtitleColumnsById = useMemo(() => {
+    const m = new Map<string, string[] | null>();
+    for (const p of projects) m.set(p.id, p.subtitle_columns ?? null);
     return m;
   }, [projects]);
 
@@ -339,16 +345,22 @@ export function TasksKanban({ projectFilter = [] }: Props) {
                     Boş — sürükle bırak
                   </p>
                 ) : (
-                  list.map((t) => (
+                  list.map((t) => {
+                    const card = getTaskDisplayCard(t, {
+                      projectTitleColumn: t.project_id
+                        ? projectTitleColumnById.get(String(t.project_id))
+                        : null,
+                      subtitleColumns: t.project_id
+                        ? projectSubtitleColumnsById.get(String(t.project_id))
+                        : null,
+                      preferredExtraKeys: preferredLabelKeys,
+                    });
+                    return (
                     <KanbanCard
                       key={t.id}
                       task={t}
-                      label={getTaskDisplayLabel(t, {
-                        projectTitleColumn: t.project_id
-                          ? projectTitleColumnById.get(String(t.project_id))
-                          : null,
-                        preferredExtraKeys: preferredLabelKeys,
-                      })}
+                      label={card.label}
+                      subtitle={card.subtitle.map((s) => s.value).join(" · ")}
                       projectName={t.project_id ? projectNameById.get(String(t.project_id)) ?? null : null}
                       dateFormat={settings.dateFormat}
                       urgentPrioritySet={urgentPrioritySet}
@@ -357,7 +369,8 @@ export function TasksKanban({ projectFilter = [] }: Props) {
                       onDragEnd={handleDragEnd}
                       onClick={() => setDetailTask(t)}
                     />
-                  ))
+                    );
+                  })
                 )}
               </div>
             </section>
@@ -418,6 +431,7 @@ export function TasksKanban({ projectFilter = [] }: Props) {
 function KanbanCard({
   task,
   label,
+  subtitle,
   projectName,
   dateFormat,
   urgentPrioritySet,
@@ -428,6 +442,7 @@ function KanbanCard({
 }: {
   task: Task;
   label: string;
+  subtitle?: string;
   projectName: string | null;
   dateFormat: ReturnType<typeof useSettings>["settings"]["dateFormat"];
   urgentPrioritySet: Set<string>;
@@ -466,6 +481,11 @@ function KanbanCard({
       <p className="line-clamp-3 text-sm leading-snug text-slate-800 dark:text-slate-100">
         {content}
       </p>
+      {subtitle && (
+        <p className="mt-0.5 line-clamp-2 text-[11px] text-slate-500 dark:text-slate-400">
+          {subtitle}
+        </p>
+      )}
       <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
         {showUrgency && (urgency === "overdue" || urgency === "today") && (
           <span
