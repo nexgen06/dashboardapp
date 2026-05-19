@@ -951,7 +951,7 @@ function ProjectFormModal({
                   {availableKeys.length === 0 ? (
                     <span className="mt-1 block italic text-amber-700 dark:text-amber-400">
                       Henüz sütun yok — &quot;Canlı tablo ek sütunları&quot; alanına ekle veya
-                      bu projeye CSV/Excel'den görev içe aktar; ondan sonra burada listelenir.
+                      bu projeye CSV/Excel&apos;den görev içe aktar; ondan sonra burada listelenir.
                     </span>
                   ) : (
                     <> Boş bırakırsan otomatik fallback uygulanır.</>
@@ -1071,7 +1071,7 @@ function ProjectFormModal({
           {!isEdit && step === 2 && (
             <div className="space-y-4">
               <p className="text-sm text-slate-600 dark:text-slate-300">
-                Bu adım <strong>opsiyonel</strong>. Hemen "Oluştur"a basabilir veya bir dosyadan toplu görev ekleyebilirsiniz.
+                Bu adım <strong>opsiyonel</strong>. Hemen &quot;Oluştur&quot;a basabilir veya bir dosyadan toplu görev ekleyebilirsiniz.
               </p>
 
               <div className="rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50/50 dark:bg-slate-800/50 p-3 space-y-3">

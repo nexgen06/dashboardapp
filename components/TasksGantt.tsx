@@ -225,7 +225,7 @@ export function TasksGantt({ projectFilter = [] }: Props) {
           {diagnostics.noDue > 0 && diagnostics.badDue === 0 && (
             <span className="mt-2 block rounded-md border border-blue-200 bg-blue-50 p-2 text-left text-xs text-blue-900 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-200">
               <strong>İpucu:</strong> Görev detayında <em>Son tarih</em> alanını doldur, ya da
-              <em> extra_data</em>'da &quot;Bitiş&quot; / &quot;Deadline&quot; / &quot;Son tarih&quot; gibi
+              <em> extra_data</em>&apos;da &quot;Bitiş&quot; / &quot;Deadline&quot; / &quot;Son tarih&quot; gibi
               bir sütuna tarih yaz — Gantt her ikisini de tanır.
             </span>
           )}

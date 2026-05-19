@@ -176,7 +176,7 @@ export function ProjectColumnManager({ projectId, observedKeys, sampleValuesByKe
             Sütun tipi yönetimi
           </h4>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Her ek sütuna tip ata. (A.3.2'de tablo bu tiplere göre render edilecek.)
+            Her ek sütuna tip ata. (A.3.2&apos;de tablo bu tiplere göre render edilecek.)
           </p>
         </div>
         {untyped.length > 0 && (
@@ -204,7 +204,7 @@ export function ProjectColumnManager({ projectId, observedKeys, sampleValuesByKe
         </div>
       ) : columns.length === 0 && untyped.length === 0 ? (
         <p className="rounded-md border border-dashed border-slate-300 px-3 py-3 text-center text-xs text-slate-500 dark:border-slate-600 dark:text-slate-400">
-          Henüz tiplenmiş sütun yok. Görev içe aktar veya "Canlı tablo ek sütunları" alanına
+          Henüz tiplenmiş sütun yok. Görev içe aktar veya &quot;Canlı tablo ek sütunları&quot; alanına
           giriş ekle; ardından buradan tipini ayarla.
         </p>
       ) : (
@@ -291,7 +291,7 @@ export function ProjectColumnManager({ projectId, observedKeys, sampleValuesByKe
           </div>
           <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
             Bunlar görevlerde gözlemlenmiş ama henüz tip atanmamış. Tek tıkla otomatik tiple veya
-            yukarıdaki "Otomatik tipla" butonuyla hepsini birden ekle.
+            yukarıdaki &quot;Otomatik tipla&quot; butonuyla hepsini birden ekle.
           </p>
         </div>
       )}

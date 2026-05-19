@@ -249,7 +249,7 @@ export default function SifreSifirlaPage() {
               </span>
               <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Şifre güncellendi</h1>
               <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-                Artık yeni şifrenle giriş yapabilirsin. Birkaç saniye içinde dashboard'a yönlendirileceksin.
+                Artık yeni şifrenle giriş yapabilirsin. Birkaç saniye içinde dashboard&apos;a yönlendirileceksin.
               </p>
               <Button type="button" asChild className="mt-5 w-full bg-blue-600 hover:bg-blue-700 text-white">
                 <Link href="/">Şimdi git</Link>

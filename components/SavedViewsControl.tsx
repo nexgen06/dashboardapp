@@ -297,7 +297,7 @@ export function SavedViewsControl({
           {activeView && isDirty && canManage(activeView) && (
             <DropdownMenuItem onClick={() => openOverwrite(activeView)}>
               <Check className="mr-2 h-4 w-4" aria-hidden />
-              "{activeView.name}" üzerine yaz
+              &quot;{activeView.name}&quot; üzerine yaz
             </DropdownMenuItem>
           )}
           {activeView && (
