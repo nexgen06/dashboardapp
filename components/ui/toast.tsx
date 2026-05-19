@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
  * Hafif toast + undo sistemi.
  *
  * Kullanım:
- *   const { toast } = useToast();
+ *   const toast = useToast();
  *   toast.success("3 görev silindi", { action: { label: "Geri al", onClick: () => restore() } });
  *
  * Tasarım:
@@ -151,7 +151,7 @@ function Toaster({
 
   return createPortal(
     <div
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-[200] flex flex-col items-end gap-2 p-4 sm:right-0 sm:left-auto sm:max-w-md"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-[9999] flex flex-col items-end gap-2 p-4 sm:right-0 sm:left-auto sm:max-w-md"
       aria-live="polite"
       aria-atomic="false"
     >
@@ -192,7 +192,9 @@ function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
     <div
       role={toast.kind === "error" ? "alert" : "status"}
       className={cn(
-        "pointer-events-auto flex w-full min-w-[280px] max-w-md items-start gap-3 overflow-hidden rounded-lg border border-slate-200 bg-white pl-0 pr-3 py-3 shadow-lg ring-1 dark:border-slate-700 dark:bg-slate-800",
+        "pointer-events-auto flex w-full min-w-[280px] max-w-md items-start gap-3 overflow-hidden rounded-lg border-2 border-slate-200 bg-white pl-0 pr-3 py-3 shadow-2xl ring-1 dark:border-slate-700 dark:bg-slate-800",
+        // tailwindcss-animate ile sağdan kayarak gir + opaklık
+        "animate-in slide-in-from-right-8 fade-in duration-300",
         style.ring
       )}
     >

@@ -69,6 +69,7 @@ export function TaskCommentsSection({ taskId }: Props) {
         userDisplayName: user.displayName ?? null,
       });
       setDraft("");
+      toast.success("Yorum eklendi");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Yorum eklenemedi");
     } finally {
@@ -96,6 +97,7 @@ export function TaskCommentsSection({ taskId }: Props) {
     try {
       await updateTaskComment(c.id, body);
       cancelEdit();
+      toast.success("Yorum güncellendi");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Güncellenemedi");
     } finally {
@@ -114,6 +116,7 @@ export function TaskCommentsSection({ taskId }: Props) {
     setBusyId(c.id);
     try {
       await deleteTaskComment(c.id);
+      toast.success("Yorum silindi");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Silinemedi");
     } finally {
