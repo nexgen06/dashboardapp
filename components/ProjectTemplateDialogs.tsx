@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/modals";
 import {
   listProjectTemplates,
   saveProjectAsTemplate,
@@ -156,6 +157,7 @@ export function TemplateListDialog({
   onUseTemplate: (template: ProjectTemplate) => void;
 }) {
   const toast = useToast();
+  const confirm = useConfirm();
   const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -176,7 +178,13 @@ export function TemplateListDialog({
   }, [open, refresh]);
 
   const handleDelete = async (t: ProjectTemplate) => {
-    if (!window.confirm(`"${t.name}" şablonu silinsin mi?`)) return;
+    const ok = await confirm({
+      title: "Şablonu sil",
+      message: `"${t.name}" şablonu kalıcı olarak silinsin mi?`,
+      confirmLabel: "Sil",
+      variant: "destructive",
+    });
+    if (!ok) return;
     setBusyId(t.id);
     try {
       await deleteProjectTemplate(t.id);

@@ -9,6 +9,7 @@ import { Header } from "@/components/layout/Header";
 import { ApplySettings } from "@/components/ApplySettings";
 import { CommandPalette } from "@/components/CommandPalette";
 import { OnboardingTour } from "@/components/OnboardingTour";
+import { KeyboardShortcutsHUD } from "@/components/KeyboardShortcutsHUD";
 import { ProjectChatUnreadProvider } from "@/contexts/project-chat-unread-context";
 
 /** Giriş sayfasında sidebar/header göstermez; diğer sayfalarda tam panel layout. */
@@ -26,6 +27,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <ProjectChatUnreadProvider>
           <ApplySettings />
           <CommandPalette />
+          <KeyboardShortcutsHUD />
           <OnboardingTour />
           <div className="flex min-h-screen">
             <Sidebar />

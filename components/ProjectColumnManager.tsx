@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Plus, Trash2, GripVertical, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/modals";
 import {
   PROJECT_COLUMN_TYPE_HINTS,
   PROJECT_COLUMN_TYPE_LABELS,
@@ -33,6 +34,7 @@ type Props = {
  */
 export function ProjectColumnManager({ projectId, observedKeys, sampleValuesByKey = {} }: Props) {
   const toast = useToast();
+  const confirm = useConfirm();
   const [columns, setColumns] = useState<ProjectColumn[]>([]);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -124,7 +126,13 @@ export function ProjectColumnManager({ projectId, observedKeys, sampleValuesByKe
   };
 
   const handleDelete = async (col: ProjectColumn) => {
-    if (!window.confirm(`"${col.key}" sütun tanımı kaldırılsın mı? (Görev verileri silinmez)`)) return;
+    const ok = await confirm({
+      title: "Sütun tanımını kaldır",
+      message: `"${col.key}" sütun tanımı kaldırılsın mı? Görev verileri silinmez.`,
+      confirmLabel: "Kaldır",
+      variant: "destructive",
+    });
+    if (!ok) return;
     setBusyId(col.id);
     try {
       await deleteProjectColumn(col.id);
