@@ -12,6 +12,7 @@ import {
   CheckCheck,
   ArrowRight,
   Loader2,
+  Megaphone,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useNotificationSummary, type NotificationSummaryItem } from "@/hooks/useNotificationSummary";
@@ -61,9 +62,17 @@ const TYPE_META: Record<
     bg: "bg-emerald-100 dark:bg-emerald-900/40",
     text: "text-emerald-700 dark:text-emerald-300",
   },
+  announcement: {
+    label: "Duyurular",
+    icon: Megaphone,
+    chip: "Duyuru",
+    bg: "bg-violet-100 dark:bg-violet-900/40",
+    text: "text-violet-700 dark:text-violet-300",
+  },
 };
 
 const ORDER: NotifType[] = [
+  "announcement",
   "overdue",
   "task_assigned",
   "project_assigned",
@@ -84,6 +93,7 @@ export default function BildirimlerPage() {
       overdue: 0,
       admin_team_done: 0,
       chat_unread: 0,
+      announcement: 0,
     };
     for (const item of summary.items) {
       m[item.type] = (m[item.type] ?? 0) + (item.count || 1);

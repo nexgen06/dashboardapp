@@ -12,6 +12,7 @@ export type Permission =
   | "area.reports"
   | "area.piiAccess"
   | "area.feedbackAdmin"
+  | "area.announcementsAdmin"
   // Projeler
   | "projects.view"
   | "projects.create"
@@ -104,6 +105,7 @@ export const ROLES: Record<RoleId, Role> = {
       "piiAccess.view",
       "area.feedbackAdmin",
       "feedback.manage",
+      "area.announcementsAdmin",
     ],
   },
   project_manager: {
@@ -275,6 +277,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "piiAccess.view": "TCKN/Sicil erişim kayıtlarını görüntüleme",
   "area.feedbackAdmin": "Geri bildirim yönetimi sekmesi",
   "feedback.manage": "Geri bildirimleri yönetme",
+  "area.announcementsAdmin": "Duyuru yönetimi sekmesi",
 };
 
 export type User = {
