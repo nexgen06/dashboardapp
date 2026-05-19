@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { getStatusKind } from "@/lib/statusKind";
 import { formatDate } from "@/lib/formatDate";
 import { getRelativeTime } from "@/lib/relativeTime";
+import { TaskCommentsSection } from "@/components/TaskCommentsSection";
 import { supabase } from "@/lib/supabaseClient";
 import {
   fetchAuditLog,
@@ -331,6 +332,9 @@ export function TaskDetailSheet({
               </dl>
             </section>
           )}
+
+          {/* Yorumlar — task_comments üzerinden, realtime senkron */}
+          {task && <TaskCommentsSection taskId={task.id} />}
 
           {/* Aktivite timeline — audit_log üzerinden, realtime senkron */}
           <section>
