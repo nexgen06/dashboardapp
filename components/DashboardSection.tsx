@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import Link from "next/link";
 import { useAuth } from "@/contexts/auth-context";
+import { useProfileLookup } from "@/contexts/profile-lookup-context";
 import { useProjects } from "@/hooks/useProjects";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
 import { useSettings } from "@/contexts/settings-context";
@@ -117,6 +118,7 @@ function InsightStat({
 
 export function DashboardSection() {
   const { user, hasPermission } = useAuth();
+  const profileLookup = useProfileLookup();
   const { settings } = useSettings();
   const { projects, isLoading: projectsLoading } = useProjects();
   const { tasks, isLoading: tasksLoading } = useTasksWithRealtime();
@@ -233,7 +235,14 @@ export function DashboardSection() {
     };
   }, [projectLinkedTasks, user?.email]);
 
-  const displayName = user?.displayName || user?.email || "Kullanıcı";
+  // Profilde nickname tanımlıysa o kullanılır; aksi halde displayName / email fallback.
+  const myProfile = profileLookup.byEmail(user?.email);
+  const displayName =
+    myProfile.nickname ||
+    myProfile.fullName?.split(/\s+/)[0] ||
+    user?.displayName ||
+    user?.email ||
+    "Kullanıcı";
 
   if (projectsLoading && tasksLoading) {
     return (
