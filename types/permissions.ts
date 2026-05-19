@@ -11,6 +11,7 @@ export type Permission =
   | "area.userManagement"
   | "area.reports"
   | "area.piiAccess"
+  | "area.feedbackAdmin"
   // Projeler
   | "projects.view"
   | "projects.create"
@@ -46,7 +47,9 @@ export type Permission =
   // Raporlar
   | "reports.view"
   // PII (TCKN/Sicil) erişim denetimi
-  | "piiAccess.view";
+  | "piiAccess.view"
+  // Geri bildirim yönetimi
+  | "feedback.manage";
 
 /** Rol kimliği */
 export type RoleId = "admin" | "project_manager" | "member" | "viewer";
@@ -99,6 +102,8 @@ export const ROLES: Record<RoleId, Role> = {
       "reports.view",
       "area.piiAccess",
       "piiAccess.view",
+      "area.feedbackAdmin",
+      "feedback.manage",
     ],
   },
   project_manager: {
@@ -268,6 +273,8 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "reports.view": "Raporları görüntüleme",
   "area.piiAccess": "PII erişim kayıtları sekmesi",
   "piiAccess.view": "TCKN/Sicil erişim kayıtlarını görüntüleme",
+  "area.feedbackAdmin": "Geri bildirim yönetimi sekmesi",
+  "feedback.manage": "Geri bildirimleri yönetme",
 };
 
 export type User = {
