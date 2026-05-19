@@ -9,6 +9,7 @@ import { useNotificationSummary } from "@/hooks/useNotificationSummary";
 import { NotificationBell } from "@/components/NotificationBell";
 import { openCommandPalette } from "@/components/CommandPalette";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useProfileLookup } from "@/contexts/profile-lookup-context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -58,7 +59,10 @@ export function Header() {
   const notificationSummary = useNotificationSummary();
   const [emailCopied, setEmailCopied] = useState(false);
 
-  const displayName = user?.displayName || user?.email || "Kullanıcı";
+  const profileLookup = useProfileLookup();
+  const myProfile = profileLookup.byEmail(user?.email);
+  const myAvatarUrl = myProfile.avatarUrl;
+  const displayName = myProfile.nickname || user?.displayName || user?.email || "Kullanıcı";
   const userEmail = user?.email || "";
   const userInitials = userInitialsFromDisplay(displayName, userEmail);
   const roleLabel = user ? ROLES[user.roleId]?.name ?? user.roleId : "";
@@ -132,7 +136,7 @@ export function Header() {
                 aria-haspopup="menu"
               >
                 <Avatar className="h-8 w-8 shrink-0 border border-slate-200 dark:border-slate-600">
-                  <AvatarImage src="" alt="" />
+                  {myAvatarUrl && <AvatarImage src={myAvatarUrl} alt={displayName} />}
                   <AvatarFallback className={cn("text-xs font-semibold", accentClass)}>{userInitials}</AvatarFallback>
                 </Avatar>
                 <div className="hidden min-w-0 flex-col items-start text-left sm:flex">
@@ -149,7 +153,7 @@ export function Header() {
               <DropdownMenuLabel className="p-0 font-normal">
                 <div className="flex gap-3 border-b border-slate-100 p-3 dark:border-slate-700">
                   <Avatar className="h-11 w-11 shrink-0 border border-slate-200 dark:border-slate-600">
-                    <AvatarImage src="" alt="" />
+                    {myAvatarUrl && <AvatarImage src={myAvatarUrl} alt={displayName} />}
                     <AvatarFallback className={cn("text-sm font-semibold", accentClass)}>{userInitials}</AvatarFallback>
                   </Avatar>
                   <div className="min-w-0 flex-1 py-0.5">

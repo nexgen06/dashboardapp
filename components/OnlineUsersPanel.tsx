@@ -3,7 +3,8 @@
 import * as React from "react";
 import { User, Pencil, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useProfileLookup } from "@/contexts/profile-lookup-context";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -81,6 +82,7 @@ export function OnlineUsersPanel({
   }, [tasks]);
 
   const currentEmailNorm = (currentUserEmail ?? "").trim().toLowerCase();
+  const profileLookup = useProfileLookup();
 
   if (onlineUsers.length === 0) return null;
 
@@ -131,6 +133,10 @@ export function OnlineUsersPanel({
                 className="flex items-center gap-3 px-3 py-2 text-left outline-none hover:bg-slate-50 dark:hover:bg-slate-700/50"
               >
                 <Avatar className="h-8 w-8 shrink-0 border border-slate-200 dark:border-slate-600">
+                  {(() => {
+                    const p = profileLookup.byEmail(u.email);
+                    return p.avatarUrl ? <AvatarImage src={p.avatarUrl} alt={u.name ?? u.email ?? ""} /> : null;
+                  })()}
                   <AvatarFallback
                     className={cn(
                       "text-xs font-medium",
