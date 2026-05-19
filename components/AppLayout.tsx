@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { SidebarProvider } from "@/contexts/sidebar-context";
 import { SettingsProvider } from "@/contexts/settings-context";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { MobileBottomNav } from "@/components/layout/MobileBottomNav";
 import { Header } from "@/components/layout/Header";
 import { ApplySettings } from "@/components/ApplySettings";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -30,16 +31,20 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <KeyboardShortcutsHUD />
           <OnboardingTour />
           <div className="flex min-h-screen">
-            <Sidebar />
+            {/* Sidebar masaüstünde (md+); mobilde MobileBottomNav görünür */}
+            <div className="hidden md:flex">
+              <Sidebar />
+            </div>
             <div className="flex flex-1 flex-col min-w-0">
               <Header />
-              <main className="flex flex-1 flex-col min-h-0 bg-white p-6 dark:bg-slate-900">
+              <main className="flex flex-1 flex-col min-h-0 bg-white p-4 sm:p-6 dark:bg-slate-900 pb-20 md:pb-6">
                 <Suspense fallback={<div className="text-slate-500 p-4">Yükleniyor...</div>}>
                   {children}
                 </Suspense>
               </main>
             </div>
           </div>
+          <MobileBottomNav />
         </ProjectChatUnreadProvider>
       </SettingsProvider>
     </SidebarProvider>
