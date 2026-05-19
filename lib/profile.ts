@@ -90,30 +90,52 @@ export async function updateMyProfile(fields: EditableProfileFields): Promise<vo
 }
 
 /**
- * Avatar yükle: `<user_id>/avatar-<timestamp>.<ext>` → public URL döner.
- * Bucket: "avatars" (public read, sahip yazar — Storage RLS).
+ * Avatar yükle — Next.js API route üzerinden (server-side proxy).
+ *
+ * Önceden doğrudan Supabase Storage'a upload yapılıyordu, ama Storage RLS
+ * `auth.uid()`'yi context'inde tam okuyamadığı için sıkı sahibe-özel policy
+ * çalıştırılamıyordu. Bu nedenle upload artık `/api/avatar/upload` üzerinden:
+ *  - Server JWT'yi anon-key client ile doğrular
+ *  - MIME + boyut kontrolünü server-side yapar
+ *  - Service-role client ile <user_id>/avatar-<ts>.<ext> yoluna yükler
+ *  - Eski avatar dosyalarını otomatik temizler
+ *  - profiles.avatar_url'i de günceller
  */
 export async function uploadAvatar(file: File): Promise<string> {
-  const { data: authUser } = await supabase.auth.getUser();
-  const uid = authUser?.user?.id;
-  if (!uid) throw new Error("Oturum açık değil.");
+  const { data: session } = await supabase.auth.getSession();
+  const token = session?.session?.access_token;
+  if (!token) throw new Error("Oturum açık değil.");
+
   if (!file.type.startsWith("image/")) {
     throw new Error("Sadece resim dosyası kabul edilir.");
   }
   if (file.size > 5 * 1024 * 1024) {
     throw new Error("Dosya en fazla 5 MB olabilir.");
   }
-  const ext = (file.name.split(".").pop() || "png").toLowerCase().replace(/[^a-z0-9]/g, "");
-  const path = `${uid}/avatar-${Date.now()}.${ext}`;
-  const { error: uploadError } = await supabase.storage
-    .from("avatars")
-    .upload(path, file, {
-      cacheControl: "3600",
-      upsert: true,
-    });
-  if (uploadError) throw uploadError;
-  const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
-  return urlData.publicUrl;
+
+  const form = new FormData();
+  form.append("file", file);
+
+  const res = await fetch("/api/avatar/upload", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+
+  if (!res.ok) {
+    let msg = "Yükleme başarısız.";
+    try {
+      const body = await res.json();
+      if (body?.error) msg = String(body.error);
+    } catch {
+      // body parse hatası — varsayılan mesaj
+    }
+    throw new Error(msg);
+  }
+
+  const data = (await res.json()) as { url: string };
+  if (!data?.url) throw new Error("Sunucu URL döndürmedi.");
+  return data.url;
 }
 
 /** Bir grup user_id için profile sözlüğü (Görev atananlarını avatar ile göstermek için). */
