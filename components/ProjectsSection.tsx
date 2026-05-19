@@ -17,6 +17,8 @@ import {
   normalizeTaskAssigneeEmail,
   pickRoundRobinAssignee,
 } from "@/lib/projectImportAssignee";
+import { offsetToDateIso, type ProjectTemplate } from "@/lib/projectTemplates";
+import { SaveTemplateDialog, TemplateListDialog } from "@/components/ProjectTemplateDialogs";
 import type { Project, ProjectStatus, ProjectPriority } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,7 +42,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Search, PlusCircle, MoreVertical, Pencil, Archive, Trash2, RotateCw, Upload, FileText, UserPlus, X, Calendar, Flag, FolderKanban, Check } from "lucide-react";
+import { Search, PlusCircle, MoreVertical, Pencil, Archive, Trash2, RotateCw, Upload, FileText, UserPlus, X, Calendar, Flag, FolderKanban, Check, Bookmark } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProjectColumnManager } from "@/components/ProjectColumnManager";
 
@@ -1370,6 +1372,9 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
   const [deleteConfirm, setDeleteConfirm] = useState<Project | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  // Şablon dialogları
+  const [templateListOpen, setTemplateListOpen] = useState(false);
+  const [saveTemplateProject, setSaveTemplateProject] = useState<Project | null>(null);
 
   /** Komut paletinden "Yeni proje" tetiklendiğinde formu aç */
   useEffect(() => {
@@ -1577,6 +1582,49 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
     setFormOpen(true);
   };
 
+  /**
+   * Şablondan yeni proje oluştur: şablon proje şeması + opsiyonel görev seti.
+   * Görevlerin due_offset_days değerleri bugünden tarihe çevrilir.
+   */
+  const handleUseTemplate = async (template: ProjectTemplate) => {
+    try {
+      const td = template.template_data ?? {};
+      const newName = window.prompt(
+        `Şablon: "${template.name}"\nYeni proje adı:`,
+        template.name.replace(/\s+—\s+şablonu$/i, "")
+      );
+      if (!newName || !newName.trim()) return;
+      const projectId = await createProject({
+        name: newName.trim(),
+        description: template.description || "",
+        status: td.status ?? "Aktif",
+        priority: td.priority ?? undefined,
+        due_date: offsetToDateIso(td.due_offset_days ?? null) ?? undefined,
+        assigned_emails: td.assigned_emails ?? undefined,
+        strict_assignee_visibility: isAdmin ? (td.strict_assignee_visibility ?? false) : false,
+        extra_column_keys: td.extra_column_keys ?? undefined,
+        title_column: td.title_column ?? null,
+        subtitle_columns: td.subtitle_columns ?? null,
+        wip_in_progress_limit: td.wip_in_progress_limit ?? null,
+      });
+      if (projectId && template.tasks.length > 0) {
+        // Görevleri toplu olarak ekle (createTasksBulk mevcut)
+        const taskRows = template.tasks.map((t) => ({
+          content: t.content,
+          status: t.status ?? "Yapılacak",
+          priority: t.priority ?? null,
+          assignee: t.assignee ?? null,
+          due_date: offsetToDateIso(t.due_offset_days ?? null) ?? null,
+          extra_data: t.extra_data ?? null,
+          project_id: projectId,
+        }));
+        await createTasksBulk(taskRows);
+      }
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : "Şablondan oluşturulamadı");
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true" aria-label="Projeler yükleniyor">
@@ -1681,6 +1729,19 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
             placeholder="Bitiş"
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
           />
+          {canCreateProject && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setTemplateListOpen(true)}
+              className="shrink-0 gap-1.5"
+              title="Şablondan yeni proje oluştur veya kayıtlı şablonları yönet"
+            >
+              <Bookmark className="h-4 w-4" />
+              Şablonlar
+            </Button>
+          )}
           <RestrictedButton
             permission="projects.create"
             type="button"
@@ -1834,6 +1895,12 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
                             Proje detayı / görevler
                           </Link>
                         </DropdownMenuItem>
+                        {canCreateProject && (
+                          <DropdownMenuItem onClick={() => setSaveTemplateProject(project)}>
+                            <Bookmark className="mr-2 h-3.5 w-3.5" />
+                            Şablon olarak kaydet
+                          </DropdownMenuItem>
+                        )}
                         {canArchiveProject && (
                           <DropdownMenuItem onClick={() => archiveProject(project.id)} disabled={project.status === "Beklemede"}>
                             <Archive className="mr-2 h-3.5 w-3.5" />
@@ -1990,6 +2057,24 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
             : {}
         }
       />
+
+      {/* Şablon dialogları */}
+      <TemplateListDialog
+        open={templateListOpen}
+        onOpenChange={setTemplateListOpen}
+        isAdmin={isAdmin}
+        currentUserId={user?.id ?? null}
+        onUseTemplate={(t) => void handleUseTemplate(t)}
+      />
+      <SaveTemplateDialog
+        open={!!saveTemplateProject}
+        onOpenChange={(o) => !o && setSaveTemplateProject(null)}
+        project={saveTemplateProject}
+        tasks={saveTemplateProject ? tasks.filter((t) => String(t.project_id ?? "") === saveTemplateProject.id) : []}
+        isAdmin={isAdmin}
+        onSaved={() => setSaveTemplateProject(null)}
+      />
+
       <Dialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
         <DialogContent showClose={true}>
           <DialogHeader>
