@@ -84,13 +84,13 @@ export function NotificationBell({ summary }: { summary: NotificationSummary }) 
           <div className="px-3 py-4 text-center text-sm text-slate-500 dark:text-slate-400">
             Yükleniyor…
           </div>
-        ) : items.length === 0 ? (
+        ) : items.filter((i) => i.count > 0).length === 0 ? (
           <div className="px-3 py-4 text-center text-sm text-slate-500 dark:text-slate-400">
             Yeni bildirim yok
           </div>
         ) : (
           <div className="max-h-[320px] overflow-y-auto py-1">
-            {items.map((item) => {
+            {items.filter((i) => i.count > 0).map((item) => {
               const Icon = ICON_MAP[item.type];
               return (
                 <Link
