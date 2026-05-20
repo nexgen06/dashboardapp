@@ -10,6 +10,7 @@ import {
   Table2,
   MessageSquarePlus,
   Megaphone,
+  Mail,
   Settings,
   Shield,
   BarChart3,
@@ -59,6 +60,7 @@ export function Sidebar() {
     { href: "/yonetim/pii-access", label: "PII erişim kayıtları", tooltip: "TCKN/Sicil kopya/export izleme", icon: Shield, permission: "area.piiAccess" as const, alsoRequire: "piiAccess.view" as const },
     { href: "/yonetim/geri-bildirimler", label: "Geri bildirim yönetimi", tooltip: "Kullanıcılardan gelen öneri/hata/soru", icon: MessageSquarePlus, permission: "area.feedbackAdmin" as const, alsoRequire: "feedback.manage" as const },
     { href: "/yonetim/duyurular", label: "Duyurular", tooltip: "Tüm kullanıcılara mesaj gönder", icon: Megaphone, permission: "area.announcementsAdmin" as const, alsoRequire: "notifications.send" as const },
+    { href: "/yonetim/eposta-bildirimleri", label: "E-posta bildirim ayarları", tooltip: "Hangi olaylarda e-posta gönderilsin (varsayılan kapalı)", icon: Mail, permission: "area.emailNotifAdmin" as const, alsoRequire: null },
   ].filter((item) => {
     if (item.permission && !hasPermission(item.permission)) return false;
     if (item.alsoRequire && !hasPermission(item.alsoRequire)) return false;
