@@ -48,6 +48,7 @@ export async function createAnnouncement(input: {
   const { data: authUser } = await supabase.auth.getUser();
   const uid = authUser?.user?.id;
   const email = authUser?.user?.email ?? "";
+  const accessToken = (await supabase.auth.getSession()).data.session?.access_token;
   if (!uid) throw new Error("Oturum açık değil.");
   const { data, error } = await supabase
     .from("announcements")
@@ -62,7 +63,25 @@ export async function createAnnouncement(input: {
     .select("*")
     .single();
   if (error) throw error;
-  return rowToAnnouncement(data);
+  const created = rowToAnnouncement(data);
+
+  // Fire-and-forget: e-posta gönderim endpoint'i (ayar KAPALI ise sessiz atlanır)
+  if (accessToken) {
+    void fetch("/api/send-email/announcement-new", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ announcementId: created.id }),
+    }).catch((e) => {
+      if (typeof console !== "undefined") {
+        console.warn("[announcements] e-posta tetikleme başarısız:", e);
+      }
+    });
+  }
+
+  return created;
 }
 
 export async function updateAnnouncement(
