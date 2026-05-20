@@ -37,14 +37,21 @@ export function NotificationBell({ summary }: { summary: NotificationSummary }) 
           className="relative h-10 w-10 rounded-full text-slate-600 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
           aria-label="Bildirimler"
         >
-          <Bell className="h-5 w-5" />
+          <Bell className={totalCount > 0 ? "h-5 w-5 animate-[wiggle_1s_ease-in-out_2]" : "h-5 w-5"} />
           {totalCount > 0 && (
-            <span
-              className="absolute -right-0.5 -top-0.5 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-white shadow-sm"
-              aria-hidden
-            >
-              {totalCount > 99 ? "99+" : totalCount}
-            </span>
+            <>
+              {/* Pulsing ring — daha belirgin görsel uyarı */}
+              <span
+                className="absolute -right-0.5 -top-0.5 h-5 w-5 animate-ping rounded-full bg-amber-400 opacity-60"
+                aria-hidden
+              />
+              <span
+                className="absolute -right-0.5 -top-0.5 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-white shadow-md ring-2 ring-white dark:ring-slate-800"
+                aria-hidden
+              >
+                {totalCount > 99 ? "99+" : totalCount}
+              </span>
+            </>
           )}
         </Button>
       </DropdownMenuTrigger>

@@ -5,6 +5,7 @@ import { useProjects } from "@/hooks/useProjects";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
 import { useAuth } from "@/contexts/auth-context";
 import { useProjectChatUnread } from "@/contexts/project-chat-unread-context";
+import { useToast } from "@/components/ui/toast";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { markProjectChatRead } from "@/lib/projectChatApi";
 import type { RealtimeChannel } from "@supabase/supabase-js";
@@ -59,6 +60,7 @@ type AdminAlertRow = {
 
 export function useNotificationSummary(): NotificationSummary {
   const { user, isAdmin, hasPermission } = useAuth();
+  const toast = useToast();
   const canAdminNotifications = isAdmin && hasPermission("notifications.send");
   const currentUserEmail = user?.email ?? null;
   const userId = user?.id ?? null;
@@ -140,6 +142,20 @@ export function useNotificationSummary(): NotificationSummary {
         (payload) => {
           if (typeof console !== "undefined") {
             console.log("[notif] announcement event:", payload.eventType);
+          }
+          // Yeni duyuru gelir gelmez kullanıcıya görsel uyarı (toast)
+          if (payload.eventType === "INSERT") {
+            const newRow = payload.new as { title?: string; author_email?: string };
+            const title = (newRow?.title ?? "").toString();
+            toast.info(
+              title ? `📢 Yeni duyuru: ${title}` : "📢 Yeni duyuru",
+              {
+                description: newRow?.author_email
+                  ? `${newRow.author_email} bir duyuru yayımladı`
+                  : "Detaylar için bildirim merkezine bakın",
+                durationMs: 6000,
+              }
+            );
           }
           void fetchAnnouncements();
         }
