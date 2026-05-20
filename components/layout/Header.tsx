@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useState, useCallback } from "react";
 import { User, Settings, LogOut, LogIn, Shield, Copy, Check, Search, UserCircle2 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
-import { useNotificationSummary } from "@/hooks/useNotificationSummary";
+import { useNotifications } from "@/contexts/notification-context";
 import { NotificationBell } from "@/components/NotificationBell";
 import { openCommandPalette } from "@/components/CommandPalette";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -56,7 +56,7 @@ export function Header() {
   const pageTitle = getPageTitle(pathname);
   const { user, isAuthEnabled, signOut, hasPermission } = useAuth();
   const showUserManagementNav = hasPermission("area.userManagement");
-  const notificationSummary = useNotificationSummary();
+  const notificationSummary = useNotifications();
   const [emailCopied, setEmailCopied] = useState(false);
 
   const profileLookup = useProfileLookup();

@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAuth } from "@/contexts/auth-context";
-import { useNotificationSummary } from "@/hooks/useNotificationSummary";
+import { useNotifications } from "@/contexts/notification-context";
 import { useProjectChatUnread } from "@/contexts/project-chat-unread-context";
 import type { Permission } from "@/types/permissions";
 import { cn } from "@/lib/utils";
@@ -38,7 +38,7 @@ type NavItem = {
 export function MobileBottomNav() {
   const pathname = usePathname();
   const { hasPermission } = useAuth();
-  const notif = useNotificationSummary();
+  const notif = useNotifications();
   const { totalUnread } = useProjectChatUnread();
   const [moreOpen, setMoreOpen] = useState(false);
 
