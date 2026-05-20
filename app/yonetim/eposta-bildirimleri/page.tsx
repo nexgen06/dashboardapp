@@ -101,16 +101,20 @@ export default function EmailNotifAdminPage() {
         </span>
       </header>
 
-      {/* Uyarı banner'ı */}
-      <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
-        <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+      {/* Durum banner'ı */}
+      <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-900 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-100">
+        <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
         <div>
-          <p className="font-semibold">Phase 1: Sadece kontrol paneli</p>
+          <p className="font-semibold">Aktif olaylar</p>
           <p className="mt-0.5">
-            Henüz <strong>e-posta gönderim entegrasyonu yok</strong>. Bu sayfa toggle&apos;ların
-            ileride hangi olaylarda aktif olacağını ön-belirler. Bir olay açık olsa bile
-            şu an gerçek e-posta gitmez. Gönderim altyapısı (Resend + Edge Function)
-            Phase 2&apos;de gelecek.
+            <strong>Yeni duyuru</strong> olayı için gerçek e-posta gönderimi aktif (Resend
+            entegrasyonu hazır). Toggle açıldıktan sonra admin duyuru yayımlayınca tüm
+            kullanıcılara mail gider. Diğer olaylar (görev atandı, yorum, vb.) sıradaki
+            güncellemelerle eklenecek — toggle açık olsa bile mail gitmez.
+          </p>
+          <p className="mt-1.5 text-[11px] opacity-80">
+            Ön koşul: <code>RESEND_API_KEY</code> ve <code>NEXT_PUBLIC_APP_URL</code> env
+            değişkenleri tanımlı olmalı. Free tier 3000 mail/ay.
           </p>
         </div>
       </div>
