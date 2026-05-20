@@ -70,6 +70,15 @@ export function useNotificationSummary(): NotificationSummary {
   const announcementsRef = useRef<Announcement[]>([]);
   announcementsRef.current = announcements;
 
+  /**
+   * Bu hook'un her instance'ı için sabit unique kanal id'si. Header + MobileBottomNav
+   * gibi iki yerde çağrılırsa channel name çakışmaz; cleanup sırasında race olmaz.
+   */
+  const channelIdRef = useRef<string | null>(null);
+  if (channelIdRef.current === null) {
+    channelIdRef.current = `${Math.random().toString(36).slice(2, 10)}`;
+  }
+
   const fetchAnnouncements = useCallback(async () => {
     if (!isSupabaseConfigured() || !userId || userId === "demo") {
       setAnnouncements([]);
@@ -94,21 +103,51 @@ export function useNotificationSummary(): NotificationSummary {
     void fetchAnnouncements();
   }, [fetchAnnouncements]);
 
-  // Realtime: yeni duyuru gelirse anında listeye düşer
+  // Sekme tekrar odaklandığında veya 60 saniyede bir tekrar çek — realtime
+  // başarısız olursa kullanıcı yine de güncel listeyi görür.
+  useEffect(() => {
+    if (!userId) return;
+    const onFocus = () => void fetchAnnouncements();
+    window.addEventListener("focus", onFocus);
+    const interval = window.setInterval(() => {
+      if (!document.hidden) void fetchAnnouncements();
+    }, 60_000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.clearInterval(interval);
+    };
+  }, [userId, fetchAnnouncements]);
+
+  // Realtime: yeni duyuru gelirse anında listeye düşer + okuma durumu da senkron
   useEffect(() => {
     if (!isSupabaseConfigured() || !userId || userId === "demo") return;
     const ch: RealtimeChannel = supabase
-      .channel("announcements-notify")
+      .channel(`announcements-${userId}-${channelIdRef.current}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "announcements" },
-        () => {
+        (payload) => {
+          if (typeof console !== "undefined") {
+            console.log("[notif] announcement event:", payload.eventType);
+          }
           void fetchAnnouncements();
         }
       )
-      .subscribe();
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "announcement_reads", filter: `reader_id=eq.${userId}` },
+        () => {
+          // Başka cihazda/tab'de okuduysa aynı oturumda yansısın
+          void fetchAnnouncements();
+        }
+      )
+      .subscribe((status) => {
+        if (typeof console !== "undefined") {
+          console.log("[notif] announcements channel:", status);
+        }
+      });
     return () => {
-      supabase.removeChannel(ch);
+      void supabase.removeChannel(ch);
     };
   }, [userId, fetchAnnouncements]);
 
@@ -157,7 +196,7 @@ export function useNotificationSummary(): NotificationSummary {
   useEffect(() => {
     if (!isSupabaseConfigured() || !canAdminNotifications || !userId || userId === "demo") return;
     const ch: RealtimeChannel = supabase
-      .channel("admin-alerts-notify", { config: { private: true } })
+      .channel(`admin-alerts-${userId}-${channelIdRef.current}`, { config: { private: true } })
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "admin_alerts" },
