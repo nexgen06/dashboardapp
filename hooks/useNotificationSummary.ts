@@ -92,17 +92,21 @@ export function useNotificationSummary(): NotificationSummary {
       setReadAnnouncementIds(new Set());
       return;
     }
-    try {
-      const [list, reads] = await Promise.all([
-        listAnnouncements(),
-        getMyReadAnnouncementIds(),
-      ]);
-      setAnnouncements(list);
-      setReadAnnouncementIds(reads);
-    } catch (e) {
-      console.warn("[Notifications] announcements:", e);
-      setAnnouncements([]);
-      setReadAnnouncementIds(new Set());
+    // İki sorguyu bağımsız çek — biri başarısız olsa diğeri çalışsın.
+    // Önceki başarılı state'i ASLA boşa çekme; sadece güncel olanları üstüne yaz.
+    const [listResult, readsResult] = await Promise.allSettled([
+      listAnnouncements(),
+      getMyReadAnnouncementIds(),
+    ]);
+    if (listResult.status === "fulfilled") {
+      setAnnouncements(listResult.value);
+    } else if (typeof console !== "undefined") {
+      console.warn("[Notifications] listAnnouncements failed:", listResult.reason);
+    }
+    if (readsResult.status === "fulfilled") {
+      setReadAnnouncementIds(readsResult.value);
+    } else if (typeof console !== "undefined") {
+      console.warn("[Notifications] getMyReadAnnouncementIds failed:", readsResult.reason);
     }
   }, [userId]);
 
@@ -257,20 +261,21 @@ export function useNotificationSummary(): NotificationSummary {
     const email = (currentUserEmail ?? "").trim().toLowerCase();
     const items: NotificationSummaryItem[] = [];
 
-    // Okunmamış duyurular (herkes görür) — pinli olanlar önce
-    const unreadAnnouncements = announcements
-      .filter((a) => !readAnnouncementIds.has(a.id))
-      .sort((a, b) => {
-        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      });
-    for (const a of unreadAnnouncements) {
+    // TÜM duyurular items'a eklenir; okunmuş olanların count'u 0 — bu sayede
+    // bell totalCount'ta sayılmaz ama /bildirimler sayfasında görünmeye devam
+    // eder (kullanıcı geçmiş duyuruları okuyabilir).
+    const sortedAnnouncements = [...announcements].sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+    for (const a of sortedAnnouncements) {
+      const isRead = readAnnouncementIds.has(a.id);
       items.push({
         type: "announcement",
         id: a.id,
         label: a.title,
         href: "/bildirimler",
-        count: 1,
+        count: isRead ? 0 : 1,
       });
     }
 
