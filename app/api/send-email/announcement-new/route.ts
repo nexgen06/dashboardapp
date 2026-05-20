@@ -119,9 +119,16 @@ export async function POST(request: Request) {
   if (pErr) {
     return NextResponse.json({ error: pErr.message }, { status: 500 });
   }
-  const recipients = (profiles ?? [])
+  let recipients = (profiles ?? [])
     .map((p) => String((p as Record<string, unknown>).email ?? "").trim())
     .filter((e) => e && e.includes("@"));
+
+  // Resend sandbox: RESEND_TEST_RECIPIENT tanımlıysa, sadece o adrese gönder
+  // (domain doğrulanmadan önce test için). Production'da bu env'i kaldır.
+  const testRecipient = process.env.RESEND_TEST_RECIPIENT?.trim();
+  if (testRecipient && testRecipient.includes("@")) {
+    recipients = recipients.includes(testRecipient) ? [testRecipient] : [testRecipient];
+  }
 
   if (recipients.length === 0) {
     return NextResponse.json({ ok: true, skipped: true, reason: "Alıcı yok." });
