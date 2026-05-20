@@ -15,7 +15,8 @@ import {
   Megaphone,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
-import { useNotificationSummary, type NotificationSummaryItem } from "@/hooks/useNotificationSummary";
+import { type NotificationSummaryItem } from "@/hooks/useNotificationSummary";
+import { useNotifications } from "@/contexts/notification-context";
 import { Button } from "@/components/ui/button";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -82,7 +83,7 @@ const ORDER: NotifType[] = [
 
 export default function BildirimlerPage() {
   const { isLoaded, user } = useAuth();
-  const summary = useNotificationSummary();
+  const summary = useNotifications();
   const [activeType, setActiveType] = useState<NotifType | "all">("all");
 
   // Tür başına sayım

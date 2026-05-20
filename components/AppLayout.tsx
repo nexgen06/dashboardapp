@@ -13,6 +13,7 @@ import { OnboardingTour } from "@/components/OnboardingTour";
 import { KeyboardShortcutsHUD } from "@/components/KeyboardShortcutsHUD";
 import { ProjectChatUnreadProvider } from "@/contexts/project-chat-unread-context";
 import { ProfileLookupProvider } from "@/contexts/profile-lookup-context";
+import { NotificationProvider } from "@/contexts/notification-context";
 
 /** Giriş sayfasında sidebar/header göstermez; diğer sayfalarda tam panel layout. */
 export function AppLayout({ children }: { children: React.ReactNode }) {
@@ -28,6 +29,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       <SettingsProvider>
         <ProfileLookupProvider>
         <ProjectChatUnreadProvider>
+        <NotificationProvider>
           <ApplySettings />
           <CommandPalette />
           <KeyboardShortcutsHUD />
@@ -47,6 +49,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <MobileBottomNav />
+        </NotificationProvider>
         </ProjectChatUnreadProvider>
         </ProfileLookupProvider>
       </SettingsProvider>
