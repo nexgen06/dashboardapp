@@ -17,6 +17,7 @@ import {
   listAnnouncements,
   getMyReadAnnouncementIds,
   markAllAnnouncementsRead,
+  markAnnouncementRead as markAnnouncementReadFn,
   type Announcement,
 } from "@/lib/announcements";
 
@@ -42,6 +43,12 @@ export type NotificationSummary = {
   onPanelOpened?: () => void | Promise<void>;
   /** "Hepsini okundu işaretle" — tüm proje sohbet bildirimleri dahil hepsini temizle */
   onMarkAllRead?: () => void | Promise<void>;
+  /** Tüm aktif duyurular — sayfada body göstermek için */
+  announcements?: Announcement[];
+  /** Okunmuş duyuru id'leri */
+  readAnnouncementIds?: Set<string>;
+  /** Tek bir duyuruyu okundu işaretle (sayfa içi tıklama) */
+  markAnnouncementRead?: (id: string) => void | Promise<void>;
 };
 
 type AdminAlertRow = {
@@ -241,20 +248,10 @@ export function useNotificationSummary(): NotificationSummary {
     };
     saveDerivedNotificationAck(userId, next);
     setDerivedAck(next);
-
-    // Tüm okunmamış duyuruları okundu işaretle
-    const unreadAnnouncements = announcementsRef.current.filter(
-      (a) => !readAnnouncementIds.has(a.id)
-    );
-    if (unreadAnnouncements.length > 0) {
-      await markAllAnnouncementsRead(unreadAnnouncements);
-      setReadAnnouncementIds((prev) => {
-        const next = new Set(prev);
-        for (const a of unreadAnnouncements) next.add(a.id);
-        return next;
-      });
-    }
-  }, [userId, canAdminNotifications, currentUserEmail, projects, tasks, readAnnouncementIds]);
+    // NOT: Duyuruları (announcements) burada OKUNDU işaretlemiyoruz — kullanıcı
+    // sadece dropdown'ı açtı diye duyurular silinmemeli. /bildirimler sayfasında
+    // bireysel tıklama veya "Hepsini okundu işaretle" butonuyla manuel olarak işaretlenir.
+  }, [userId, canAdminNotifications, currentUserEmail, projects, tasks]);
 
   const summary = useMemo(() => {
     const email = (currentUserEmail ?? "").trim().toLowerCase();
@@ -367,6 +364,20 @@ export function useNotificationSummary(): NotificationSummary {
    */
   const onMarkAllRead = useCallback(async () => {
     await onPanelOpened();
+
+    // Tüm duyuruları okundu işaretle (manuel buton)
+    const unreadAnnouncements = announcementsRef.current.filter(
+      (a) => !readAnnouncementIds.has(a.id)
+    );
+    if (unreadAnnouncements.length > 0) {
+      await markAllAnnouncementsRead(unreadAnnouncements);
+      setReadAnnouncementIds((prev) => {
+        const nextSet = new Set(prev);
+        for (const a of unreadAnnouncements) nextSet.add(a.id);
+        return nextSet;
+      });
+    }
+
     const email = (currentUserEmail ?? "").trim().toLowerCase();
     if (!email) return;
     const unreadProjectIds = Object.entries(unreadByProjectId)
@@ -377,12 +388,27 @@ export function useNotificationSummary(): NotificationSummary {
       unreadProjectIds.map((pid) => markProjectChatRead(pid, email))
     );
     refreshChatUnread();
-  }, [onPanelOpened, currentUserEmail, unreadByProjectId, refreshChatUnread]);
+  }, [onPanelOpened, currentUserEmail, unreadByProjectId, refreshChatUnread, readAnnouncementIds]);
+
+  const markAnnouncementRead = useCallback(
+    async (id: string) => {
+      await markAnnouncementReadFn(id);
+      setReadAnnouncementIds((prev) => {
+        const nextSet = new Set(prev);
+        nextSet.add(id);
+        return nextSet;
+      });
+    },
+    []
+  );
 
   return {
     ...summary,
     isLoading: projectsLoading || tasksLoading || (canAdminNotifications && adminAlertsLoading),
     onPanelOpened: userId ? () => void onPanelOpened() : undefined,
     onMarkAllRead: userId ? () => void onMarkAllRead() : undefined,
+    announcements,
+    readAnnouncementIds,
+    markAnnouncementRead: userId ? markAnnouncementRead : undefined,
   };
 }

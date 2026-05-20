@@ -224,6 +224,68 @@ export default function BildirimlerPage() {
           {filteredItems.map((item) => {
             const meta = TYPE_META[item.type];
             const Icon = meta.icon;
+
+            // Duyurular için özel render: body göster + tıkla = okundu işaretle
+            if (item.type === "announcement" && item.id) {
+              const announcement = summary.announcements?.find((a) => a.id === item.id);
+              const isRead = summary.readAnnouncementIds?.has(item.id) ?? false;
+              if (!announcement) return null;
+              return (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!isRead) void summary.markAnnouncementRead?.(item.id!);
+                    }}
+                    className={cn(
+                      "group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors",
+                      isRead
+                        ? "opacity-70 hover:bg-slate-50 dark:hover:bg-slate-700/40"
+                        : "bg-violet-50/40 hover:bg-violet-50 dark:bg-violet-900/10 dark:hover:bg-violet-900/20"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
+                        meta.bg,
+                        meta.text
+                      )}
+                      aria-hidden
+                    >
+                      <Icon className="h-4 w-4" />
+                    </span>
+                    <span className="flex min-w-0 flex-1 flex-col gap-1">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className={cn("shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide", meta.bg, meta.text)}>
+                          {meta.chip}
+                        </span>
+                        {announcement.pinned && (
+                          <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                            📌 Sabit
+                          </span>
+                        )}
+                        {!isRead && (
+                          <span className="h-2 w-2 rounded-full bg-violet-500" aria-label="Okunmamış" />
+                        )}
+                        <span className="ml-auto text-[10px] text-slate-400">
+                          {new Date(announcement.created_at).toLocaleString("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                      </span>
+                      <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                        {announcement.title}
+                      </span>
+                      <span className="whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-400">
+                        {announcement.body}
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        — {announcement.author_email}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              );
+            }
+
             return (
               <li key={item.id ?? `${item.type}-${item.label}`}>
                 <Link
