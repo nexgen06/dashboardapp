@@ -56,7 +56,7 @@ CREATE POLICY task_comments_select
     )
   );
 
--- Insert: görevi görebilen + member+ rolü + sadece kendi user_id ile
+-- Insert: satırı düzenleyebilen + member+ rolü + sadece kendi user_id ile
 CREATE POLICY task_comments_insert
   ON public.task_comments
   FOR INSERT
@@ -67,26 +67,47 @@ CREATE POLICY task_comments_insert
     AND EXISTS (
       SELECT 1 FROM public.tasks t
       WHERE t.id = task_comments.task_id
-        AND public.task_is_visible_for_current_user(t.project_id, t.assignee)
+        AND public.task_is_editable_for_current_user(t.project_id, t.assignee)
     )
   );
 
--- Update: sadece yorum sahibi
+-- Update: sadece yorum sahibi ve satır hala düzenlenebilir ise
 CREATE POLICY task_comments_update
   ON public.task_comments
   FOR UPDATE
   TO authenticated
-  USING (user_id = auth.uid())
-  WITH CHECK (user_id = auth.uid());
+  USING (
+    user_id = auth.uid()
+    AND EXISTS (
+      SELECT 1 FROM public.tasks t
+      WHERE t.id = task_comments.task_id
+        AND public.task_is_editable_for_current_user(t.project_id, t.assignee)
+    )
+  )
+  WITH CHECK (
+    user_id = auth.uid()
+    AND EXISTS (
+      SELECT 1 FROM public.tasks t
+      WHERE t.id = task_comments.task_id
+        AND public.task_is_editable_for_current_user(t.project_id, t.assignee)
+    )
+  );
 
--- Delete: yorum sahibi veya admin
+-- Delete: admin her yorumu; yorum sahibi ise sadece satır düzenlenebilirken silebilir
 CREATE POLICY task_comments_delete
   ON public.task_comments
   FOR DELETE
   TO authenticated
   USING (
-    user_id = auth.uid()
-    OR public.current_profile_role_id() = 'admin'
+    public.current_profile_role_id() = 'admin'
+    OR (
+      user_id = auth.uid()
+      AND EXISTS (
+        SELECT 1 FROM public.tasks t
+        WHERE t.id = task_comments.task_id
+          AND public.task_is_editable_for_current_user(t.project_id, t.assignee)
+      )
+    )
   );
 
 -- 5) Realtime publication

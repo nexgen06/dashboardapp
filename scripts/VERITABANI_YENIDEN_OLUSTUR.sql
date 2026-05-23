@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS public.projects (
 ALTER TABLE public.projects
   ADD COLUMN IF NOT EXISTS assigned_emails text[] DEFAULT '{}',
   ADD COLUMN IF NOT EXISTS due_date date,
-  ADD COLUMN IF NOT EXISTS priority text;
+  ADD COLUMN IF NOT EXISTS priority text,
+  ADD COLUMN IF NOT EXISTS team_edit_all_tasks boolean NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS public.tasks (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

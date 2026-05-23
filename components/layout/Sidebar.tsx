@@ -7,6 +7,7 @@ import {
   FolderKanban,
   MessagesSquare,
   Bell,
+  ListTodo,
   Table2,
   MessageSquarePlus,
   Megaphone,
@@ -50,6 +51,7 @@ export function Sidebar() {
       permission: "area.projects" as const,
       alsoRequire: "projects.view" as const,
     },
+    { href: "/gorevlerim", label: "Görevlerim", tooltip: "Mobil odaklı kişisel görev akışı", icon: ListTodo, permission: "area.liveTable" as const, alsoRequire: "liveTable.view" as const },
     { href: "/canli-tablo", label: "Canlı Tablo", icon: Table2, permission: "area.liveTable" as const, alsoRequire: "liveTable.view" as const },
     { href: "/bildirimler", label: "Bildirimler", tooltip: "Atama, gecikme ve sohbet bildirimleri", icon: Bell, permission: null as Permission | null, alsoRequire: null as Permission | null },
     { href: "/raporlar", label: "Raporlar", tooltip: "Proje ve ekip performans raporları", icon: BarChart3, permission: "area.reports" as const, alsoRequire: "reports.view" as const },
@@ -97,8 +99,10 @@ export function Sidebar() {
                     : item.href === "/projeler"
                       ? pathname.startsWith("/projeler")
                       : item.href === "/mesajlar"
-                        ? pathname.startsWith("/mesajlar")
-                        : item.href === "/canli-tablo"
+                      ? pathname.startsWith("/mesajlar")
+                      : item.href === "/gorevlerim"
+                        ? pathname === "/gorevlerim"
+                      : item.href === "/canli-tablo"
                           ? pathname === "/canli-tablo"
                           : false;
 

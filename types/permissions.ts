@@ -36,6 +36,8 @@ export type Permission =
   | "liveTable.bulkDelete"
   | "liveTable.importCsv"
   | "liveTable.exportCsv"
+  | "liveTable.exportAllRows"
+  | "liveTable.exportSensitiveUnmasked"
   | "liveTable.manageColumns"
   | "liveTable.autoSizeColumns"
   // Ayarlar
@@ -93,6 +95,8 @@ export const ROLES: Record<RoleId, Role> = {
       "liveTable.bulkDelete",
       "liveTable.importCsv",
       "liveTable.exportCsv",
+      "liveTable.exportAllRows",
+      "liveTable.exportSensitiveUnmasked",
       "liveTable.manageColumns",
       "liveTable.autoSizeColumns",
       "settings.view",
@@ -136,6 +140,7 @@ export const ROLES: Record<RoleId, Role> = {
       "liveTable.bulkDelete",
       "liveTable.importCsv",
       "liveTable.exportCsv",
+      "liveTable.exportAllRows",
       "liveTable.manageColumns",
       "liveTable.autoSizeColumns",
       "settings.view",
@@ -161,6 +166,7 @@ export const ROLES: Record<RoleId, Role> = {
       "liveTable.view",
       "liveTable.createTask",
       "liveTable.editTask",
+      "liveTable.exportCsv",
       "liveTable.manageColumns",
       "liveTable.autoSizeColumns",
       "settings.view",
@@ -223,6 +229,8 @@ export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] =
       "liveTable.bulkDelete",
       "liveTable.importCsv",
       "liveTable.exportCsv",
+      "liveTable.exportAllRows",
+      "liveTable.exportSensitiveUnmasked",
       "liveTable.manageColumns",
       "liveTable.autoSizeColumns",
     ],
@@ -266,6 +274,8 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "liveTable.bulkDelete": "Toplu silme",
   "liveTable.importCsv": "CSV içe aktarma",
   "liveTable.exportCsv": "CSV/Excel/PDF dışa aktarma",
+  "liveTable.exportAllRows": "Tüm erişilebilir satırları dışa aktarma",
+  "liveTable.exportSensitiveUnmasked": "Hassas verileri maskesiz dışa aktarma",
   "liveTable.manageColumns": "Sütun sıralama / görünürlük",
   "liveTable.autoSizeColumns": "İçeriğe göre ölçeklendir",
   "settings.view": "Ayarları görüntüleme",

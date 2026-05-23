@@ -20,10 +20,11 @@ import { cn } from "@/lib/utils";
 
 type Props = {
   taskId: string;
+  canComment?: boolean;
 };
 
 /** Görev detay panelinde "Yorumlar" bölümü — liste + ekleme + sahibi için düzenle/sil. */
-export function TaskCommentsSection({ taskId }: Props) {
+export function TaskCommentsSection({ taskId, canComment = true }: Props) {
   const { user } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
@@ -144,7 +145,7 @@ export function TaskCommentsSection({ taskId }: Props) {
       ) : (
         <ul className="space-y-2.5">
           {comments.map((c) => {
-            const isOwner = currentUserId === c.user_id;
+            const isOwner = canComment && currentUserId === c.user_id;
             const isEditing = editingId === c.id;
             const isBusy = busyId === c.id;
             const name = c.user_display_name?.trim() || c.user_email;
@@ -249,7 +250,7 @@ export function TaskCommentsSection({ taskId }: Props) {
       )}
 
       {/* Yorum ekle */}
-      {user?.email && (
+      {user?.email && canComment ? (
         <form onSubmit={handleSubmit} className="mt-3">
           <textarea
             value={draft}
@@ -284,6 +285,10 @@ export function TaskCommentsSection({ taskId }: Props) {
             </Button>
           </div>
         </form>
+      ) : (
+        <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
+          Bu satıra yorum ekleme yetkin yok.
+        </p>
       )}
     </section>
   );

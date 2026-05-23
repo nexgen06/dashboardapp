@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import type { ReactNode } from "react";
 import { useAuth } from "@/contexts/auth-context";
 import type { RoleId, Permission } from "@/types/permissions";
 import { ROLES, PERMISSION_GROUPS, PERMISSION_LABELS } from "@/types/permissions";
@@ -17,11 +18,54 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Shield, User, Users, Check, X, Info, Loader2, RotateCw, UserPlus, Mail } from "lucide-react";
+import {
+  AlertTriangle,
+  Database,
+  FileCheck2,
+  LockKeyhole,
+  Shield,
+  User,
+  Users,
+  Check,
+  X,
+  Info,
+  Loader2,
+  RotateCw,
+  UserPlus,
+  Mail,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
 const ROLE_OPTIONS: RoleId[] = ["admin", "project_manager", "member", "viewer"];
+
+type SecurityCheckTone = "ok" | "warn" | "info";
+
+const SECURITY_CHECK_TONE: Record<SecurityCheckTone, {
+  icon: ReactNode;
+  className: string;
+  badge: string;
+}> = {
+  ok: {
+    icon: <Check className="h-4 w-4" aria-hidden />,
+    className: "border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100",
+    badge: "Tamam",
+  },
+  warn: {
+    icon: <AlertTriangle className="h-4 w-4" aria-hidden />,
+    className: "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100",
+    badge: "Kontrol",
+  },
+  info: {
+    icon: <Info className="h-4 w-4" aria-hidden />,
+    className: "border-blue-200 bg-blue-50 text-blue-950 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-100",
+    badge: "Bilgi",
+  },
+};
+
+function roleHas(roleId: RoleId, permission: Permission) {
+  return ROLES[roleId].permissions.includes(permission);
+}
 
 export default function KullaniciYetkileriPage() {
   const { user, isLoaded, hasPermission, updateUserRole, isAdmin } = useAuth();
@@ -143,6 +187,64 @@ export default function KullaniciYetkileriPage() {
   }
 
   const currentRole = user ? ROLES[user.roleId] : null;
+  const currentCanExport = hasPermission("liveTable.exportCsv");
+  const currentCanExportAllRows = hasPermission("liveTable.exportAllRows");
+  const currentCanExportUnmasked = hasPermission("liveTable.exportSensitiveUnmasked");
+  const roleSecurityChecks: Array<{
+    title: string;
+    description: string;
+    tone: SecurityCheckTone;
+  }> = [
+    {
+      title: "Üye export kapsamı",
+      description: roleHas("member", "liveTable.exportCsv") && !roleHas("member", "liveTable.exportAllRows")
+        ? "Üye rolü export yapabilir; kapsam uygulamada sadece düzenleyebildiği satırlarla sınırlandırılır."
+        : "Üye rolünün export kapsamı beklenen sınırlı modelden farklı görünüyor.",
+      tone: roleHas("member", "liveTable.exportCsv") && !roleHas("member", "liveTable.exportAllRows") ? "ok" : "warn",
+    },
+    {
+      title: "Proje yöneticisi export kapsamı",
+      description: roleHas("project_manager", "liveTable.exportAllRows")
+        ? "Proje yöneticisi erişebildiği tüm satırları maskeli olarak dışa aktarabilir."
+        : "Proje yöneticisi tüm erişilebilir satır export yetkisine sahip değil.",
+      tone: roleHas("project_manager", "liveTable.exportAllRows") ? "ok" : "warn",
+    },
+    {
+      title: "Maskesiz hassas veri",
+      description: roleHas("project_manager", "liveTable.exportSensitiveUnmasked")
+        ? "Proje yöneticisinde maskesiz hassas export açık. Bu rol dağılımı bilinçli verildiyse PII loglarını yakından izleyin."
+        : "Maskesiz hassas export varsayılan olarak yalnızca admin/özel izin verilen kullanıcılar içindir.",
+      tone: roleHas("project_manager", "liveTable.exportSensitiveUnmasked") ? "warn" : "ok",
+    },
+    {
+      title: "İzleyici export",
+      description: !roleHas("viewer", "liveTable.exportCsv")
+        ? "İzleyici rolünde dışa aktarma kapalı."
+        : "İzleyici rolünde dışa aktarma açık görünüyor; veri sızıntısı riski doğurabilir.",
+      tone: !roleHas("viewer", "liveTable.exportCsv") ? "ok" : "warn",
+    },
+  ];
+  const rlsChecks: Array<{
+    title: string;
+    description: string;
+    script: string;
+  }> = [
+    {
+      title: "Görev satırı düzenleme RLS",
+      description: "tasks update policy, task_is_editable_for_current_user(project_id, assignee) fonksiyonuna bağlı olmalı.",
+      script: "scripts/supabase-rls-policies.sql",
+    },
+    {
+      title: "Yorum RLS",
+      description: "task_comments insert/update/delete politikaları, sadece düzenlenebilir satırlara yorum izni vermeli.",
+      script: "scripts/task-comments.sql",
+    },
+    {
+      title: "PII export logları",
+      description: "Maskesiz hassas export ve hassas alan kopyalama kayıtları pii_access_log tablosuna yazılmalı.",
+      script: "scripts/pii-access-log.sql",
+    },
+  ];
 
   return (
     <div className="container max-w-4xl py-6">
@@ -289,6 +391,112 @@ export default function KullaniciYetkileriPage() {
               Oturum açılmamış veya yükleme sürüyor. Önce ana sayfadaki Giriş&apos;e gidin.
             </p>
           )}
+        </div>
+      </div>
+
+      {/* Güvenlik kontrolü */}
+      <div className="mb-8 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/50">
+          <h2 className="flex items-center gap-2 text-lg font-medium text-slate-800 dark:text-slate-100">
+            <LockKeyhole className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+            Güvenlik kontrolü
+          </h2>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            Rol tanımı ile uygulamadaki kritik veri davranışlarını birlikte kontrol eder.
+          </p>
+        </div>
+        <div className="grid gap-4 p-4 lg:grid-cols-[1fr_1.2fr]">
+          <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-700 dark:bg-slate-900/35">
+            <div className="mb-3 flex items-center gap-2">
+              <Shield className="h-4 w-4 text-slate-500 dark:text-slate-400" />
+              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Mevcut oturum kapsamı</h3>
+            </div>
+            <dl className="space-y-2 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-slate-500 dark:text-slate-400">Rol</dt>
+                <dd className="font-medium text-slate-800 dark:text-slate-100">{currentRole?.name ?? "—"}</dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-slate-500 dark:text-slate-400">Export kapsamı</dt>
+                <dd className="text-right font-medium text-slate-800 dark:text-slate-100">
+                  {!currentCanExport
+                    ? "Kapalı"
+                    : currentCanExportAllRows
+                      ? "Tüm erişilebilir satırlar"
+                      : "Sadece düzenlenebilir satırlar"}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-slate-500 dark:text-slate-400">Maskesiz hassas export</dt>
+                <dd>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "font-normal",
+                      currentCanExportUnmasked
+                        ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+                        : "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200"
+                    )}
+                  >
+                    {currentCanExportUnmasked ? "Açık" : "Kapalı"}
+                  </Badge>
+                </dd>
+              </div>
+              <div className="flex items-start justify-between gap-3">
+                <dt className="text-slate-500 dark:text-slate-400">Satır düzenleme kuralı</dt>
+                <dd className="max-w-[13rem] text-right text-xs leading-snug text-slate-700 dark:text-slate-300">
+                  Admin/PM tüm satırlar; üye kendi ve atanmamış satırlar. Projede ekip düzenleme açıksa kapsam genişler.
+                </dd>
+              </div>
+            </dl>
+          </div>
+
+          <div className="grid gap-2">
+            {roleSecurityChecks.map((item) => {
+              const tone = SECURITY_CHECK_TONE[item.tone];
+              return (
+                <div key={item.title} className={cn("rounded-lg border px-3 py-2.5", tone.className)}>
+                  <div className="flex items-start gap-2">
+                    <span className="mt-0.5 inline-flex shrink-0">{tone.icon}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold">{item.title}</p>
+                        <Badge variant="outline" className="border-current/30 bg-white/40 text-[10px] font-medium dark:bg-slate-900/20">
+                          {tone.badge}
+                        </Badge>
+                      </div>
+                      <p className="mt-0.5 text-xs leading-snug opacity-90">{item.description}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="border-t border-slate-200 px-4 py-3 dark:border-slate-700">
+          <div className="mb-2 flex items-center gap-2">
+            <Database className="h-4 w-4 text-slate-500 dark:text-slate-400" />
+            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">RLS / SQL uygulanma kontrolü</h3>
+          </div>
+          <div className="grid gap-2 md:grid-cols-3">
+            {rlsChecks.map((item) => (
+              <div key={item.title} className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-700 dark:bg-slate-900/35">
+                <div className="flex items-start gap-2">
+                  <FileCheck2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{item.title}</p>
+                    <p className="mt-1 text-xs leading-snug text-slate-500 dark:text-slate-400">{item.description}</p>
+                    <code className="mt-2 block truncate rounded bg-white px-2 py-1 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                      {item.script}
+                    </code>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            Bu panel uygulama tarafındaki beklenen güvenlik modelini gösterir. SQL dosyalarının Supabase SQL Editor'da uygulanması manuel doğrulanmalıdır.
+          </p>
         </div>
       </div>
 

@@ -32,6 +32,7 @@ function getPageTitle(pathname: string): string {
   if (pathname.startsWith("/yonetim")) return "Yönetim";
   if (pathname === "/projeler") return "Projeler";
   if (pathname.startsWith("/projeler/")) return "Proje detay";
+  if (pathname === "/gorevlerim") return "Görevlerim";
   if (pathname === "/canli-tablo") return "Canlı Tablo";
   return "Dashboard";
 }
@@ -131,27 +132,39 @@ export function Header() {
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
-                className="relative h-10 max-w-full gap-2 rounded-full px-2 text-slate-600 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                className="group relative h-11 max-w-full gap-2 rounded-full border border-transparent px-2 pr-2.5 text-slate-600 transition-all hover:border-emerald-200 hover:bg-emerald-50/70 hover:text-slate-900 hover:shadow-sm dark:text-slate-300 dark:hover:border-emerald-800/70 dark:hover:bg-emerald-950/30 dark:hover:text-slate-100"
                 aria-label="Hesap menüsü"
                 aria-haspopup="menu"
               >
-                <Avatar className="h-8 w-8 shrink-0 border border-slate-200 dark:border-slate-600">
-                  {myAvatarUrl && <AvatarImage src={myAvatarUrl} alt={displayName} />}
-                  <AvatarFallback className={cn("text-xs font-semibold", accentClass)}>{userInitials}</AvatarFallback>
-                </Avatar>
+                <span className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center">
+                  <span
+                    className="absolute inset-0 rounded-full bg-emerald-400/25 blur-[2px] animate-[pulse_2.6s_ease-in-out_infinite] dark:bg-emerald-300/20"
+                    aria-hidden
+                  />
+                  <span
+                    className="absolute inset-0 rounded-full border border-emerald-300/70 shadow-[0_0_14px_rgba(16,185,129,0.32)] transition-all group-hover:scale-105 group-hover:border-cyan-300 group-hover:shadow-[0_0_20px_rgba(34,211,238,0.38)] dark:border-emerald-500/60 dark:shadow-[0_0_16px_rgba(52,211,153,0.22)]"
+                    aria-hidden
+                  />
+                  <Avatar className="relative h-9 w-9 shrink-0 border-2 border-white shadow-sm ring-1 ring-emerald-200 dark:border-slate-800 dark:ring-emerald-700/70">
+                    {myAvatarUrl && <AvatarImage src={myAvatarUrl} alt={displayName} />}
+                    <AvatarFallback className={cn("text-xs font-semibold", accentClass)}>{userInitials}</AvatarFallback>
+                  </Avatar>
+                  <span
+                    className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.18)] dark:border-slate-800"
+                    aria-hidden
+                  />
+                </span>
                 <div className="hidden min-w-0 flex-col items-start text-left sm:flex">
                   <span className="max-w-[10rem] truncate text-sm font-medium lg:max-w-[14rem]">{displayName}</span>
-                  {userEmail && displayName.trim().toLowerCase() !== userEmail.toLowerCase() && (
-                    <span className="max-w-[10rem] truncate text-xs text-slate-500 dark:text-slate-400 lg:max-w-[14rem]">
-                      {userEmail}
-                    </span>
-                  )}
+                  <span className="max-w-[10rem] truncate text-[11px] font-medium text-emerald-700 dark:text-emerald-300 lg:max-w-[14rem]">
+                    {roleLabel}
+                  </span>
                 </div>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64">
               <DropdownMenuLabel className="p-0 font-normal">
-                <div className="flex gap-3 border-b border-slate-100 p-3 dark:border-slate-700">
+                <div className="flex gap-3 border-b border-slate-100 bg-slate-50/70 p-3 dark:border-slate-700 dark:bg-slate-900/45">
                   <Avatar className="h-11 w-11 shrink-0 border border-slate-200 dark:border-slate-600">
                     {myAvatarUrl && <AvatarImage src={myAvatarUrl} alt={displayName} />}
                     <AvatarFallback className={cn("text-sm font-semibold", accentClass)}>{userInitials}</AvatarFallback>

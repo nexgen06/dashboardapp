@@ -34,6 +34,7 @@ export type TemplateProjectData = {
   subtitle_columns?: string[] | null;
   wip_in_progress_limit?: number | null;
   strict_assignee_visibility?: boolean;
+  team_edit_all_tasks?: boolean;
 };
 
 export type ProjectTemplate = {
@@ -114,6 +115,7 @@ export async function saveProjectAsTemplate(input: {
     subtitle_columns: project.subtitle_columns ?? null,
     wip_in_progress_limit: project.wip_in_progress_limit ?? null,
     strict_assignee_visibility: project.strict_assignee_visibility,
+    team_edit_all_tasks: project.team_edit_all_tasks,
   };
 
   const templateTasks: TemplateTask[] = tasks.map((t) => ({

@@ -11,4 +11,5 @@ ALTER TABLE public.projects
   ADD COLUMN IF NOT EXISTS assigned_emails text[] DEFAULT '{}',
   ADD COLUMN IF NOT EXISTS due_date date,
   ADD COLUMN IF NOT EXISTS priority text,
-  ADD COLUMN IF NOT EXISTS strict_assignee_visibility boolean NOT NULL DEFAULT false;
+  ADD COLUMN IF NOT EXISTS strict_assignee_visibility boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS team_edit_all_tasks boolean NOT NULL DEFAULT false;

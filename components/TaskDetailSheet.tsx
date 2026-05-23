@@ -99,6 +99,7 @@ type TaskDetailSheetProps = {
   dateFormat: DateFormat;
   urgentPrioritySet: Set<string>;
   canEdit: boolean;
+  canComment?: boolean;
   onEdit?: () => void;
 };
 
@@ -114,6 +115,7 @@ export function TaskDetailSheet({
   dateFormat,
   urgentPrioritySet,
   canEdit,
+  canComment = canEdit,
   onEdit,
 }: TaskDetailSheetProps) {
   /**
@@ -334,7 +336,7 @@ export function TaskDetailSheet({
           )}
 
           {/* Yorumlar — task_comments üzerinden, realtime senkron */}
-          {task && <TaskCommentsSection taskId={task.id} />}
+          {task && <TaskCommentsSection taskId={task.id} canComment={canComment} />}
 
           {/* Aktivite timeline — audit_log üzerinden, realtime senkron */}
           <section>

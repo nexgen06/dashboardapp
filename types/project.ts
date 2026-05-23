@@ -21,6 +21,8 @@ export type Project = {
   priority?: ProjectPriority | null;
   /** Açıksa üye/izleyici yalnızca kendi atanan görevlerini ve atanmamış görevleri görür (RLS). Yönetici ve proje yöneticisi tümünü görür. */
   strict_assignee_visibility?: boolean;
+  /** Açıksa proje ekibi tüm görev satırlarını düzenleyebilir. Kapalıysa üye sadece kendi/atanmamış satırları düzenler. */
+  team_edit_all_tasks?: boolean;
   /** Canlı tabloda bu projeyle ilişkili görevler için `extra_data` sütunlarını önceden listelemek üzere başlık adları (import olmadan şema). */
   extra_column_keys?: string[] | null;
   /** Görev başlığı (Kanban kartı / Görev Özeti / mobil kart) için kullanılacak extra_data anahtarı. NULL → otomatik. */

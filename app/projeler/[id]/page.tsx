@@ -19,6 +19,12 @@ import {
   normalizeTaskAssigneeEmail,
   pickRoundRobinAssignee,
 } from "@/lib/projectImportAssignee";
+import {
+  assigneeForRowRange,
+  collectColumnValues,
+  parseRowRangeAssignments,
+  type ImportAssignmentMode,
+} from "@/lib/importAssignment";
 import type { ProjectStatus } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -190,9 +196,67 @@ export default function ProjeDetayPage() {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importRoundRobin, setImportRoundRobin] = useState(false);
   const [importDefaultAssignee, setImportDefaultAssignee] = useState("");
+  const [importAssignmentMode, setImportAssignmentMode] = useState<ImportAssignmentMode>("unassigned");
+  const [importHasAssigneeColumn, setImportHasAssigneeColumn] = useState(false);
+  const [importColumnValueOptions, setImportColumnValueOptions] = useState<Record<string, string[]>>({});
+  const [importGroupByColumn, setImportGroupByColumn] = useState("");
+  const [importGroupAssignments, setImportGroupAssignments] = useState<Record<string, string>>({});
+  const [importRowRangesText, setImportRowRangesText] = useState("");
   const [importing, setImporting] = useState(false);
   const [taskMutationError, setTaskMutationError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!importFile) {
+      setImportHasAssigneeColumn(false);
+      setImportAssignmentMode("unassigned");
+      setImportColumnValueOptions({});
+      setImportGroupByColumn("");
+      setImportGroupAssignments({});
+      setImportRowRangesText("");
+      return;
+    }
+    importFile.text().then((text) => {
+      if (cancelled) return;
+      try {
+        const fileName = (importFile.name || "").toLowerCase();
+        let headers: string[];
+        let rows: string[][];
+        if (fileName.endsWith(".json")) {
+          const parsed = parseJSON(text);
+          headers = parsed.headers;
+          rows = parsed.rows.map((rec) => headers.map((h) => String(rec[h] ?? "")));
+        } else {
+          const parsed = parseCSV(text);
+          headers = parsed.headers;
+          rows = parsed.rows.map((r) => r.map((v) => String(v ?? "")));
+        }
+        const valueOptions: Record<string, string[]> = {};
+        for (const h of headers) {
+          const key = (h ?? "").trim() || h;
+          valueOptions[key] = collectColumnValues(headers, rows, key);
+        }
+        const hasAssignee = findAssigneeColumnIndex(headers) != null;
+        setImportHasAssigneeColumn(hasAssignee);
+        setImportColumnValueOptions(valueOptions);
+        setImportGroupByColumn("");
+        setImportGroupAssignments({});
+        setImportRowRangesText("");
+        setImportAssignmentMode(hasAssignee ? "file" : "unassigned");
+      } catch {
+        setImportHasAssigneeColumn(false);
+        setImportAssignmentMode("unassigned");
+        setImportColumnValueOptions({});
+        setImportGroupByColumn("");
+        setImportGroupAssignments({});
+        setImportRowRangesText("");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [importFile]);
 
   const projectTasks = useMemo(() => {
     return rawProjectTasks.filter((t) => {
@@ -327,16 +391,36 @@ export default function ProjeDetayPage() {
       const p = (project?.priority != null ? String(project.priority).trim() : "").toLowerCase();
       const projectPriority = p === "high" ? "High" : p === "medium" ? "Medium" : p === "low" ? "Low" : null;
       const recipients = assignedEmails.map((e) => String(e).trim().toLowerCase()).filter(Boolean);
-      const roundRobin = importRoundRobin && recipients.length >= 2;
+      const roundRobin = importAssignmentMode === "roundRobin" && recipients.length >= 2;
       const defaultRaw = importDefaultAssignee.trim();
       const defaultAssignee =
-        normalizeTaskAssigneeEmail(defaultRaw) ?? (defaultRaw || null);
+        importAssignmentMode === "single"
+          ? normalizeTaskAssigneeEmail(defaultRaw) ?? (defaultRaw || null)
+          : null;
+      if (importAssignmentMode === "single" && !defaultAssignee) {
+        throw new Error("Tek kişiye atama için e-posta girilmeli.");
+      }
+      if (importAssignmentMode === "roundRobin" && recipients.length < 2) {
+        throw new Error("Eşit dağıtım için proje ekibinde en az 2 e-posta olmalı.");
+      }
+      const rangeAssignments =
+        importAssignmentMode === "rowRanges" ? parseRowRangeAssignments(importRowRangesText) : [];
+      if (importAssignmentMode === "rowRanges" && rangeAssignments.length === 0) {
+        throw new Error("Satır aralığına göre dağıtım için en az bir aralık girilmeli.");
+      }
+      if (importAssignmentMode === "groupByColumn" && !importGroupByColumn.trim()) {
+        throw new Error("Sütuna göre dağıtım için bir sütun seçilmeli.");
+      }
       type TaskInsert = { content: string; status: string; assignee: string | null; project_id: string; extra_data: Record<string, string> | null; priority?: string | null };
       const tasksToInsert: TaskInsert[] = [];
       let distributeIndex = 0;
       if (isJson) {
         const { headers, rows } = parseJSON(text);
-        const assigneeKey = roundRobin ? null : findAssigneeJsonKey(headers);
+        const assigneeKey = importAssignmentMode === "file" && !roundRobin ? findAssigneeJsonKey(headers) : null;
+        const groupJsonKey =
+          importAssignmentMode === "groupByColumn" && importGroupByColumn
+            ? headers.find((h) => ((h ?? "").trim() || h) === importGroupByColumn) ?? importGroupByColumn
+            : null;
         if (headers.length > 0 && rows.length > 0) {
           for (const row of rows) {
             const extra_data: Record<string, string> = {};
@@ -348,9 +432,20 @@ export default function ProjeDetayPage() {
             if (hasAnyData) {
               const fromCol =
                 assigneeKey != null ? normalizeTaskAssigneeEmail(row[assigneeKey]) : null;
+              const groupValue = groupJsonKey != null ? String(row[groupJsonKey] ?? "").trim() : "";
+              const fromGroup =
+                importAssignmentMode === "groupByColumn"
+                  ? normalizeTaskAssigneeEmail(importGroupAssignments[groupValue])
+                  : null;
+              const fromRange =
+                importAssignmentMode === "rowRanges" ? assigneeForRowRange(distributeIndex + 1, rangeAssignments) : null;
               const assignee = roundRobin
                 ? pickRoundRobinAssignee(recipients, distributeIndex)
-                : (fromCol ?? defaultAssignee);
+                : importAssignmentMode === "groupByColumn"
+                  ? fromGroup
+                  : importAssignmentMode === "rowRanges"
+                    ? fromRange
+                    : (fromCol ?? defaultAssignee);
               distributeIndex += 1;
               tasksToInsert.push({
                 content: "",
@@ -365,7 +460,11 @@ export default function ProjeDetayPage() {
         }
       } else {
         const { headers, rows } = parseCSV(text);
-        const assigneeCol = roundRobin ? null : findAssigneeColumnIndex(headers);
+        const assigneeCol = importAssignmentMode === "file" && !roundRobin ? findAssigneeColumnIndex(headers) : null;
+        const groupCol =
+          importAssignmentMode === "groupByColumn" && importGroupByColumn
+            ? headers.findIndex((h) => ((h ?? "").trim() || h) === importGroupByColumn)
+            : -1;
         if (headers.length > 0 && rows.length > 0) {
           for (const row of rows) {
             const extra_data: Record<string, string> = {};
@@ -377,9 +476,20 @@ export default function ProjeDetayPage() {
             if (hasAnyData) {
               const fromCol =
                 assigneeCol != null ? normalizeTaskAssigneeEmail(row[assigneeCol]) : null;
+              const groupValue = groupCol >= 0 ? String(row[groupCol] ?? "").trim() : "";
+              const fromGroup =
+                importAssignmentMode === "groupByColumn"
+                  ? normalizeTaskAssigneeEmail(importGroupAssignments[groupValue])
+                  : null;
+              const fromRange =
+                importAssignmentMode === "rowRanges" ? assigneeForRowRange(distributeIndex + 1, rangeAssignments) : null;
               const assignee = roundRobin
                 ? pickRoundRobinAssignee(recipients, distributeIndex)
-                : (fromCol ?? defaultAssignee);
+                : importAssignmentMode === "groupByColumn"
+                  ? fromGroup
+                  : importAssignmentMode === "rowRanges"
+                    ? fromRange
+                    : (fromCol ?? defaultAssignee);
               distributeIndex += 1;
               tasksToInsert.push({
                 content: "",
@@ -400,8 +510,15 @@ export default function ProjeDetayPage() {
       setImportFile(null);
       setImportRoundRobin(false);
       setImportDefaultAssignee("");
+      setImportAssignmentMode("unassigned");
+      setImportHasAssigneeColumn(false);
+      setImportColumnValueOptions({});
+      setImportGroupByColumn("");
+      setImportGroupAssignments({});
+      setImportRowRangesText("");
     } catch (e) {
       console.error("[ProjeDetay] Import failed:", e);
+      setTaskMutationError(e instanceof Error ? e.message : "İçe aktarma tamamlanamadı.");
     } finally {
       setImporting(false);
     }
@@ -411,8 +528,11 @@ export default function ProjeDetayPage() {
     project?.priority,
     createTasksBulk,
     assignedEmails,
-    importRoundRobin,
+    importAssignmentMode,
     importDefaultAssignee,
+    importGroupAssignments,
+    importGroupByColumn,
+    importRowRangesText,
   ]);
 
   const handleStatusChange = useCallback(
@@ -945,6 +1065,12 @@ export default function ProjeDetayPage() {
             setImportFile(null);
             setImportRoundRobin(false);
             setImportDefaultAssignee("");
+            setImportAssignmentMode("unassigned");
+            setImportHasAssigneeColumn(false);
+            setImportColumnValueOptions({});
+            setImportGroupByColumn("");
+            setImportGroupAssignments({});
+            setImportRowRangesText("");
           }
         }}
       >
@@ -973,35 +1099,130 @@ export default function ProjeDetayPage() {
                 ✓ Dosya seçildi: {importFile.name}
               </p>
             )}
-            <div>
-              <label htmlFor="import-default-assignee" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Varsayılan atanan (e-posta, opsiyonel)
-              </label>
-              <input
-                id="import-default-assignee"
-                type="email"
-                value={importDefaultAssignee}
-                onChange={(e) => setImportDefaultAssignee(e.target.value)}
-                placeholder="atanan@ornek.com"
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
-              />
-            </div>
-            {assignedEmails.length >= 2 && (
-              <label className="flex cursor-pointer items-start gap-2">
+            {importFile && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-800/60">
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Atama yöntemi</p>
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                  {importHasAssigneeColumn
+                    ? "Dosyada atanan sütunu bulundu; istersen farklı bir dağıtım seçebilirsin."
+                    : "Dosyada atanan sütunu bulunamadı; satırların nasıl atanacağını seç."}
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {importHasAssigneeColumn && (
+                    <label className={cn("flex cursor-pointer items-start gap-2 rounded-md border p-2 text-xs", importAssignmentMode === "file" ? "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-100" : "border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-300")}>
+                      <input type="radio" name="project-import-assignment-mode" checked={importAssignmentMode === "file"} onChange={() => setImportAssignmentMode("file")} className="mt-0.5 h-4 w-4 border-slate-300 text-blue-600 focus:ring-blue-500" />
+                      <span><strong>Dosyadaki atananı kullan</strong><br />Her satır kendi e-posta sütunundan atanır.</span>
+                    </label>
+                  )}
+                  <label className={cn("flex cursor-pointer items-start gap-2 rounded-md border p-2 text-xs", importAssignmentMode === "unassigned" ? "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-100" : "border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-300")}>
+                    <input type="radio" name="project-import-assignment-mode" checked={importAssignmentMode === "unassigned"} onChange={() => setImportAssignmentMode("unassigned")} className="mt-0.5 h-4 w-4 border-slate-300 text-blue-600 focus:ring-blue-500" />
+                    <span><strong>Atanmamış bırak</strong><br />Satırlar sonradan filtrelenip atanabilir.</span>
+                  </label>
+                  <label className={cn("flex cursor-pointer items-start gap-2 rounded-md border p-2 text-xs", importAssignmentMode === "single" ? "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-100" : "border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-300")}>
+                    <input type="radio" name="project-import-assignment-mode" checked={importAssignmentMode === "single"} onChange={() => setImportAssignmentMode("single")} className="mt-0.5 h-4 w-4 border-slate-300 text-blue-600 focus:ring-blue-500" />
+                    <span><strong>Tek kişiye ata</strong><br />Tüm satırlar seçilen e-postaya gider.</span>
+                  </label>
+                  <label className={cn("flex cursor-pointer items-start gap-2 rounded-md border p-2 text-xs", importAssignmentMode === "roundRobin" ? "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-100" : "border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-300", assignedEmails.length < 2 && "cursor-not-allowed opacity-60")}>
+                    <input type="radio" name="project-import-assignment-mode" checked={importAssignmentMode === "roundRobin"} disabled={assignedEmails.length < 2} onChange={() => setImportAssignmentMode("roundRobin")} className="mt-0.5 h-4 w-4 border-slate-300 text-blue-600 focus:ring-blue-500" />
+                    <span><strong>Eşit dağıt</strong><br />Proje ekibine sırayla paylaştırılır.</span>
+                  </label>
+                  <label className={cn("flex cursor-pointer items-start gap-2 rounded-md border p-2 text-xs", importAssignmentMode === "groupByColumn" ? "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-100" : "border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-300")}>
+                    <input type="radio" name="project-import-assignment-mode" checked={importAssignmentMode === "groupByColumn"} onChange={() => setImportAssignmentMode("groupByColumn")} className="mt-0.5 h-4 w-4 border-slate-300 text-blue-600 focus:ring-blue-500" />
+                    <span><strong>Sütuna göre dağıt</strong><br />Bölge, şube veya ekip değerlerini kişilere bağlar.</span>
+                  </label>
+                  <label className={cn("flex cursor-pointer items-start gap-2 rounded-md border p-2 text-xs", importAssignmentMode === "rowRanges" ? "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-100" : "border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-300")}>
+                    <input type="radio" name="project-import-assignment-mode" checked={importAssignmentMode === "rowRanges"} onChange={() => setImportAssignmentMode("rowRanges")} className="mt-0.5 h-4 w-4 border-slate-300 text-blue-600 focus:ring-blue-500" />
+                    <span><strong>Satır aralığına göre dağıt</strong><br />1-25, 26-50 gibi blokları kişilere atar.</span>
+                  </label>
+                </div>
+              </div>
+            )}
+            {importFile && importAssignmentMode === "single" && (
+              <div>
+                <label htmlFor="import-default-assignee" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Atanacak kişi
+                </label>
                 <input
-                  type="checkbox"
-                  className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                  checked={importRoundRobin}
-                  onChange={(e) => setImportRoundRobin(e.target.checked)}
+                  id="import-default-assignee"
+                  type="email"
+                  value={importDefaultAssignee}
+                  onChange={(e) => setImportDefaultAssignee(e.target.value)}
+                  placeholder="atanan@ornek.com"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
                 />
-                <span className="text-xs text-slate-700 dark:text-slate-300">
-                  <strong>Eşit dağıt (round-robin):</strong> Projedeki atanan e-posta listesine sırayla paylaştır. İşaretliyken dosyadaki atanan sütunu yok sayılır.
-                </span>
-              </label>
+              </div>
+            )}
+            {importFile && importAssignmentMode === "groupByColumn" && (
+              <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-600 dark:bg-slate-800/70">
+                <label htmlFor="project-import-group-column" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Gruplanacak sütun
+                </label>
+                <select
+                  id="project-import-group-column"
+                  value={importGroupByColumn}
+                  onChange={(e) => {
+                    setImportGroupByColumn(e.target.value);
+                    setImportGroupAssignments({});
+                  }}
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                >
+                  <option value="">Sütun seç</option>
+                  {Object.keys(importColumnValueOptions).map((key, idx) => (
+                    <option key={`${idx}-${key}`} value={key}>
+                      {key || `Sütun ${idx + 1}`}
+                    </option>
+                  ))}
+                </select>
+                {importGroupByColumn && (
+                  <div className="mt-3 space-y-2">
+                    {(importColumnValueOptions[importGroupByColumn] ?? []).length > 0 ? (
+                      (importColumnValueOptions[importGroupByColumn] ?? []).map((value) => (
+                        <label key={value} className="grid gap-1 text-xs text-slate-600 dark:text-slate-300 sm:grid-cols-[minmax(0,1fr)_minmax(180px,1.2fr)] sm:items-center">
+                          <span className="truncate rounded-md bg-slate-50 px-2 py-1.5 dark:bg-slate-700/60" title={value}>
+                            {value}
+                          </span>
+                          <input
+                            type="email"
+                            value={importGroupAssignments[value] ?? ""}
+                            onChange={(e) =>
+                              setImportGroupAssignments((prev) => ({ ...prev, [value]: e.target.value.trim().toLowerCase() }))
+                            }
+                            placeholder="atanan@ornek.com"
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                          />
+                        </label>
+                      ))
+                    ) : (
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Bu sütunda önizlenebilir değer bulunamadı.</p>
+                    )}
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      E-posta girilmeyen grup değerleri atanmamış kalır.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+            {importFile && importAssignmentMode === "rowRanges" && (
+              <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-600 dark:bg-slate-800/70">
+                <label htmlFor="project-import-row-ranges" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Satır aralıkları
+                </label>
+                <textarea
+                  id="project-import-row-ranges"
+                  value={importRowRangesText}
+                  onChange={(e) => setImportRowRangesText(e.target.value)}
+                  rows={4}
+                  placeholder={"1-25 ugur@example.com\n26-50 ayse@example.com\n51-100 mehmet@example.com"}
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                />
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  Her satıra bir aralık ve e-posta yaz. Aralık dışında kalan satırlar atanmamış kalır.
+                </p>
+              </div>
             )}
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => { setImportOpen(false); setImportFile(null); setImportRoundRobin(false); setImportDefaultAssignee(""); }}>
+            <Button type="button" variant="outline" onClick={() => { setImportOpen(false); setImportFile(null); setImportRoundRobin(false); setImportDefaultAssignee(""); setImportAssignmentMode("unassigned"); setImportHasAssigneeColumn(false); setImportColumnValueOptions({}); setImportGroupByColumn(""); setImportGroupAssignments({}); setImportRowRangesText(""); }}>
               İptal
             </Button>
             <Button type="button" onClick={handleImportFile} disabled={!importFile || importing} className="bg-blue-600 hover:bg-blue-700">

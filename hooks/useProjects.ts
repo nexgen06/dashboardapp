@@ -41,6 +41,8 @@ function mapRowToProject(row: Record<string, unknown>): Project {
     : null;
   const strict_assignee_visibility =
     row.strict_assignee_visibility === true || String(row.strict_assignee_visibility).toLowerCase() === "true";
+  const team_edit_all_tasks =
+    row.team_edit_all_tasks === true || String(row.team_edit_all_tasks).toLowerCase() === "true";
 
   let extra_column_keys: string[] | null = null;
   const rawKeys = row.extra_column_keys;
@@ -81,6 +83,7 @@ function mapRowToProject(row: Record<string, unknown>): Project {
     due_date: dueDate ?? null,
     priority: priority ?? null,
     strict_assignee_visibility: strict_assignee_visibility,
+    team_edit_all_tasks,
     extra_column_keys,
     title_column: titleColumn,
     subtitle_columns,
@@ -184,6 +187,7 @@ export function useProjects() {
       due_date?: string | null;
       priority?: ProjectPriority | null;
       strict_assignee_visibility?: boolean;
+      team_edit_all_tasks?: boolean;
       extra_column_keys?: string[] | null;
       title_column?: string | null;
       subtitle_columns?: string[] | null;
@@ -208,6 +212,9 @@ export function useProjects() {
       if (payload.strict_assignee_visibility !== undefined) {
         baseRow.strict_assignee_visibility = payload.strict_assignee_visibility;
       }
+      if (payload.team_edit_all_tasks === true) {
+        baseRow.team_edit_all_tasks = true;
+      }
       if (payload.extra_column_keys != null && payload.extra_column_keys.length > 0) {
         baseRow.extra_column_keys = payload.extra_column_keys;
       }
@@ -228,7 +235,13 @@ export function useProjects() {
         .insert(baseRow)
         .select("id")
         .single();
-      if (insertError && hasAssigned && (insertError.message?.includes("assigned_emails") || insertError.code === "42703")) {
+      if (
+        insertError &&
+        (
+          (hasAssigned && (insertError.message?.includes("assigned_emails") || insertError.code === "42703")) ||
+          (payload.team_edit_all_tasks === true && (insertError.message?.includes("team_edit_all_tasks") || insertError.code === "42703"))
+        )
+      ) {
         const retryPayload: Record<string, unknown> = {
           name: baseRow.name,
           description: baseRow.description,
@@ -255,7 +268,7 @@ export function useProjects() {
   );
 
   const updateProject = useCallback(
-    async (id: string, payload: Partial<Pick<Project, "name" | "description" | "status" | "assigned_emails" | "due_date" | "priority" | "strict_assignee_visibility" | "extra_column_keys" | "title_column" | "subtitle_columns" | "wip_in_progress_limit">>) => {
+    async (id: string, payload: Partial<Pick<Project, "name" | "description" | "status" | "assigned_emails" | "due_date" | "priority" | "strict_assignee_visibility" | "team_edit_all_tasks" | "extra_column_keys" | "title_column" | "subtitle_columns" | "wip_in_progress_limit">>) => {
       const updateRow: Record<string, unknown> = { ...payload, updated_at: new Date().toISOString() };
       if (payload.assigned_emails !== undefined) {
         updateRow.assigned_emails =
@@ -267,6 +280,9 @@ export function useProjects() {
       if (payload.priority !== undefined) updateRow.priority = payload.priority ?? null;
       if (payload.strict_assignee_visibility !== undefined) {
         updateRow.strict_assignee_visibility = payload.strict_assignee_visibility;
+      }
+      if (payload.team_edit_all_tasks !== undefined) {
+        updateRow.team_edit_all_tasks = payload.team_edit_all_tasks;
       }
       if (payload.extra_column_keys !== undefined) {
         updateRow.extra_column_keys =
@@ -295,7 +311,16 @@ export function useProjects() {
           n == null || !Number.isFinite(n) || n <= 0 ? null : Math.floor(n);
       }
       const { error: updateError } = await supabase.from("projects").update(updateRow).eq("id", id);
-      if (updateError) throw updateError;
+      if (updateError) {
+        const missingTeamEditColumn =
+          payload.team_edit_all_tasks !== undefined &&
+          (updateError.code === "42703" || String(updateError.message ?? "").includes("team_edit_all_tasks"));
+        if (!missingTeamEditColumn) throw updateError;
+        const retryRow = { ...updateRow };
+        delete retryRow.team_edit_all_tasks;
+        const { error: retryError } = await supabase.from("projects").update(retryRow).eq("id", id);
+        if (retryError) throw retryError;
+      }
       // Normalize assigned_emails in local state (DB'ye yazdığımız hali)
       const normalizedPayload = { ...payload };
       if (payload.assigned_emails !== undefined) {

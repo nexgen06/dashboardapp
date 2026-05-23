@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   FolderKanban,
+  ListTodo,
   Table2,
   Bell,
   MoreHorizontal,
@@ -53,7 +54,7 @@ export function MobileBottomNav() {
     [
       { href: "/", label: "Ana", icon: LayoutDashboard, permission: null, alsoRequire: null },
       { href: "/projeler", label: "Projeler", icon: FolderKanban, permission: "area.projects" as const, alsoRequire: "projects.view" as const, badge: totalUnread > 0 ? totalUnread : undefined },
-      { href: "/canli-tablo", label: "Tablo", icon: Table2, permission: "area.liveTable" as const, alsoRequire: "liveTable.view" as const },
+      { href: "/gorevlerim", label: "Görevlerim", icon: ListTodo, permission: "area.liveTable" as const, alsoRequire: "liveTable.view" as const },
       { href: "/bildirimler", label: "Bildirim", icon: Bell, permission: null, alsoRequire: null, badge: notif.totalCount > 0 ? notif.totalCount : undefined },
     ] satisfies NavItem[]
   ).filter((i) => {
@@ -65,6 +66,7 @@ export function MobileBottomNav() {
   const overflow: NavItem[] = (
     [
       { href: "/mesajlar", label: "Mesajlar", icon: MessagesSquare, permission: "area.projects" as const, alsoRequire: "projects.view" as const },
+      { href: "/canli-tablo", label: "Canlı Tablo", icon: Table2, permission: "area.liveTable" as const, alsoRequire: "liveTable.view" as const },
       { href: "/raporlar", label: "Raporlar", icon: BarChart3, permission: "area.reports" as const, alsoRequire: "reports.view" as const },
       { href: "/ayarlar", label: "Ayarlar", icon: Settings, permission: "area.settings" as const, alsoRequire: "settings.view" as const },
       { href: "/yonetim/kullanici-yetkileri", label: "Kullanıcı yetkileri", icon: Shield, permission: "area.userManagement" as const, alsoRequire: null },

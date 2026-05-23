@@ -18,6 +18,12 @@ import {
   normalizeTaskAssigneeEmail,
   pickRoundRobinAssignee,
 } from "@/lib/projectImportAssignee";
+import {
+  assigneeForRowRange,
+  collectColumnValues,
+  parseRowRangeAssignments,
+  type ImportAssignmentMode,
+} from "@/lib/importAssignment";
 import { offsetToDateIso, type ProjectTemplate } from "@/lib/projectTemplates";
 import { SaveTemplateDialog, TemplateListDialog } from "@/components/ProjectTemplateDialogs";
 import type { Project, ProjectStatus, ProjectPriority } from "@/types/project";
@@ -61,6 +67,8 @@ export type NewProjectSubmitData = {
   priority?: ProjectPriority | null;
   /** Yalnızca yönetici: katı atanan görünürlüğü (RLS). */
   strictAssigneeVisibility?: boolean;
+  /** Proje ekibi bu projedeki tüm görev satırlarını düzenleyebilir. */
+  teamEditAllTasks?: boolean;
   /** Canlı tabloda bu proje için önceden gösterilecek ek sütun adları (`extra_data` anahtarları). */
   extraColumnKeys?: string[];
   /** Görev başlığı (Kanban/Özet) için kullanılacak extra_data anahtarı. Boş → otomatik. */
@@ -71,12 +79,23 @@ export type NewProjectSubmitData = {
   wipInProgressLimit?: number | null;
   /** Yeni proje + dosya: atanan e-posta listesine round-robin (en az 2 e-posta). */
   importRoundRobin?: boolean;
+  importAssignmentMode?: ImportAssignmentMode;
+  importGroupByColumn?: string;
+  importGroupAssignments?: Record<string, string>;
+  importRowRangesText?: string;
   /**
    * İçe aktarılacak sütunların whitelist'i. undefined / boş → dosyadaki tüm sütunlar dahil
    * (geriye dönük uyumluluk). Kullanıcı önizleme üzerinden bazı sütunları kapattıysa
    * burada yalnızca tutulanlar gelir.
    */
   selectedImportColumns?: string[];
+  reassignExistingTasks?: boolean;
+  reassignExistingTaskScope?: "unassigned" | "all";
+  reassignExistingTaskMode?: "unassigned" | "single" | "roundRobin" | "groupByColumn" | "rowRanges";
+  reassignExistingTaskAssignee?: string;
+  reassignExistingGroupByColumn?: string;
+  reassignExistingGroupAssignments?: Record<string, string>;
+  reassignExistingRowRangesText?: string;
 };
 
 const STATUS_OPTIONS: ProjectStatus[] = ["Aktif", "Tamamlandı", "Beklemede"];
@@ -224,6 +243,7 @@ function ProjectFormModal({
   isSubmitting,
   formError,
   isAdmin,
+  canManageTeamTaskEditing,
   observedExtraKeys = [],
   observedSampleValues = {},
 }: {
@@ -234,6 +254,7 @@ function ProjectFormModal({
   isSubmitting: boolean;
   formError?: string | null;
   isAdmin: boolean;
+  canManageTeamTaskEditing: boolean;
   /** Edit mode: bu projeye bağlı görevlerin extra_data'sında gerçekten kullanılan anahtarlar.
    *  "Görev başlığı sütunu" dropdown'ı şema + bunları birleşik gösterir. */
   observedExtraKeys?: string[];
@@ -257,7 +278,20 @@ function ProjectFormModal({
   const [assignedEmails, setAssignedEmails] = useState<string[]>([]);
   const [emailInput, setEmailInput] = useState("");
   const [strictAssigneeVisibility, setStrictAssigneeVisibility] = useState(false);
+  const [teamEditAllTasks, setTeamEditAllTasks] = useState(false);
   const [importRoundRobin, setImportRoundRobin] = useState(false);
+  const [importAssignmentMode, setImportAssignmentMode] = useState<ImportAssignmentMode>("unassigned");
+  const [importColumnValueOptions, setImportColumnValueOptions] = useState<Record<string, string[]>>({});
+  const [importGroupByColumn, setImportGroupByColumn] = useState("");
+  const [importGroupAssignments, setImportGroupAssignments] = useState<Record<string, string>>({});
+  const [importRowRangesText, setImportRowRangesText] = useState("");
+  const [reassignExistingTasks, setReassignExistingTasks] = useState(false);
+  const [reassignExistingTaskScope, setReassignExistingTaskScope] = useState<"unassigned" | "all">("unassigned");
+  const [reassignExistingTaskMode, setReassignExistingTaskMode] = useState<"unassigned" | "single" | "roundRobin" | "groupByColumn" | "rowRanges">("roundRobin");
+  const [reassignExistingTaskAssignee, setReassignExistingTaskAssignee] = useState("");
+  const [reassignExistingGroupByColumn, setReassignExistingGroupByColumn] = useState("");
+  const [reassignExistingGroupAssignments, setReassignExistingGroupAssignments] = useState<Record<string, string>>({});
+  const [reassignExistingRowRangesText, setReassignExistingRowRangesText] = useState("");
   const [extraColumnKeysText, setExtraColumnKeysText] = useState("");
   const [titleColumn, setTitleColumn] = useState<string>("");
   const [subtitleColumns, setSubtitleColumns] = useState<string[]>([]);
@@ -286,7 +320,20 @@ function ProjectFormModal({
       setAssignedEmails(project.assigned_emails ?? []);
       setEmailInput("");
       setStrictAssigneeVisibility(project.strict_assignee_visibility ?? false);
+      setTeamEditAllTasks(project.team_edit_all_tasks ?? false);
       setImportRoundRobin(false);
+      setImportAssignmentMode("unassigned");
+      setImportColumnValueOptions({});
+      setImportGroupByColumn("");
+      setImportGroupAssignments({});
+      setImportRowRangesText("");
+      setReassignExistingTasks(false);
+      setReassignExistingTaskScope("unassigned");
+      setReassignExistingTaskMode("roundRobin");
+      setReassignExistingTaskAssignee("");
+      setReassignExistingGroupByColumn("");
+      setReassignExistingGroupAssignments({});
+      setReassignExistingRowRangesText("");
       setExtraColumnKeysText((project.extra_column_keys ?? []).join("\n"));
       setTitleColumn(project.title_column ?? "");
       setSubtitleColumns(project.subtitle_columns ?? []);
@@ -311,7 +358,20 @@ function ProjectFormModal({
       setAssignedEmails([]);
       setEmailInput("");
       setStrictAssigneeVisibility(false);
+      setTeamEditAllTasks(false);
       setImportRoundRobin(false);
+      setImportAssignmentMode("unassigned");
+      setImportColumnValueOptions({});
+      setImportGroupByColumn("");
+      setImportGroupAssignments({});
+      setImportRowRangesText("");
+      setReassignExistingTasks(false);
+      setReassignExistingTaskScope("unassigned");
+      setReassignExistingTaskMode("roundRobin");
+      setReassignExistingTaskAssignee("");
+      setReassignExistingGroupByColumn("");
+      setReassignExistingGroupAssignments({});
+      setReassignExistingRowRangesText("");
       setExtraColumnKeysText("");
       setTitleColumn("");
       setSubtitleColumns([]);
@@ -331,6 +391,10 @@ function ProjectFormModal({
       setImportPreviewError(null);
       setImportPreviewLoading(false);
       setSelectedImportColumns(new Set());
+      setImportColumnValueOptions({});
+      setImportGroupByColumn("");
+      setImportGroupAssignments({});
+      setImportRowRangesText("");
       return;
     }
     setImportPreviewLoading(true);
@@ -359,6 +423,16 @@ function ProjectFormModal({
             return;
           }
           setImportPreview({ headers, rows: rows.slice(0, 8) });
+          const valueOptions: Record<string, string[]> = {};
+          for (const h of headers) {
+            const key = (h ?? "").trim() || h;
+            valueOptions[key] = collectColumnValues(headers, rows, key);
+          }
+          setImportColumnValueOptions(valueOptions);
+          setImportGroupByColumn("");
+          setImportGroupAssignments({});
+          setImportRowRangesText("");
+          setImportAssignmentMode(findAssigneeColumnIndex(headers) != null ? "file" : "unassigned");
           // Varsayılan: tüm sütunlar seçili
           setSelectedImportColumns(new Set(headers.map((h) => (h ?? "").trim() || h)));
         } catch (err) {
@@ -380,6 +454,11 @@ function ProjectFormModal({
       cancelled = true;
     };
   }, [importFile]);
+
+  const importHasAssigneeColumn = useMemo(
+    () => (importPreview ? findAssigneeColumnIndex(importPreview.headers) != null : false),
+    [importPreview]
+  );
 
   const toggleImportColumn = (header: string) => {
     setSelectedImportColumns((prev) => {
@@ -441,11 +520,16 @@ function ProjectFormModal({
         due_date: dueDate.trim() || undefined,
         priority: priority ? (priority as ProjectPriority) : undefined,
         importFile: isEdit ? undefined : importFile ?? undefined,
-        assignee: isEdit ? undefined : (assignee.trim() || undefined),
+        assignee: !isEdit && importAssignmentMode === "single" ? (assignee.trim() || undefined) : undefined,
         // Boş dizi de göndermeli ki "tüm atananları kaldır" işlemi kaydedilebilsin
         assignedEmails: assignedEmails,
         strictAssigneeVisibility: isAdmin ? strictAssigneeVisibility : undefined,
-        importRoundRobin: !isEdit ? importRoundRobin : undefined,
+        teamEditAllTasks: canManageTeamTaskEditing ? teamEditAllTasks : undefined,
+        importRoundRobin: !isEdit ? importAssignmentMode === "roundRobin" : undefined,
+        importAssignmentMode: !isEdit ? importAssignmentMode : undefined,
+        importGroupByColumn: !isEdit ? importGroupByColumn : undefined,
+        importGroupAssignments: !isEdit ? importGroupAssignments : undefined,
+        importRowRangesText: !isEdit ? importRowRangesText : undefined,
         extraColumnKeys: extraColumnKeys.length > 0 ? extraColumnKeys : undefined,
         titleColumn: titleColumn.trim() || null,
         subtitleColumns: subtitleColumns.length > 0 ? subtitleColumns : null,
@@ -459,6 +543,13 @@ function ProjectFormModal({
                 selectedImportColumns.has((h ?? "").trim() || h)
               )
             : undefined,
+        reassignExistingTasks: isEdit ? reassignExistingTasks : undefined,
+        reassignExistingTaskScope: isEdit ? reassignExistingTaskScope : undefined,
+        reassignExistingTaskMode: isEdit ? reassignExistingTaskMode : undefined,
+        reassignExistingTaskAssignee: isEdit ? reassignExistingTaskAssignee.trim() : undefined,
+        reassignExistingGroupByColumn: isEdit ? reassignExistingGroupByColumn : undefined,
+        reassignExistingGroupAssignments: isEdit ? reassignExistingGroupAssignments : undefined,
+        reassignExistingRowRangesText: isEdit ? reassignExistingRowRangesText : undefined,
       });
     } catch {
       // onSubmit içinde formError zaten set ediliyor; modal kapanmasın.
@@ -476,6 +567,18 @@ function ProjectFormModal({
     setEmailInput("");
     setStrictAssigneeVisibility(false);
     setImportRoundRobin(false);
+    setImportAssignmentMode("unassigned");
+    setImportColumnValueOptions({});
+    setImportGroupByColumn("");
+    setImportGroupAssignments({});
+    setImportRowRangesText("");
+    setReassignExistingTasks(false);
+    setReassignExistingTaskScope("unassigned");
+    setReassignExistingTaskMode("roundRobin");
+    setReassignExistingTaskAssignee("");
+    setReassignExistingGroupByColumn("");
+    setReassignExistingGroupAssignments({});
+    setReassignExistingRowRangesText("");
     setExtraColumnKeysText("");
     setSubtitleColumns([]);
   };
@@ -654,6 +757,19 @@ function ProjectFormModal({
     );
   })();
 
+  const reassignColumnOptions = useMemo(() => {
+    const merged = new Set<string>();
+    for (const k of parseExtraColumnKeysFromForm(extraColumnKeysText)) if (k.trim()) merged.add(k.trim());
+    for (const k of observedExtraKeys ?? []) if (k && k.trim()) merged.add(k.trim());
+    return Array.from(merged).sort((a, b) => a.localeCompare(b, "tr", { sensitivity: "base" }));
+  }, [extraColumnKeysText, observedExtraKeys]);
+
+  const reassignGroupValues = useMemo(() => {
+    if (!reassignExistingGroupByColumn) return [];
+    return Array.from(new Set((observedSampleValues?.[reassignExistingGroupByColumn] ?? []).map((v) => String(v ?? "").trim()).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b, "tr", { sensitivity: "base", numeric: true }));
+  }, [observedSampleValues, reassignExistingGroupByColumn]);
+
   const fieldsAssignees = (
     <div className="grid gap-4">
       <div>
@@ -724,6 +840,163 @@ function ProjectFormModal({
           </label>
         </div>
       )}
+
+      {canManageTeamTaskEditing && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50/70 p-3 dark:border-blue-800 dark:bg-blue-950/30">
+          <label className="flex cursor-pointer items-start gap-2">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              checked={teamEditAllTasks}
+              onChange={(e) => setTeamEditAllTasks(e.target.checked)}
+            />
+            <span className="text-sm text-slate-800 dark:text-slate-200">
+              <span className="font-medium">Ekip tüm satırları düzenleyebilir</span>
+              <span className="mt-1 block text-xs font-normal text-slate-600 dark:text-slate-400">
+                Kapalıyken ekip üyeleri tüm listeyi görür; yalnızca kendilerine atanmış veya atanmamış satırları düzenler.
+                Admin ve proje yöneticisi her zaman tüm satırları düzenleyebilir.
+              </span>
+            </span>
+          </label>
+        </div>
+      )}
+
+      {isEdit && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+          <label className="flex cursor-pointer items-start gap-2">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              checked={reassignExistingTasks}
+              onChange={(e) => setReassignExistingTasks(e.target.checked)}
+            />
+            <span className="text-sm text-slate-800 dark:text-slate-200">
+              <span className="font-medium">Mevcut görevleri yeniden ata</span>
+              <span className="mt-1 block text-xs font-normal text-slate-600 dark:text-slate-400">
+                Kaydet dediğinde bu projedeki görev satırlarının ataması seçilen yönteme göre güncellenir.
+              </span>
+            </span>
+          </label>
+          {reassignExistingTasks && (
+            <div className="mt-3 grid gap-3">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                  Kapsam
+                  <select
+                    value={reassignExistingTaskScope}
+                    onChange={(e) => setReassignExistingTaskScope(e.target.value as "unassigned" | "all")}
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                  >
+                    <option value="unassigned">Sadece atanmamış görevler</option>
+                    <option value="all">Tüm görevler</option>
+                  </select>
+                </label>
+                <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                  Yöntem
+                  <select
+                    value={reassignExistingTaskMode}
+                    onChange={(e) => {
+                      setReassignExistingTaskMode(e.target.value as "unassigned" | "single" | "roundRobin" | "groupByColumn" | "rowRanges");
+                      setReassignExistingGroupAssignments({});
+                      setReassignExistingRowRangesText("");
+                    }}
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                  >
+                    <option value="roundRobin">Eşit dağıt</option>
+                    <option value="single">Tek kişiye ata</option>
+                    <option value="groupByColumn">Sütuna göre dağıt</option>
+                    <option value="rowRanges">Satır aralığına göre dağıt</option>
+                    <option value="unassigned">Atanmamış bırak</option>
+                  </select>
+                </label>
+              </div>
+              {reassignExistingTaskMode === "single" && (
+                <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                  Atanacak kişi
+                  <input
+                    type="email"
+                    value={reassignExistingTaskAssignee}
+                    onChange={(e) => setReassignExistingTaskAssignee(e.target.value)}
+                    placeholder="atanan@ornek.com"
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                  />
+                </label>
+              )}
+              {reassignExistingTaskMode === "roundRobin" && assignedEmails.length < 2 && (
+                <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                  Eşit dağıtım için proje ekibinde en az 2 e-posta olmalı.
+                </p>
+              )}
+              {reassignExistingTaskMode === "groupByColumn" && (
+                <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-600 dark:bg-slate-800/70">
+                  <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                    Gruplanacak sütun
+                    <select
+                      value={reassignExistingGroupByColumn}
+                      onChange={(e) => {
+                        setReassignExistingGroupByColumn(e.target.value);
+                        setReassignExistingGroupAssignments({});
+                      }}
+                      className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                    >
+                      <option value="">Sütun seç</option>
+                      {reassignColumnOptions.map((key) => (
+                        <option key={key} value={key}>{key}</option>
+                      ))}
+                    </select>
+                  </label>
+                  {reassignExistingGroupByColumn && (
+                    <div className="mt-3 space-y-2">
+                      {reassignGroupValues.length > 0 ? (
+                        reassignGroupValues.map((value) => (
+                          <label key={value} className="grid gap-1 text-xs text-slate-600 dark:text-slate-300 sm:grid-cols-[minmax(0,1fr)_minmax(180px,1.2fr)] sm:items-center">
+                            <span className="truncate rounded-md bg-slate-50 px-2 py-1.5 dark:bg-slate-700/60" title={value}>
+                              {value}
+                            </span>
+                            <input
+                              type="email"
+                              value={reassignExistingGroupAssignments[value] ?? ""}
+                              onChange={(e) =>
+                                setReassignExistingGroupAssignments((prev) => ({ ...prev, [value]: e.target.value.trim().toLowerCase() }))
+                              }
+                              placeholder="atanan@ornek.com"
+                              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                            />
+                          </label>
+                        ))
+                      ) : (
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          Bu sütunda mevcut görevlerden okunabilen değer yok.
+                        </p>
+                      )}
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        E-posta girilmeyen grup değerleri atanmamış kalır.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+              {reassignExistingTaskMode === "rowRanges" && (
+                <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-600 dark:bg-slate-800/70">
+                  <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                    Satır aralıkları
+                    <textarea
+                      value={reassignExistingRowRangesText}
+                      onChange={(e) => setReassignExistingRowRangesText(e.target.value)}
+                      rows={4}
+                      placeholder={"1-25 ugur@example.com\n26-50 ayse@example.com\n51-100 mehmet@example.com"}
+                      className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                    />
+                  </label>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    Aralıklar mevcut görev listesinin kayıt sırasına göre uygulanır. Aralık dışında kalan satırlar atanmamış kalır.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 
@@ -743,12 +1016,33 @@ function ProjectFormModal({
     </div>
   ) : null;
 
+  const newProjectStepOne = (
+    <Tabs defaultValue="general" className="flex min-h-0 flex-1 flex-col">
+      <TabsList className="grid h-auto w-full grid-cols-3">
+        <TabsTrigger value="general">Genel</TabsTrigger>
+        <TabsTrigger value="table">Tablo/Görünüm</TabsTrigger>
+        <TabsTrigger value="people">Ekip</TabsTrigger>
+      </TabsList>
+      <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
+        <TabsContent value="general" className="m-0 data-[state=inactive]:hidden">
+          {fieldsGeneral}
+        </TabsContent>
+        <TabsContent value="table" className="m-0 data-[state=inactive]:hidden">
+          {fieldsTableView}
+        </TabsContent>
+        <TabsContent value="people" className="m-0 data-[state=inactive]:hidden">
+          {fieldsAssignees}
+        </TabsContent>
+      </div>
+    </Tabs>
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showClose={true}
         className={cn(
-          isEdit ? "max-w-2xl" : "max-w-lg",
+          "max-w-2xl",
           "max-h-[min(90vh,720px)] overflow-hidden flex flex-col"
         )}
       >
@@ -816,8 +1110,9 @@ function ProjectFormModal({
           ) : (
           <div className="min-h-0 flex-1 overflow-y-auto pr-1">
           {/* Step 1 — Proje bilgileri (yeni proje akışı) */}
+          {step === 1 && newProjectStepOne}
           {step === 1 && (
-          <>
+          <div className="hidden">
           <div>
             <label htmlFor="project-name" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
               Ad
@@ -1066,7 +1361,27 @@ function ProjectFormModal({
             </div>
           )}
 
-          </>
+          {canManageTeamTaskEditing && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50/70 p-3 dark:border-blue-800 dark:bg-blue-950/30">
+              <label className="flex cursor-pointer items-start gap-2">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  checked={teamEditAllTasks}
+                  onChange={(e) => setTeamEditAllTasks(e.target.checked)}
+                />
+                <span className="text-sm text-slate-800 dark:text-slate-200">
+                  <span className="font-medium">Ekip tüm satırları düzenleyebilir</span>
+                  <span className="mt-1 block text-xs font-normal text-slate-600 dark:text-slate-400">
+                    Kapalıyken proje ekibi listeyi görür; normal üyeler sadece kendi veya atanmamış satırları düzenler.
+                    Açıkken ekipteki herkes satırları düzenleyebilir.
+                  </span>
+                </span>
+              </label>
+            </div>
+          )}
+
+          </div>
           )}
           {/* /Step 1 */}
 
@@ -1258,38 +1573,193 @@ function ProjectFormModal({
                     )}
                   </div>
                 )}
-                {importFile && assignedEmails.length >= 2 && (
-                  <label className="flex cursor-pointer items-start gap-2 pt-1">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                      checked={importRoundRobin}
-                      onChange={(e) => setImportRoundRobin(e.target.checked)}
-                    />
-                    <span className="text-xs text-slate-700 dark:text-slate-300">
-                      <strong>Eşit dağıt (round-robin):</strong> Her satır, atanan e-posta listesine sırayla paylaştırılır.
-                      İşaretliyken CSV&apos;deki &quot;Atanan&quot; sütunu yok sayılır.
-                    </span>
-                  </label>
+                {importFile && importPreview && (
+                  <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-600 dark:bg-slate-800/70">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Atama yöntemi</p>
+                        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                          {importHasAssigneeColumn
+                            ? "Dosyada atanan sütunu bulundu; istersen farklı bir dağıtım seçebilirsin."
+                            : "Dosyada atanan sütunu bulunamadı; satırların nasıl atanacağını seç."}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {importHasAssigneeColumn && (
+                        <label className={cn(
+                          "flex cursor-pointer items-start gap-2 rounded-md border p-2 text-xs",
+                          importAssignmentMode === "file" ? "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-100" : "border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-300"
+                        )}>
+                          <input
+                            type="radio"
+                            name="import-assignment-mode"
+                            checked={importAssignmentMode === "file"}
+                            onChange={() => setImportAssignmentMode("file")}
+                            className="mt-0.5 h-4 w-4 border-slate-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span><strong>Dosyadaki atananı kullan</strong><br />Her satır kendi e-posta sütunundan atanır.</span>
+                        </label>
+                      )}
+                      <label className={cn(
+                        "flex cursor-pointer items-start gap-2 rounded-md border p-2 text-xs",
+                        importAssignmentMode === "unassigned" ? "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-100" : "border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-300"
+                      )}>
+                        <input
+                          type="radio"
+                          name="import-assignment-mode"
+                          checked={importAssignmentMode === "unassigned"}
+                          onChange={() => setImportAssignmentMode("unassigned")}
+                          className="mt-0.5 h-4 w-4 border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span><strong>Atanmamış bırak</strong><br />Satırlar sonradan filtrelenip atanabilir.</span>
+                      </label>
+                      <label className={cn(
+                        "flex cursor-pointer items-start gap-2 rounded-md border p-2 text-xs",
+                        importAssignmentMode === "single" ? "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-100" : "border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-300"
+                      )}>
+                        <input
+                          type="radio"
+                          name="import-assignment-mode"
+                          checked={importAssignmentMode === "single"}
+                          onChange={() => setImportAssignmentMode("single")}
+                          className="mt-0.5 h-4 w-4 border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span><strong>Tek kişiye ata</strong><br />Tüm satırlar seçilen e-postaya gider.</span>
+                      </label>
+                      <label className={cn(
+                        "flex cursor-pointer items-start gap-2 rounded-md border p-2 text-xs",
+                        importAssignmentMode === "roundRobin" ? "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-100" : "border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-300",
+                        assignedEmails.length < 2 && "cursor-not-allowed opacity-60"
+                      )}>
+                        <input
+                          type="radio"
+                          name="import-assignment-mode"
+                          checked={importAssignmentMode === "roundRobin"}
+                          disabled={assignedEmails.length < 2}
+                          onChange={() => setImportAssignmentMode("roundRobin")}
+                          className="mt-0.5 h-4 w-4 border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span><strong>Eşit dağıt</strong><br />Proje ekibine sırayla paylaştırılır.</span>
+                      </label>
+                      <label className={cn(
+                        "flex cursor-pointer items-start gap-2 rounded-md border p-2 text-xs",
+                        importAssignmentMode === "groupByColumn" ? "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-100" : "border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-300"
+                      )}>
+                        <input
+                          type="radio"
+                          name="import-assignment-mode"
+                          checked={importAssignmentMode === "groupByColumn"}
+                          onChange={() => setImportAssignmentMode("groupByColumn")}
+                          className="mt-0.5 h-4 w-4 border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span><strong>Sütuna göre dağıt</strong><br />Bölge, şube veya ekip değerlerini kişilere bağlar.</span>
+                      </label>
+                      <label className={cn(
+                        "flex cursor-pointer items-start gap-2 rounded-md border p-2 text-xs",
+                        importAssignmentMode === "rowRanges" ? "border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-100" : "border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-300"
+                      )}>
+                        <input
+                          type="radio"
+                          name="import-assignment-mode"
+                          checked={importAssignmentMode === "rowRanges"}
+                          onChange={() => setImportAssignmentMode("rowRanges")}
+                          className="mt-0.5 h-4 w-4 border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span><strong>Satır aralığına göre dağıt</strong><br />1-25, 26-50 gibi blokları kişilere atar.</span>
+                      </label>
+                    </div>
+                  </div>
                 )}
               </div>
 
-              {importFile && (
+              {importFile && importAssignmentMode === "single" && (
                 <div>
                   <label htmlFor="project-assignee" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Varsayılan atanan
+                    Atanacak kişi
                   </label>
                   <input
                     id="project-assignee"
-                    type="text"
+                    type="email"
                     value={assignee}
                     onChange={(e) => setAssignee(e.target.value)}
-                    placeholder="Dosyadan eklenen görevlere atanacak kişi"
+                    placeholder="atanan@ornek.com"
                     className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
                   />
                   <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    Dosyada &quot;Atanan&quot; / &quot;assignee&quot; sütunu varsa satır bazında kullanılır. Yoksa burada yazan değer tüm satırlara uygulanır.
-                    Round-robin işaretliyse bu alan ve dosyadaki sütun yok sayılır.
+                    Bu e-posta içe aktarılan tüm görev satırlarına yazılır.
+                  </p>
+                </div>
+              )}
+              {importFile && importPreview && importAssignmentMode === "groupByColumn" && (
+                <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-600 dark:bg-slate-800/70">
+                  <label htmlFor="import-group-column" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Gruplanacak sütun
+                  </label>
+                  <select
+                    id="import-group-column"
+                    value={importGroupByColumn}
+                    onChange={(e) => {
+                      setImportGroupByColumn(e.target.value);
+                      setImportGroupAssignments({});
+                    }}
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                  >
+                    <option value="">Sütun seç</option>
+                    {importPreview.headers.map((h, idx) => {
+                      const key = (h ?? "").trim() || h;
+                      const label = key || `Sütun ${idx + 1}`;
+                      return (
+                        <option key={`${idx}-${key}`} value={key}>
+                          {label}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  {importGroupByColumn && (
+                    <div className="mt-3 space-y-2">
+                      {(importColumnValueOptions[importGroupByColumn] ?? []).length > 0 ? (
+                        (importColumnValueOptions[importGroupByColumn] ?? []).map((value) => (
+                          <label key={value} className="grid gap-1 text-xs text-slate-600 dark:text-slate-300 sm:grid-cols-[minmax(0,1fr)_minmax(180px,1.2fr)] sm:items-center">
+                            <span className="truncate rounded-md bg-slate-50 px-2 py-1.5 dark:bg-slate-700/60" title={value}>
+                              {value}
+                            </span>
+                            <input
+                              type="email"
+                              value={importGroupAssignments[value] ?? ""}
+                              onChange={(e) =>
+                                setImportGroupAssignments((prev) => ({ ...prev, [value]: e.target.value.trim().toLowerCase() }))
+                              }
+                              placeholder="atanan@ornek.com"
+                              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                            />
+                          </label>
+                        ))
+                      ) : (
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Bu sütunda önizlenebilir değer bulunamadı.</p>
+                      )}
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        E-posta girilmeyen grup değerleri atanmamış kalır.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+              {importFile && importAssignmentMode === "rowRanges" && (
+                <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-600 dark:bg-slate-800/70">
+                  <label htmlFor="import-row-ranges" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Satır aralıkları
+                  </label>
+                  <textarea
+                    id="import-row-ranges"
+                    value={importRowRangesText}
+                    onChange={(e) => setImportRowRangesText(e.target.value)}
+                    rows={4}
+                    placeholder={"1-25 ugur@example.com\n26-50 ayse@example.com\n51-100 mehmet@example.com"}
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                  />
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    Her satıra bir aralık ve e-posta yaz. Aralık dışında kalan satırlar atanmamış kalır.
                   </p>
                 </div>
               )}
@@ -1347,6 +1817,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
   const currentUserEmail = (user?.email ?? "").toLowerCase();
   const isPageVariant = variant === "page";
   const canEditProject = hasPermission("projects.edit");
+  const canManageTeamTaskEditing = isAdmin || user?.roleId === "project_manager";
   const canDeleteProject = hasPermission("projects.delete");
   const canArchiveProject = hasPermission("projects.archive");
   const {
@@ -1359,7 +1830,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
     deleteProject,
     archiveProject,
   } = useProjects();
-  const { createTasksBulk, tasks } = useTasksWithRealtime();
+  const { createTasksBulk, tasks, saveTask, updateTaskOptimistic } = useTasksWithRealtime();
   const promptUser = usePrompt();
   const taskCountByProject = useTaskCountByProject();
   const { unreadByProjectId } = useProjectChatUnread();
@@ -1424,12 +1895,19 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
     setIsSubmitting(true);
     setFormError(null);
     try {
+      const effectiveAssignedEmails = (() => {
+        const list = (data.assignedEmails ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean);
+        if (!isAdmin && currentUserEmail && !list.includes(currentUserEmail)) {
+          list.push(currentUserEmail);
+        }
+        return Array.from(new Set(list));
+      })();
       if (editingProject) {
         await updateProject(editingProject.id, {
           name: data.name,
           description: data.description,
           status: data.status,
-          assigned_emails: data.assignedEmails ?? [],
+          assigned_emails: effectiveAssignedEmails,
           due_date: data.due_date ?? null,
           priority: data.priority ?? null,
           extra_column_keys:
@@ -1440,7 +1918,67 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
           ...(isAdmin
             ? { strict_assignee_visibility: data.strictAssigneeVisibility ?? false }
             : {}),
+          ...(canManageTeamTaskEditing
+            ? { team_edit_all_tasks: data.teamEditAllTasks ?? false }
+            : {}),
         });
+        if (data.reassignExistingTasks) {
+          const projectTasks = tasks.filter((t) => String(t.project_id ?? "") === editingProject.id);
+          const targetTasks =
+            data.reassignExistingTaskScope === "all"
+              ? projectTasks
+              : projectTasks.filter((t) => !t.assignee || t.assignee.trim() === "");
+          const recipients = effectiveAssignedEmails.map((e) => e.trim().toLowerCase()).filter(Boolean);
+          const mode = data.reassignExistingTaskMode ?? "unassigned";
+          const singleRaw = data.reassignExistingTaskAssignee?.trim() ?? "";
+          const singleAssignee = normalizeTaskAssigneeEmail(singleRaw) ?? (singleRaw || null);
+          const rangeAssignments =
+            mode === "rowRanges" ? parseRowRangeAssignments(data.reassignExistingRowRangesText ?? "") : [];
+          if (mode === "roundRobin" && recipients.length < 2) {
+            throw new Error("Eşit dağıtım için proje ekibinde en az 2 e-posta olmalı.");
+          }
+          if (mode === "single" && !singleAssignee) {
+            throw new Error("Tek kişiye atama için e-posta girilmeli.");
+          }
+          if (mode === "groupByColumn" && !(data.reassignExistingGroupByColumn ?? "").trim()) {
+            throw new Error("Sütuna göre dağıtım için bir sütun seçilmeli.");
+          }
+          if (mode === "rowRanges" && rangeAssignments.length === 0) {
+            throw new Error("Satır aralığına göre dağıtım için en az bir aralık girilmeli.");
+          }
+          for (let i = 0; i < targetTasks.length; i += 1) {
+            const task = targetTasks[i];
+            const groupValue =
+              mode === "groupByColumn"
+                ? String(task.extra_data?.[data.reassignExistingGroupByColumn ?? ""] ?? "").trim()
+                : "";
+            const groupAssignee =
+              mode === "groupByColumn"
+                ? normalizeTaskAssigneeEmail(data.reassignExistingGroupAssignments?.[groupValue])
+                : null;
+            const rangeAssignee =
+              mode === "rowRanges" ? assigneeForRowRange(i + 1, rangeAssignments) : null;
+            const nextAssignee =
+              mode === "roundRobin"
+                ? pickRoundRobinAssignee(recipients, i)
+                : mode === "single"
+                  ? singleAssignee
+                  : mode === "groupByColumn"
+                    ? groupAssignee
+                    : mode === "rowRanges"
+                      ? rangeAssignee
+                      : null;
+            updateTaskOptimistic(task.id, {
+              assignee: nextAssignee,
+              last_updated_by: user?.email ?? "anon",
+            });
+            const result = await saveTask(task.id, {
+              assignee: nextAssignee,
+              last_updated_by: user?.email ?? "anon",
+            });
+            if (!result.ok) throw new Error(result.message);
+          }
+        }
         setFormOpen(false);
         setEditingProject(null);
         setFormError(null);
@@ -1450,10 +1988,11 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
         name: data.name,
         description: data.description,
         status: data.status,
-        assigned_emails: data.assignedEmails?.length ? data.assignedEmails : undefined,
+        assigned_emails: effectiveAssignedEmails.length ? effectiveAssignedEmails : undefined,
         due_date: data.due_date ?? undefined,
         priority: data.priority ?? undefined,
         strict_assignee_visibility: isAdmin ? (data.strictAssigneeVisibility ?? false) : false,
+        team_edit_all_tasks: canManageTeamTaskEditing ? (data.teamEditAllTasks ?? false) : false,
         extra_column_keys:
           data.extraColumnKeys && data.extraColumnKeys.length > 0 ? data.extraColumnKeys : undefined,
         title_column: data.titleColumn ?? null,
@@ -1464,11 +2003,26 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
         const text = await data.importFile.text();
         const fileName = (data.importFile.name || "").toLowerCase();
         const isJson = fileName.endsWith(".json");
-        const recipients = (data.assignedEmails ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean);
-        const roundRobin = !!(data.importRoundRobin && recipients.length >= 2);
+        const recipients = effectiveAssignedEmails.map((e) => e.trim().toLowerCase()).filter(Boolean);
+        const importMode = data.importAssignmentMode ?? "unassigned";
+        const roundRobin = importMode === "roundRobin" && recipients.length >= 2;
         const defaultRaw = (data.assignee ?? "").trim();
         const defaultAssignee =
-          normalizeTaskAssigneeEmail(defaultRaw) ?? (defaultRaw || null);
+          importMode === "single" ? normalizeTaskAssigneeEmail(defaultRaw) ?? (defaultRaw || null) : null;
+        if (importMode === "single" && !defaultAssignee) {
+          throw new Error("Tek kişiye atama için e-posta girilmeli.");
+        }
+        if (importMode === "roundRobin" && recipients.length < 2) {
+          throw new Error("Eşit dağıtım için proje ekibinde en az 2 e-posta olmalı.");
+        }
+        const rangeAssignments =
+          importMode === "rowRanges" ? parseRowRangeAssignments(data.importRowRangesText ?? "") : [];
+        if (importMode === "rowRanges" && rangeAssignments.length === 0) {
+          throw new Error("Satır aralığına göre dağıtım için en az bir aralık girilmeli.");
+        }
+        if (importMode === "groupByColumn" && !(data.importGroupByColumn ?? "").trim()) {
+          throw new Error("Sütuna göre dağıtım için bir sütun seçilmeli.");
+        }
         const projectPriority = normalizeProjectPriority(data.priority);
         /**
          * Kullanıcı önizleme üzerinden bazı sütunları kapatmış olabilir.
@@ -1484,7 +2038,11 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
         let distributeIndex = 0;
         if (isJson) {
           const { headers, rows } = parseJSON(text);
-          const assigneeKey = roundRobin ? null : findAssigneeJsonKey(headers);
+          const assigneeKey = importMode === "file" && !roundRobin ? findAssigneeJsonKey(headers) : null;
+          const groupJsonKey =
+            importMode === "groupByColumn" && data.importGroupByColumn
+              ? headers.find((h) => ((h ?? "").trim() || h) === data.importGroupByColumn) ?? data.importGroupByColumn
+              : null;
           if (headers.length > 0 && rows.length > 0) {
             for (const row of rows) {
               const extra_data: Record<string, string> = {};
@@ -1497,9 +2055,20 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
               if (hasAnyData) {
                 const fromCol =
                   assigneeKey != null ? normalizeTaskAssigneeEmail(row[assigneeKey]) : null;
+                const groupValue = groupJsonKey != null ? String(row[groupJsonKey] ?? "").trim() : "";
+                const fromGroup =
+                  importMode === "groupByColumn"
+                    ? normalizeTaskAssigneeEmail(data.importGroupAssignments?.[groupValue])
+                    : null;
+                const fromRange =
+                  importMode === "rowRanges" ? assigneeForRowRange(distributeIndex + 1, rangeAssignments) : null;
                 const assignee = roundRobin
                   ? pickRoundRobinAssignee(recipients, distributeIndex)
-                  : (fromCol ?? defaultAssignee);
+                  : importMode === "groupByColumn"
+                    ? fromGroup
+                    : importMode === "rowRanges"
+                      ? fromRange
+                      : (fromCol ?? defaultAssignee);
                 distributeIndex += 1;
                 tasksToInsert.push({
                   content: "",
@@ -1514,7 +2083,11 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
           }
         } else {
           const { headers, rows } = parseCSV(text);
-          const assigneeCol = roundRobin ? null : findAssigneeColumnIndex(headers);
+          const assigneeCol = importMode === "file" && !roundRobin ? findAssigneeColumnIndex(headers) : null;
+          const groupCol =
+            importMode === "groupByColumn" && data.importGroupByColumn
+              ? headers.findIndex((h) => ((h ?? "").trim() || h) === data.importGroupByColumn)
+              : -1;
           if (headers.length > 0 && rows.length > 0) {
             for (const row of rows) {
               const extra_data: Record<string, string> = {};
@@ -1527,9 +2100,20 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
               if (hasAnyData) {
                 const fromCol =
                   assigneeCol != null ? normalizeTaskAssigneeEmail(row[assigneeCol]) : null;
+                const groupValue = groupCol >= 0 ? String(row[groupCol] ?? "").trim() : "";
+                const fromGroup =
+                  importMode === "groupByColumn"
+                    ? normalizeTaskAssigneeEmail(data.importGroupAssignments?.[groupValue])
+                    : null;
+                const fromRange =
+                  importMode === "rowRanges" ? assigneeForRowRange(distributeIndex + 1, rangeAssignments) : null;
                 const assignee = roundRobin
                   ? pickRoundRobinAssignee(recipients, distributeIndex)
-                  : (fromCol ?? defaultAssignee);
+                  : importMode === "groupByColumn"
+                    ? fromGroup
+                    : importMode === "rowRanges"
+                      ? fromRange
+                      : (fromCol ?? defaultAssignee);
                 distributeIndex += 1;
                 tasksToInsert.push({
                   content: "",
@@ -1599,14 +2183,22 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
         confirmLabel: "Oluştur",
       });
       if (!newName || !newName.trim()) return;
+      const templateAssignedEmails = (() => {
+        const list = (td.assigned_emails ?? []).map((e) => String(e).trim().toLowerCase()).filter(Boolean);
+        if (!isAdmin && currentUserEmail && !list.includes(currentUserEmail)) {
+          list.push(currentUserEmail);
+        }
+        return Array.from(new Set(list));
+      })();
       const projectId = await createProject({
         name: newName.trim(),
         description: template.description || "",
         status: td.status ?? "Aktif",
         priority: td.priority ?? undefined,
         due_date: offsetToDateIso(td.due_offset_days ?? null) ?? undefined,
-        assigned_emails: td.assigned_emails ?? undefined,
+        assigned_emails: templateAssignedEmails.length > 0 ? templateAssignedEmails : undefined,
         strict_assignee_visibility: isAdmin ? (td.strict_assignee_visibility ?? false) : false,
+        team_edit_all_tasks: canManageTeamTaskEditing ? (td.team_edit_all_tasks ?? false) : false,
         extra_column_keys: td.extra_column_keys ?? undefined,
         title_column: td.title_column ?? null,
         subtitle_columns: td.subtitle_columns ?? null,
@@ -2025,6 +2617,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
         isSubmitting={isSubmitting}
         formError={formError}
         isAdmin={isAdmin}
+        canManageTeamTaskEditing={canManageTeamTaskEditing}
         observedExtraKeys={
           editingProject
             ? (() => {

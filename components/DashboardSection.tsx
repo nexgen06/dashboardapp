@@ -6,9 +6,11 @@ import { useAuth } from "@/contexts/auth-context";
 import { useProfileLookup } from "@/contexts/profile-lookup-context";
 import { useProjects } from "@/hooks/useProjects";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
-import { useSettings } from "@/contexts/settings-context";
+import { parseListOptionString, useSettings } from "@/contexts/settings-context";
 import type { DateFormat } from "@/contexts/settings-context";
 import { formatDate } from "@/lib/formatDate";
+import { getRelativeTime } from "@/lib/relativeTime";
+import { getTaskDisplayLabel } from "@/lib/taskDisplayLabel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SectionHeader } from "@/components/ui/section-header";
@@ -126,13 +128,30 @@ export function DashboardSection() {
   const canProjects = hasPermission("area.projects") && hasPermission("projects.view");
   const canLiveTable = hasPermission("area.liveTable") && hasPermission("liveTable.view");
   const canCreateProject = hasPermission("projects.create");
+  const currentUserEmail = (user?.email ?? "").trim().toLowerCase();
+  const isAdmin = user?.roleId === "admin";
 
   // `projects` ve `tasks` Supabase RLS tarafından sunucuda filtrelenmiş geliyor.
+  // Frontend de rol kapsamını tekrar daraltır: admin tümünü, diğer roller sadece
+  // assigned_emails içinde oldukları projeleri Dashboard istatistiklerine dahil eder.
+  const scopedProjects = useMemo(() => {
+    if (isAdmin) return projects;
+    if (!currentUserEmail) return [];
+    return projects.filter((p) =>
+      (p.assigned_emails ?? []).some((email) => email.trim().toLowerCase() === currentUserEmail)
+    );
+  }, [currentUserEmail, isAdmin, projects]);
+
   const projectById = useMemo(() => {
     const map: Record<string, Project> = {};
-    projects.forEach((p) => { map[p.id] = p; });
+    scopedProjects.forEach((p) => { map[p.id] = p; });
     return map;
-  }, [projects]);
+  }, [scopedProjects]);
+
+  const scopedProjectIds = useMemo(
+    () => new Set(scopedProjects.map((p) => p.id)),
+    [scopedProjects]
+  );
 
   /**
    * KPI hesaplaması için "projeye bağlı görevler" kapsamı kullanılır.
@@ -141,19 +160,24 @@ export function DashboardSection() {
    * gösterip kullanıcı tabloda göremediği bir görev sayar.
    */
   const projectLinkedTasks = useMemo(
-    () => tasks.filter((t) => t.project_id != null && String(t.project_id).trim() !== ""),
-    [tasks]
+    () =>
+      tasks.filter((t) => {
+        const projectId = t.project_id != null ? String(t.project_id).trim() : "";
+        if (!projectId) return false;
+        return scopedProjectIds.has(projectId);
+      }),
+    [scopedProjectIds, tasks]
   );
 
   const kpi = useMemo(() => {
-    const totalProjects = projects.length;
+    const totalProjects = scopedProjects.length;
     const totalTasks = projectLinkedTasks.length;
     const done = projectLinkedTasks.filter((t) => isStatusDone(t.status)).length;
     const inProgress = projectLinkedTasks.filter((t) => isStatusInProgress(t.status)).length;
     const todo = projectLinkedTasks.filter((t) => isStatusTodo(t.status)).length;
     const completionPct = totalTasks > 0 ? Math.round((done / totalTasks) * 100) : 0;
     return { totalProjects, totalTasks, done, inProgress, todo, completionPct };
-  }, [projects.length, projectLinkedTasks]);
+  }, [scopedProjects.length, projectLinkedTasks]);
 
   const recentTasks = useMemo(() => {
     return [...projectLinkedTasks]
@@ -166,14 +190,14 @@ export function DashboardSection() {
   }, [projectLinkedTasks]);
 
   const recentProjects = useMemo(() => {
-    return [...projects]
+    return [...scopedProjects]
       .sort((a, b) => {
         const ta = a.updated_at ? new Date(a.updated_at).getTime() : (a.created_at ? new Date(a.created_at).getTime() : 0);
         const tb = b.updated_at ? new Date(b.updated_at).getTime() : (b.created_at ? new Date(b.created_at).getTime() : 0);
         return tb - ta;
       })
       .slice(0, 5);
-  }, [projects]);
+  }, [scopedProjects]);
 
   const statusChartData = useMemo(() => {
     const { todo, inProgress, done } = kpi;
@@ -208,7 +232,7 @@ export function DashboardSection() {
 
   /** Kişisel içgörü: bana atanan açık, son tarihli, bu hafta tamamlanan görev sayıları. */
   const personalInsight = useMemo(() => {
-    const me = (user?.email ?? "").trim().toLowerCase();
+    const me = currentUserEmail;
     const nowMs = Date.now();
     const sevenDaysAgo = nowMs - 7 * 24 * 60 * 60 * 1000;
     const todayEnd = new Date();
@@ -233,7 +257,7 @@ export function DashboardSection() {
       dueSoonCount: dueSoon.length,
       completedThisWeek,
     };
-  }, [projectLinkedTasks, user?.email]);
+  }, [currentUserEmail, projectLinkedTasks]);
 
   // Profilde nickname tanımlıysa o kullanılır; aksi halde displayName / email fallback.
   const myProfile = profileLookup.byEmail(user?.email);
@@ -322,7 +346,7 @@ export function DashboardSection() {
         </div>
       </section>
 
-      {projects.length === 0 && canProjects && (
+      {scopedProjects.length === 0 && canProjects && (
         <section
           className="rounded-xl border border-blue-200 bg-blue-50/60 p-4 dark:border-blue-800 dark:bg-blue-950/35"
           aria-label="Başlangıç adımları"
@@ -521,8 +545,9 @@ export function DashboardSection() {
                 <RecentTaskRow
                   key={task.id}
                   task={task}
-                  projectName={task.project_id ? projectById[task.project_id]?.name : null}
+                  project={task.project_id ? projectById[task.project_id] ?? null : null}
                   dateFormat={settings.dateFormat}
+                  preferredExtraKeys={parseListOptionString(settings.taskSummaryPreferredExtraKeys)}
                 />
               ))
             )}
@@ -592,29 +617,57 @@ export function DashboardSection() {
 
 function RecentTaskRow({
   task,
-  projectName,
+  project,
   dateFormat,
+  preferredExtraKeys,
 }: {
   task: Task;
-  projectName: string | null;
+  project: Project | null;
   dateFormat: DateFormat;
+  preferredExtraKeys: string[];
 }) {
   const statusLabel = task.status?.trim() || "—";
   const isDone = isStatusDone(task.status);
   const isProgress = isStatusInProgress(task.status);
+  const taskLabel = getTaskDisplayLabel(task, {
+    projectTitleColumn: project?.title_column ?? null,
+    preferredExtraKeys,
+  });
+  const actor = (task.last_updated_by ?? "").trim();
+  const actorLabel = actor && actor.toLowerCase() !== "anon" ? actor : null;
+  const updatedAt = task.updated_at ? new Date(task.updated_at) : null;
+  const actionText = isDone
+    ? "görevi tamamlandı"
+    : isProgress
+      ? "görevi devam ediyor olarak güncellendi"
+      : statusLabel !== "—"
+        ? `görevi ${statusLabel} olarak güncellendi`
+        : "görevi güncellendi";
 
   return (
-    <div className="px-4 py-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+    <div className="px-4 py-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{task.content || "—"}</p>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          {projectName ? (
-            <span className="truncate">{projectName}</span>
+        <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
+          <span>{taskLabel}</span>
+          <span className="font-normal text-slate-600 dark:text-slate-300"> {actionText}</span>
+        </p>
+        <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
+          {project?.name ? (
+            <span className="max-w-[14rem] truncate">{project.name}</span>
           ) : (
             <span>—</span>
           )}
-          {task.updated_at && (
-            <span className="ml-1"> · {formatDate(new Date(task.updated_at), dateFormat)}</span>
+          {actorLabel && (
+            <>
+              <span aria-hidden>·</span>
+              <span className="max-w-[14rem] truncate">{actorLabel}</span>
+            </>
+          )}
+          {updatedAt && (
+            <>
+              <span aria-hidden>·</span>
+              <span title={formatDate(updatedAt, dateFormat)}>{getRelativeTime(updatedAt)}</span>
+            </>
           )}
         </p>
       </div>
