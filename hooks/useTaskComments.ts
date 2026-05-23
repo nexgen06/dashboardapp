@@ -2,6 +2,12 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  COMMENTS_FALLBACK_POLL_MS,
+  REALTIME_SUBSCRIBE_TIMEOUT_MS,
+  isRealtimeDisabledForClient,
+  shouldPollInBrowser,
+} from "@/lib/realtimeFallback";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
   listTaskComments,
@@ -24,6 +30,7 @@ export function useTaskComments(taskId: string | null | undefined) {
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [realtimeConnected, setRealtimeConnected] = useState(false);
   const channelRef = useRef<RealtimeChannel | null>(null);
 
   const refresh = useCallback(async () => {
@@ -52,7 +59,17 @@ export function useTaskComments(taskId: string | null | undefined) {
   // Realtime: bu task'a ait yorum eklemeleri/güncellemeleri/silmeleri anında uygula.
   useEffect(() => {
     if (!taskId) return;
+    if (isRealtimeDisabledForClient()) {
+      setRealtimeConnected(false);
+      return;
+    }
     channelSeq += 1;
+    let cancelled = false;
+    let subscribeTimeout: ReturnType<typeof setTimeout> | null = null;
+    setRealtimeConnected(false);
+    subscribeTimeout = setTimeout(() => {
+      if (!cancelled) setRealtimeConnected(false);
+    }, REALTIME_SUBSCRIBE_TIMEOUT_MS);
     const ch = supabase
       .channel(`task_comments_${taskId}_${channelSeq}`)
       .on(
@@ -82,13 +99,40 @@ export function useTaskComments(taskId: string | null | undefined) {
           }
         }
       )
-      .subscribe();
+      .subscribe((status, err) => {
+        if (cancelled) return;
+        const statusStr = String(status ?? "").toUpperCase();
+        if (statusStr === "SUBSCRIBED") {
+          if (subscribeTimeout) {
+            clearTimeout(subscribeTimeout);
+            subscribeTimeout = null;
+          }
+          setRealtimeConnected(true);
+        } else if (err || statusStr === "CHANNEL_ERROR" || statusStr === "TIMED_OUT" || statusStr === "CLOSED") {
+          if (subscribeTimeout) {
+            clearTimeout(subscribeTimeout);
+            subscribeTimeout = null;
+          }
+          setRealtimeConnected(false);
+        }
+      });
     channelRef.current = ch;
     return () => {
+      cancelled = true;
+      if (subscribeTimeout) clearTimeout(subscribeTimeout);
+      setRealtimeConnected(false);
       void supabase.removeChannel(ch);
       channelRef.current = null;
     };
   }, [taskId]);
+
+  useEffect(() => {
+    if (!taskId || realtimeConnected) return;
+    const interval = window.setInterval(() => {
+      if (shouldPollInBrowser()) void refresh();
+    }, COMMENTS_FALLBACK_POLL_MS);
+    return () => window.clearInterval(interval);
+  }, [taskId, realtimeConnected, refresh]);
 
   return { comments, isLoading, error, refresh };
 }

@@ -7,6 +7,11 @@ import { useAuth } from "@/contexts/auth-context";
 import { useProjectChatUnread } from "@/contexts/project-chat-unread-context";
 import { useToast } from "@/components/ui/toast";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
+import {
+  ADMIN_ALERTS_FALLBACK_POLL_MS,
+  isRealtimeDisabledForClient,
+  shouldPollInBrowser,
+} from "@/lib/realtimeFallback";
 import { markProjectChatRead } from "@/lib/projectChatApi";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
@@ -134,6 +139,7 @@ export function useNotificationSummary(): NotificationSummary {
   // Realtime: yeni duyuru gelirse anında listeye düşer + okuma durumu da senkron
   useEffect(() => {
     if (!isSupabaseConfigured() || !userId || userId === "demo") return;
+    if (isRealtimeDisabledForClient()) return;
     const ch: RealtimeChannel = supabase
       .channel(`announcements-${userId}-${channelIdRef.current}`)
       .on(
@@ -220,8 +226,23 @@ export function useNotificationSummary(): NotificationSummary {
     void fetchAdminUnread();
   }, [fetchAdminUnread]);
 
+  // Admin uyarıları WebSocket kapalı ağlarda da kaçmasın diye HTTPS yedeği.
   useEffect(() => {
     if (!isSupabaseConfigured() || !canAdminNotifications || !userId || userId === "demo") return;
+    const onFocus = () => void fetchAdminUnread();
+    window.addEventListener("focus", onFocus);
+    const interval = window.setInterval(() => {
+      if (shouldPollInBrowser()) void fetchAdminUnread();
+    }, ADMIN_ALERTS_FALLBACK_POLL_MS);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.clearInterval(interval);
+    };
+  }, [canAdminNotifications, userId, fetchAdminUnread]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !canAdminNotifications || !userId || userId === "demo") return;
+    if (isRealtimeDisabledForClient()) return;
     const ch: RealtimeChannel = supabase
       .channel(`admin-alerts-${userId}-${channelIdRef.current}`, { config: { private: true } })
       .on(

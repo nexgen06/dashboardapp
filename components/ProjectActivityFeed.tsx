@@ -17,6 +17,11 @@ import {
   type AuditFieldDiff,
 } from "@/lib/auditLog";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  ACTIVITY_FALLBACK_POLL_MS,
+  isRealtimeDisabledForClient,
+  shouldPollInBrowser,
+} from "@/lib/realtimeFallback";
 import { getRelativeTime } from "@/lib/relativeTime";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -177,6 +182,7 @@ export function ProjectActivityFeed({
   // Audit log INSERT'lere realtime abone — yeni satır gelince refetch (basit & güvenli)
   useEffect(() => {
     if (!projectId) return;
+    if (isRealtimeDisabledForClient()) return;
     const ch = supabase
       .channel(`audit_project_${projectId}`)
       .on(
@@ -190,6 +196,14 @@ export function ProjectActivityFeed({
     return () => {
       void supabase.removeChannel(ch);
     };
+  }, [projectId, load]);
+
+  useEffect(() => {
+    if (!projectId || !isRealtimeDisabledForClient()) return;
+    const interval = window.setInterval(() => {
+      if (shouldPollInBrowser()) void load();
+    }, ACTIVITY_FALLBACK_POLL_MS);
+    return () => window.clearInterval(interval);
   }, [projectId, load]);
 
   if (loading && entries.length === 0) {

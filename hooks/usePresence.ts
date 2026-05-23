@@ -3,6 +3,13 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { removeRealtimeChannelsByTopic } from "@/lib/removeRealtimeChannelTopic";
+import { listPresenceHeartbeats, upsertPresenceHeartbeat } from "@/lib/presenceHeartbeat";
+import {
+  PRESENCE_HEARTBEAT_READ_MS,
+  PRESENCE_HEARTBEAT_WRITE_MS,
+  isRealtimeDisabledForClient,
+  shouldPollInBrowser,
+} from "@/lib/realtimeFallback";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
   createBrowserClientId,
@@ -45,12 +52,22 @@ export function usePresence(options: UsePresenceOptions = {}) {
   const subscribedRef = useRef(false);
   const clientToRowRef = useRef<Map<string, { rowId: string | null; email?: string; name?: string }>>(new Map());
   const activeChannelRef = useRef<RealtimeChannel | null>(null);
+  const editingRowRef = useRef<string | null>(null);
 
   const setEditingRow = useCallback((rowId: string | null) => {
+    editingRowRef.current = rowId;
     const ch = channelRef.current;
     const cid = clientIdRef.current;
-    if (!ch || !cid) return;
     const o = optsRef.current;
+    void upsertPresenceHeartbeat({
+      scope: "tasks",
+      rowId,
+      clientId: cid,
+      userId: o.userId,
+      userEmail: o.userEmail,
+      userName: o.userName,
+    });
+    if (!ch || !cid) return;
     const payload: PresencePayload = {
       clientId: cid,
       rowId,
@@ -88,6 +105,16 @@ export function usePresence(options: UsePresenceOptions = {}) {
     const intervalId = setInterval(() => {
       if (channelRef.current) updateOnlineFromState(channelRef.current);
     }, 3000);
+
+    if (isRealtimeDisabledForClient()) {
+      return () => {
+        clearInterval(intervalId);
+        subscribedRef.current = false;
+        channelRef.current = null;
+        clientIdRef.current = null;
+        setEditorsByRowId(new Map());
+      };
+    }
 
     void (async () => {
       try {
@@ -225,6 +252,45 @@ export function usePresence(options: UsePresenceOptions = {}) {
       .catch(() => null);
     updateOnlineFromState(ch);
   }, [userEmail, userName, userId, updateOnlineFromState]);
+
+  useEffect(() => {
+    const write = () => {
+      const o = optsRef.current;
+      void upsertPresenceHeartbeat({
+        scope: "tasks",
+        rowId: editingRowRef.current,
+        clientId: clientIdRef.current,
+        userId: o.userId,
+        userEmail: o.userEmail,
+        userName: o.userName,
+      });
+    };
+    const read = async () => {
+      if (!shouldPollInBrowser()) return;
+      const fallbackUsers = await listPresenceHeartbeats("tasks");
+      if (fallbackUsers.length === 0) return;
+      setOnlineUsers((prev) => {
+        if (!subscribedRef.current) return fallbackUsers;
+        const seen = new Set(prev.map((u) => (u.email ?? u.key).trim().toLowerCase()));
+        const merged = [...prev];
+        for (const user of fallbackUsers) {
+          const key = (user.email ?? user.key).trim().toLowerCase();
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          merged.push(user);
+        }
+        return merged;
+      });
+    };
+    write();
+    void read();
+    const writeInterval = window.setInterval(write, PRESENCE_HEARTBEAT_WRITE_MS);
+    const readInterval = window.setInterval(() => void read(), PRESENCE_HEARTBEAT_READ_MS);
+    return () => {
+      window.clearInterval(writeInterval);
+      window.clearInterval(readInterval);
+    };
+  }, []);
 
   return {
     editorsByRowId,

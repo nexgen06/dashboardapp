@@ -3,6 +3,12 @@
 import { createContext, useContext, useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/auth-context";
 import { useProjects } from "@/hooks/useProjects";
+import {
+  CHAT_UNREAD_FALLBACK_POLL_MS,
+  REALTIME_SUBSCRIBE_TIMEOUT_MS,
+  isRealtimeDisabledForClient,
+  shouldPollInBrowser,
+} from "@/lib/realtimeFallback";
 import { supabase } from "@/lib/supabaseClient";
 import { fetchUnreadCounts } from "@/lib/projectChatApi";
 
@@ -25,6 +31,7 @@ export function ProjectChatUnreadProvider({ children }: { children: React.ReactN
   const projectIds = useMemo(() => projects.map((p) => p.id), [projects]);
 
   const [unreadByProjectId, setUnreadByProjectId] = useState<Record<string, number>>({});
+  const [realtimeConnected, setRealtimeConnected] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!email || projectIds.length === 0) {
@@ -45,6 +52,16 @@ export function ProjectChatUnreadProvider({ children }: { children: React.ReactN
   }, [refresh]);
 
   useEffect(() => {
+    if (isRealtimeDisabledForClient()) {
+      setRealtimeConnected(false);
+      return;
+    }
+    let cancelled = false;
+    let subscribeTimeout: ReturnType<typeof setTimeout> | null = null;
+    setRealtimeConnected(false);
+    subscribeTimeout = setTimeout(() => {
+      if (!cancelled) setRealtimeConnected(false);
+    }, REALTIME_SUBSCRIBE_TIMEOUT_MS);
     const ch = supabase
       .channel("pcm-unread-inserts", { config: { private: true } })
       .on(
@@ -54,13 +71,33 @@ export function ProjectChatUnreadProvider({ children }: { children: React.ReactN
           void refresh();
         }
       )
-      .subscribe();
+      .subscribe((status, err) => {
+        if (cancelled) return;
+        const statusStr = String(status ?? "").toUpperCase();
+        if (statusStr === "SUBSCRIBED") {
+          if (subscribeTimeout) {
+            clearTimeout(subscribeTimeout);
+            subscribeTimeout = null;
+          }
+          setRealtimeConnected(true);
+        } else if (err || statusStr === "CHANNEL_ERROR" || statusStr === "TIMED_OUT" || statusStr === "CLOSED") {
+          if (subscribeTimeout) {
+            clearTimeout(subscribeTimeout);
+            subscribeTimeout = null;
+          }
+          setRealtimeConnected(false);
+        }
+      });
     return () => {
+      cancelled = true;
+      if (subscribeTimeout) clearTimeout(subscribeTimeout);
+      setRealtimeConnected(false);
       void supabase.removeChannel(ch);
     };
   }, [refresh]);
 
   useEffect(() => {
+    if (isRealtimeDisabledForClient()) return;
     const ch = supabase
       .channel("pcr-unread-reads", { config: { private: true } })
       .on(
@@ -75,6 +112,14 @@ export function ProjectChatUnreadProvider({ children }: { children: React.ReactN
       void supabase.removeChannel(ch);
     };
   }, [refresh]);
+
+  useEffect(() => {
+    if (realtimeConnected) return;
+    const interval = window.setInterval(() => {
+      if (shouldPollInBrowser()) void refresh();
+    }, CHAT_UNREAD_FALLBACK_POLL_MS);
+    return () => window.clearInterval(interval);
+  }, [realtimeConnected, refresh]);
 
   const totalUnread = useMemo(
     () => Object.values(unreadByProjectId).reduce((a, b) => a + b, 0),

@@ -5,6 +5,11 @@ import { useAuth } from "@/contexts/auth-context";
 import { hasPermission as userHasPermission } from "@/lib/permissions";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import {
+  SETTINGS_FALLBACK_POLL_MS,
+  isRealtimeDisabledForClient,
+  shouldPollInBrowser,
+} from "@/lib/realtimeFallback";
+import {
   fetchLiveTableDensityFromServer,
   persistLiveTableDensityToServer,
   LIVE_TABLE_DENSITY_APP_SETTINGS_KEY,
@@ -213,6 +218,19 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     })();
 
     const filterKey = LIVE_TABLE_DENSITY_APP_SETTINGS_KEY;
+    if (isRealtimeDisabledForClient()) {
+      const interval = window.setInterval(async () => {
+        if (!shouldPollInBrowser()) return;
+        const d = await fetchLiveTableDensityFromServer();
+        if (cancelled || !d || liveTableDensityEditedLocallyRef.current) return;
+        setSettings((prev) => ({ ...prev, liveTableDensity: d }));
+      }, SETTINGS_FALLBACK_POLL_MS);
+      return () => {
+        cancelled = true;
+        window.clearInterval(interval);
+      };
+    }
+
     const channel = supabase
       .channel(`app_settings_${filterKey}`, { config: { private: true } })
       .on(

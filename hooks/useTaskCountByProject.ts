@@ -2,6 +2,11 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  TASK_COUNT_FALLBACK_POLL_MS,
+  isRealtimeDisabledForClient,
+  shouldPollInBrowser,
+} from "@/lib/realtimeFallback";
 import { isStatusDone } from "@/lib/statusKind";
 
 export type ProjectTaskStats = {
@@ -39,6 +44,7 @@ export function useTaskCountByProject(): Record<string, ProjectTaskStats> {
   }, [fetchCounts]);
 
   useEffect(() => {
+    if (isRealtimeDisabledForClient()) return;
     const channel = supabase
       .channel("task-count-by-project", { config: { private: true } })
       .on(
@@ -50,6 +56,14 @@ export function useTaskCountByProject(): Record<string, ProjectTaskStats> {
     return () => {
       supabase.removeChannel(channel);
     };
+  }, [fetchCounts]);
+
+  useEffect(() => {
+    if (!isRealtimeDisabledForClient()) return;
+    const interval = window.setInterval(() => {
+      if (shouldPollInBrowser()) void fetchCounts();
+    }, TASK_COUNT_FALLBACK_POLL_MS);
+    return () => window.clearInterval(interval);
   }, [fetchCounts]);
 
   return stats;

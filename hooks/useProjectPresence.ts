@@ -3,6 +3,13 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { removeRealtimeChannelsByTopic } from "@/lib/removeRealtimeChannelTopic";
+import { listPresenceHeartbeats, upsertPresenceHeartbeat } from "@/lib/presenceHeartbeat";
+import {
+  PRESENCE_HEARTBEAT_READ_MS,
+  PRESENCE_HEARTBEAT_WRITE_MS,
+  isRealtimeDisabledForClient,
+  shouldPollInBrowser,
+} from "@/lib/realtimeFallback";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
   createBrowserClientId,
@@ -148,6 +155,17 @@ export function useProjectPresence(options: UseProjectPresenceOptions) {
     const intervalId = setInterval(() => {
       if (channelRef.current) updateOnlineFromState(channelRef.current);
     }, 4000);
+
+    if (isRealtimeDisabledForClient()) {
+      return () => {
+        cancelled = true;
+        clearInterval(intervalId);
+        channelRef.current = null;
+        clientIdRef.current = null;
+        subscribedRef.current = false;
+        setPresenceReady(false);
+      };
+    }
 
     void (async () => {
       try {
@@ -309,6 +327,45 @@ export function useProjectPresence(options: UseProjectPresenceOptions) {
       .catch(() => null);
     updateOnlineFromState(ch);
   }, [enabled, projectId, userEmail, userName, userId, updateOnlineFromState]);
+
+  useEffect(() => {
+    if (!enabled || !projectId.trim()) return;
+    const write = () => {
+      void upsertPresenceHeartbeat({
+        scope: "project",
+        projectId,
+        clientId: clientIdRef.current,
+        userId,
+        userEmail,
+        userName,
+      });
+    };
+    const read = async () => {
+      if (!shouldPollInBrowser()) return;
+      const fallbackUsers = await listPresenceHeartbeats("project", projectId);
+      if (fallbackUsers.length === 0) return;
+      setOnlineUsers((prev) => {
+        if (!subscribedRef.current) return fallbackUsers;
+        const seen = new Set(prev.map((u) => (u.email ?? u.key).trim().toLowerCase()));
+        const merged = [...prev];
+        for (const user of fallbackUsers) {
+          const key = (user.email ?? user.key).trim().toLowerCase();
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          merged.push(user);
+        }
+        return merged;
+      });
+    };
+    write();
+    void read();
+    const writeInterval = window.setInterval(write, PRESENCE_HEARTBEAT_WRITE_MS);
+    const readInterval = window.setInterval(() => void read(), PRESENCE_HEARTBEAT_READ_MS);
+    return () => {
+      window.clearInterval(writeInterval);
+      window.clearInterval(readInterval);
+    };
+  }, [enabled, projectId, userEmail, userName, userId]);
 
   return {
     onlineUsers,

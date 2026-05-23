@@ -2,6 +2,12 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
+import {
+  REALTIME_SUBSCRIBE_TIMEOUT_MS,
+  TASKS_FALLBACK_POLL_MS,
+  isRealtimeDisabledForClient,
+  shouldPollInBrowser,
+} from "@/lib/realtimeFallback";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { Task } from "@/types/tasks";
 
@@ -115,6 +121,10 @@ export function useTasksWithRealtime() {
   // Realtime: başka kullanıcıların INSERT/UPDATE/DELETE değişiklikleri anında yansır.
   // Supabase Dashboard > Database > Replication bölümünde "tasks" tablosunun publication'a eklendiğinden emin olun.
   useEffect(() => {
+    if (isRealtimeDisabledForClient()) {
+      setRealtimeConnection("disconnected");
+      return;
+    }
     let channel: RealtimeChannel;
     let subscribeTimeout: ReturnType<typeof setTimeout> | null = null;
     let syncTimer: ReturnType<typeof setTimeout> | null = null;
@@ -123,7 +133,7 @@ export function useTasksWithRealtime() {
     setRealtimeConnection("connecting");
     subscribeTimeout = setTimeout(() => {
       if (!cancelled) setRealtimeConnection((prev) => (prev === "live" ? "live" : "disconnected"));
-    }, 15000);
+    }, REALTIME_SUBSCRIBE_TIMEOUT_MS);
 
     const scheduleSync = () => {
       if (syncTimer) clearTimeout(syncTimer);
@@ -258,6 +268,15 @@ export function useTasksWithRealtime() {
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [fetchTasks]);
+
+  // Kurumsal ağlarda WebSocket engellenirse güvenli HTTPS polling yedeği.
+  useEffect(() => {
+    if (realtimeConnection === "live") return;
+    const interval = window.setInterval(() => {
+      if (shouldPollInBrowser()) void fetchTasks();
+    }, TASKS_FALLBACK_POLL_MS);
+    return () => window.clearInterval(interval);
+  }, [realtimeConnection, fetchTasks]);
 
   const updateTaskOptimistic = useCallback((taskId: string, patch: Partial<Task>) => {
     setTasks((prev) =>

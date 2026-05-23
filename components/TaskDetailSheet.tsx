@@ -35,6 +35,11 @@ import { getRelativeTime } from "@/lib/relativeTime";
 import { TaskCommentsSection } from "@/components/TaskCommentsSection";
 import { supabase } from "@/lib/supabaseClient";
 import {
+  ACTIVITY_FALLBACK_POLL_MS,
+  isRealtimeDisabledForClient,
+  shouldPollInBrowser,
+} from "@/lib/realtimeFallback";
+import {
   fetchAuditLog,
   fieldLabel,
   formatAuditValue,
@@ -137,6 +142,19 @@ export function TaskDetailSheet({
       setAuditLog(entries);
       setAuditLoading(false);
     });
+
+    if (isRealtimeDisabledForClient()) {
+      const interval = window.setInterval(() => {
+        if (!shouldPollInBrowser()) return;
+        void fetchAuditLog("tasks", task.id, 50).then((entries) => {
+          if (!cancelled) setAuditLog(entries);
+        });
+      }, ACTIVITY_FALLBACK_POLL_MS);
+      return () => {
+        cancelled = true;
+        window.clearInterval(interval);
+      };
+    }
 
     // Realtime: bu görev için yeni audit_log INSERT olursa listeye ekle
     const channel = supabase

@@ -2,6 +2,12 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  PROJECTS_FALLBACK_POLL_MS,
+  REALTIME_SUBSCRIBE_TIMEOUT_MS,
+  isRealtimeDisabledForClient,
+  shouldPollInBrowser,
+} from "@/lib/realtimeFallback";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { Project, ProjectStatus, ProjectPriority } from "@/types/project";
 
@@ -95,6 +101,7 @@ export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [realtimeConnected, setRealtimeConnected] = useState(false);
 
   const fetchProjects = useCallback(async () => {
     try {
@@ -120,8 +127,18 @@ export function useProjects() {
 
   // Realtime: başka kullanıcıların proje ekleme/güncelleme/silme değişiklikleri anında yansır.
   useEffect(() => {
+    if (isRealtimeDisabledForClient()) {
+      setRealtimeConnected(false);
+      return;
+    }
     let channel: RealtimeChannel;
+    let subscribeTimeout: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
     const channelTopic = `projects-realtime-sync-${++projectsRealtimeChannelSeq}`;
+    setRealtimeConnected(false);
+    subscribeTimeout = setTimeout(() => {
+      if (!cancelled) setRealtimeConnected(false);
+    }, REALTIME_SUBSCRIBE_TIMEOUT_MS);
     // `private: true` → Realtime payloadlarına `projects` tablosu RLS uygulanır.
     channel = supabase
       .channel(channelTopic, { config: { private: true } })
@@ -160,15 +177,41 @@ export function useProjects() {
         }
       )
       .subscribe((status, err) => {
+        if (cancelled) return;
+        const statusStr = String(status ?? "").toUpperCase();
+        if (statusStr === "SUBSCRIBED") {
+          if (subscribeTimeout) {
+            clearTimeout(subscribeTimeout);
+            subscribeTimeout = null;
+          }
+          setRealtimeConnected(true);
+        }
         if (err) {
+          if (subscribeTimeout) {
+            clearTimeout(subscribeTimeout);
+            subscribeTimeout = null;
+          }
+          setRealtimeConnected(false);
           console.warn("[Projects] Realtime:", err);
           fetchProjects();
         }
       });
     return () => {
+      cancelled = true;
+      if (subscribeTimeout) clearTimeout(subscribeTimeout);
+      setRealtimeConnected(false);
       supabase.removeChannel(channel);
     };
   }, [fetchProjects]);
+
+  // Kurumsal ağlarda WebSocket engellenirse proje listesi HTTPS ile tazelenir.
+  useEffect(() => {
+    if (realtimeConnected) return;
+    const interval = window.setInterval(() => {
+      if (shouldPollInBrowser()) void fetchProjects();
+    }, PROJECTS_FALLBACK_POLL_MS);
+    return () => window.clearInterval(interval);
+  }, [realtimeConnected, fetchProjects]);
 
   // Sekme tekrar odaklandığında proje listesini tazele
   useEffect(() => {
