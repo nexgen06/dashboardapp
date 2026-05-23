@@ -77,7 +77,18 @@ import {
   taskMatchesAdvancedRule,
   type AdvancedFilterRule,
 } from "@/lib/liveTableAdvancedFilters";
-import * as XLSX from "xlsx";
+import {
+  REPORT_TEMPLATES,
+  createEmailTemplate,
+  createPDFPreviewUrl,
+  downloadCSV,
+  downloadExcel,
+  downloadPDF,
+  type EmailTemplateMode,
+  type PdfExportMetadata,
+  type PdfExportScope,
+  type ReportTemplateId,
+} from "@/lib/liveTableExport";
 import Link from "next/link";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
@@ -87,7 +98,7 @@ import { TaskDetailSheet } from "@/components/TaskDetailSheet";
 import { SavedViewsControl } from "@/components/SavedViewsControl";
 import type { SavedViewConfig } from "@/lib/savedViews";
 import { urgentPrioritySetFromCsv, isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
-import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, Expand, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban } from "lucide-react";
+import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, Expand, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban, Eye, Mail } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
 const STATUS_FILTER_OPTIONS = ["Tümü", "Yapılacak", "Devam ediyor", "Devam", "Tamamlandı"] as const;
@@ -361,208 +372,6 @@ function computeBalancedColumnSizing(
   if (Math.abs(rawSum - target) <= 2) return intrinsic;
 
   return balanceColumnWidthsToTarget(intrinsic, ordered, target);
-}
-
-/**
- * Export değer çözücü.
- *
- * `unmaskSensitive` parametresi GIZLILIK kontrolünün override'ıdır:
- * - false (varsayılan) → hassas extra sütunlar (TCKN/sicil) maskeli yazılır
- * - true → ham değer yazılır; YALNIZCA admin için ve bilinçli onayla geçilir
- *   (TasksTable export menüsündeki kilit toggle'ı). Non-admin için her zaman false.
- */
-function getExportValue(
-  columnId: string,
-  task: Task,
-  dateFormat: DateFormat,
-  projectById?: Map<string, Project>,
-  unmaskSensitive: boolean = false
-): string {
-  const t = task as Record<string, unknown>;
-  switch (columnId) {
-    case "content":
-      return String(t.content ?? task.content ?? "");
-    case "status":
-      return String(t.status ?? task.status ?? "");
-    case "assignee":
-      return String(t.assignee ?? task.assignee ?? "");
-    case "priority":
-      return String(t.priority ?? task.priority ?? "");
-    case "project": {
-      const pid = task.project_id != null ? String(task.project_id) : "";
-      if (!pid) return "";
-      const p = projectById?.get(pid);
-      return (p?.name ?? "").trim() || pid;
-    }
-    case "updated":
-    case "updated_at":
-      const ut = t.updated_at ?? task.updated_at;
-      return ut ? formatDate(new Date(String(ut)), dateFormat) : "";
-    case "due_date":
-      return String(t.due_date ?? task.due_date ?? "");
-    default:
-      if (columnId.startsWith("extra:")) {
-        const key = columnId.replace(/^extra:/, "");
-        const raw = String(task.extra_data?.[key] ?? (t.extra_data as Record<string, string>)?.[key] ?? "");
-        // GIZLILIK: TCKN/sicil/personel no gibi hassas sütunlar varsayılan olarak maskeli.
-        // `unmaskSensitive` yalnızca admin bilinçli onayla geçerse true olur.
-        if (isSensitiveExtraColumnKey(key) && !unmaskSensitive) {
-          return maskSensitiveExtraValue(raw);
-        }
-        return raw;
-      }
-      if (columnId === "detay") {
-        // Hassas alanları maskele (override yoksa) — sonra JSON üret
-        if (!task.extra_data) return "";
-        const safe: Record<string, string> = {};
-        for (const [k, v] of Object.entries(task.extra_data)) {
-          const raw = String(v ?? "");
-          safe[k] =
-            isSensitiveExtraColumnKey(k) && !unmaskSensitive
-              ? maskSensitiveExtraValue(raw)
-              : raw;
-        }
-        return JSON.stringify(safe);
-      }
-      return t[columnId] != null ? String(t[columnId]) : "";
-  }
-}
-
-const EXPORT_SKIP_IDS = new Set(["select", "actions", "presence"]);
-const EXPORT_DEFAULT_COLUMNS = ["status", "content", "assignee", "priority", "updated", "due_date"];
-
-/** CSV ve Excel için ortak: sütun listesi, başlıklar ve satır değerleri (string[][]) */
-function getExportData(
-  rows: Task[],
-  visibleColumnIds: string[],
-  dateFormat: DateFormat,
-  projectById?: Map<string, Project>,
-  unmaskSensitive: boolean = false
-) {
-  let dataColumns = visibleColumnIds.filter(
-    (id) => !EXPORT_SKIP_IDS.has(id) && (COLUMN_LABELS[id] != null || id.startsWith("extra:") || id === "due_date" || id === "updated" || id === "updated_at" || id === "assignee" || id === "priority" || id === "content" || id === "status" || id === "project" || id === "detay")
-  );
-  if (dataColumns.length === 0 && rows.length > 0) {
-    const first = rows[0];
-    const extraKeys = first.extra_data ? Object.keys(first.extra_data) : [];
-    dataColumns = [...EXPORT_DEFAULT_COLUMNS, ...extraKeys.map((k) => `extra:${k}`)];
-  }
-  const headers = dataColumns.map((id) =>
-    COLUMN_LABELS[id] ?? (id === "due_date" ? "Son tarih" : id === "updated_at" ? "Son güncelleme" : id.startsWith("extra:") ? id.replace(/^extra:/, "") : id === "detay" ? "Detay" : id)
-  );
-  const rowArrays = rows.map((task) =>
-    dataColumns.map((id) => getExportValue(id, task, dateFormat, projectById, unmaskSensitive))
-  );
-  return { headers, rowArrays };
-}
-
-function downloadCSV(
-  rows: Task[],
-  visibleColumnIds: string[],
-  dateFormat: DateFormat,
-  filename: string,
-  projectById?: Map<string, Project>,
-  unmaskSensitive: boolean = false
-) {
-  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive);
-  const lines = [headers.map((h) => `"${String(h).replace(/"/g, '""')}"`).join(",")];
-  for (const values of rowArrays) {
-    lines.push(values.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
-  }
-  const BOM = "\uFEFF";
-  const blob = new Blob([BOM + lines.join("\n")], { type: "text/csv;charset=utf-8" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-function downloadExcel(
-  rows: Task[],
-  visibleColumnIds: string[],
-  dateFormat: DateFormat,
-  filename: string,
-  projectById?: Map<string, Project>,
-  unmaskSensitive: boolean = false
-) {
-  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive);
-  const sheetData: string[][] = [headers, ...rowArrays];
-  const ws = XLSX.utils.aoa_to_sheet(sheetData);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Görevler");
-  const xlsxBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-  const blob = new Blob([xlsxBuffer], {
-    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  });
-  const name = filename.replace(/\.xls$/i, ".xlsx");
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-/** CSV/Excel ile aynı veri; Roboto ile Türkçe uyumlu tablo PDF (tarayıcıda üretilir). */
-async function downloadPDF(
-  rows: Task[],
-  visibleColumnIds: string[],
-  dateFormat: DateFormat,
-  filename: string,
-  projectById?: Map<string, Project>,
-  unmaskSensitive: boolean = false
-) {
-  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive);
-  const [{ default: pdfMake }, vfsMod] = await Promise.all([
-    import("pdfmake/build/pdfmake"),
-    import("pdfmake/build/vfs_fonts"),
-  ]);
-  const vfs = vfsMod.default ?? (vfsMod as unknown as Record<string, string>);
-  pdfMake.addVirtualFileSystem(vfs);
-
-  const body: unknown[][] = [
-    headers.map((h) => ({ text: String(h), style: "th" })),
-    ...rowArrays.map((row) => row.map((cell) => String(cell))),
-  ];
-
-  const docDefinition = {
-    pageSize: "A4" as const,
-    pageOrientation: "landscape" as const,
-    pageMargins: [36, 44, 36, 44] as [number, number, number, number],
-    content: [
-      { text: "Görev listesi", style: "h1", margin: [0, 0, 0, 14] as [number, number, number, number] },
-      {
-        table: {
-          headerRows: 1,
-          widths: Array(headers.length).fill("*"),
-          dontBreakRows: false,
-          body,
-        },
-        layout: {
-          hLineWidth: () => 0.5,
-          vLineWidth: () => 0.5,
-          hLineColor: () => "#cccccc",
-          vLineColor: () => "#cccccc",
-          fillColor: (rowIndex: number) => {
-            if (rowIndex === 0) return "#e8eef4";
-            return rowIndex % 2 === 0 ? "#f9fafb" : null;
-          },
-        },
-      },
-    ],
-    styles: {
-      h1: { fontSize: 14, bold: true },
-      th: { bold: true, fontSize: 9 },
-    },
-    defaultStyle: {
-      font: "Roboto",
-      fontSize: 8,
-    },
-  };
-
-  const pdf = pdfMake.createPdf(docDefinition);
-  const baseName = filename.replace(/\.pdf$/i, "");
-  await pdf.download(`${baseName}.pdf`);
 }
 
 const columnHelper = createColumnHelper<Task>();
@@ -1800,6 +1609,17 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const [draggedColumnId, setDraggedColumnId] = useState<string | null>(null);
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
+  const [reportTemplateId, setReportTemplateId] = useState<ReportTemplateId>("operations");
+  const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
+  const [pdfDialogScope, setPdfDialogScope] = useState<PdfExportScope>("current");
+  const [pdfTitleInput, setPdfTitleInput] = useState("");
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
+  const [pdfDownloadLoading, setPdfDownloadLoading] = useState(false);
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
+  const [emailSubjectInput, setEmailSubjectInput] = useState("Canlı Tablo Görev Raporu");
+  const [emailTemplateMode, setEmailTemplateMode] = useState<EmailTemplateMode>("mobile");
+  const [emailCopied, setEmailCopied] = useState(false);
   /** SÜPERADMIN-only: hassas sütunları (TCKN/sicil) export'ta ham mı yazsın?
    *  Varsayılan false (maskeli) — admin bilinçli onayla aktif eder. */
   const [exportUnmaskSensitive, setExportUnmaskSensitive] = useState(false);
@@ -3358,6 +3178,137 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
    *  Non-admin için her zaman false; UI toggle'ı admin olmadığında render edilmez,
    *  ama bir sızıntı senaryosunda da yine sunucu/UI iki katmanda korunur. */
   const effectiveUnmaskSensitive = isAdmin && exportUnmaskSensitive;
+  const selectedPdfRows = pdfDialogScope === "all" ? tasks : filteredData;
+  const selectedReportTemplate = REPORT_TEMPLATES[reportTemplateId];
+  const selectedPdfTitle = pdfTitleInput.trim() || null;
+  const pdfExportMetadata = useMemo<PdfExportMetadata>(() => {
+    const generatedAt = new Date().toLocaleString("tr-TR", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+    const exportedBy = (user?.displayName || user?.email || "Bilinmeyen kullanıcı").trim();
+    const doneCount = selectedPdfRows.filter((task) => isStatusDone(task.status)).length;
+    const inProgressCount = selectedPdfRows.filter((task) => isStatusInProgress(task.status)).length;
+    const todoCount = Math.max(0, selectedPdfRows.length - doneCount - inProgressCount);
+    const statusSummary = `Yapılacak: ${todoCount}, Devam ediyor: ${inProgressCount}, Tamamlandı: ${doneCount}`;
+
+    const datePresetLabels: Record<string, string> = {
+      today: "Bugün",
+      tomorrow: "Yarın",
+      thisWeek: "Bu hafta",
+      nextWeek: "Gelecek hafta",
+      thisMonth: "Bu ay",
+      nextMonth: "Gelecek ay",
+      last7days: "Son 7 gün",
+      last30days: "Son 30 gün",
+    };
+
+    const filterSummary: string[] = [];
+    if (pdfDialogScope === "all") {
+      filterSummary.push("Tüm veri dışa aktarıldı; ekrandaki filtreler uygulanmadı.");
+    } else {
+      filterSummary.push(
+        projectLinkedFilter === "proje"
+          ? "Görev kapsamı: Sadece proje görevleri"
+          : "Görev kapsamı: Tüm görevler"
+      );
+      if (globalSearch.trim()) filterSummary.push(`Arama: ${globalSearch.trim()}`);
+      if (statusFilter.length > 0) filterSummary.push(`Durum: ${statusFilter.join(", ")}`);
+      if (assigneeFilter.length > 0) {
+        filterSummary.push(
+          `Atanan: ${assigneeFilter.map((value) => (value === "__unassigned__" ? "Atanmamış" : value)).join(", ")}`
+        );
+      }
+      if (projectFilter.length > 0) {
+        filterSummary.push(
+          `Proje: ${projectFilter
+            .map((id) => (projectById.get(id)?.name ?? id).trim() || "(adsız proje)")
+            .join(", ")}`
+        );
+      }
+      if (dateFrom || dateTo || datePreset !== "custom") {
+        const dateLabel =
+          datePreset !== "custom"
+            ? `${datePresetLabels[datePreset] ?? datePreset}${dateFrom || dateTo ? ` (${dateFrom || "..."} → ${dateTo || "..."})` : ""}`
+            : dateFrom && dateTo
+              ? `${dateFrom} → ${dateTo}`
+              : dateFrom
+                ? `${dateFrom}'den itibaren`
+                : `${dateTo}'e kadar`;
+        filterSummary.push(`Tarih aralığı: ${dateLabel}`);
+      }
+      const activeColumnFilters = Object.entries(columnFilters).filter(([, values]) => values.length > 0);
+      if (activeColumnFilters.length > 0) {
+        filterSummary.push(
+          `Sütun filtreleri: ${activeColumnFilters
+            .map(([id, values]) => {
+              const label = COLUMN_LABELS[id] ?? (id.startsWith("extra:") ? id.replace(/^extra:/, "") : id);
+              return `${label} (${values.length})`;
+            })
+            .join(", ")}`
+        );
+      }
+      const activeAdvancedCount = advancedFilterRules.filter(advancedFilterRuleIsActive).length;
+      if (activeAdvancedCount > 0) filterSummary.push(`Gelişmiş filtre kuralları: ${activeAdvancedCount}`);
+      if (filterSummary.length === 1) filterSummary.push("Ek filtre uygulanmadı.");
+    }
+
+    return {
+      generatedAt,
+      scopeLabel: pdfDialogScope === "all" ? "Tüm veri" : "Mevcut görünüm",
+      exportedBy,
+      reportTemplateLabel: selectedReportTemplate.label,
+      sensitivityLabel: effectiveUnmaskSensitive ? "Ham hassas veriler dahil" : "Hassas veriler maskeli",
+      filterSummary,
+      statusSummary,
+    };
+  }, [
+    selectedPdfRows,
+    user,
+    pdfDialogScope,
+    projectLinkedFilter,
+    globalSearch,
+    statusFilter,
+    assigneeFilter,
+    projectFilter,
+    projectById,
+    dateFrom,
+    dateTo,
+    datePreset,
+    columnFilters,
+    advancedFilterRules,
+    effectiveUnmaskSensitive,
+    selectedReportTemplate.label,
+  ]);
+  const emailTemplate = useMemo(
+    () =>
+      createEmailTemplate(
+        selectedPdfRows,
+        visibleColumnIds,
+        settings.dateFormat,
+        projectById,
+        effectiveUnmaskSensitive,
+        emailSubjectInput,
+        pdfExportMetadata,
+        emailTemplateMode
+      ),
+    [
+      selectedPdfRows,
+      visibleColumnIds,
+      settings.dateFormat,
+      projectById,
+      effectiveUnmaskSensitive,
+      emailSubjectInput,
+      pdfExportMetadata,
+      emailTemplateMode,
+    ]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
+    };
+  }, [pdfPreviewUrl]);
 
   /**
    * Ham (unmasked) export sonrası PII denetim logu — her hassas extra_data
@@ -3424,27 +3375,122 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     },
     [tasks, filteredData, visibleColumnIds, settings.dateFormat, projectById, effectiveUnmaskSensitive, toast, logSensitiveExport]
   );
-  const handleExportPDF = useCallback(
-    async (scope: "current" | "all") => {
-      const rows = scope === "all" ? tasks : filteredData;
+  const applyReportTemplate = useCallback((id: ReportTemplateId) => {
+    const template = REPORT_TEMPLATES[id];
+    setReportTemplateId(id);
+    setPdfTitleInput(template.pdfTitle);
+    setEmailSubjectInput(template.emailSubject);
+    setEmailTemplateMode(template.emailMode);
+    setEmailCopied(false);
+    if (pdfPreviewUrl) {
+      URL.revokeObjectURL(pdfPreviewUrl);
+      setPdfPreviewUrl(null);
+    }
+  }, [pdfPreviewUrl]);
+
+  const openPdfDialog = useCallback((scope: PdfExportScope) => {
+    if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
+    setPdfPreviewUrl(null);
+    setReportTemplateId("operations");
+    setPdfTitleInput(REPORT_TEMPLATES.operations.pdfTitle);
+    setEmailSubjectInput(REPORT_TEMPLATES.operations.emailSubject);
+    setEmailTemplateMode(REPORT_TEMPLATES.operations.emailMode);
+    setPdfDialogScope(scope);
+    setPdfDialogOpen(true);
+  }, [pdfPreviewUrl]);
+
+  const openEmailDialog = useCallback((scope: PdfExportScope) => {
+    const template = scope === "all" ? REPORT_TEMPLATES.fullTable : REPORT_TEMPLATES.mobileBrief;
+    const templateId: ReportTemplateId = scope === "all" ? "fullTable" : "mobileBrief";
+    setPdfDialogScope(scope);
+    setReportTemplateId(templateId);
+    setPdfTitleInput(template.pdfTitle);
+    setEmailSubjectInput(template.emailSubject);
+    setEmailTemplateMode(template.emailMode);
+    setEmailCopied(false);
+    setEmailDialogOpen(true);
+  }, []);
+
+  const copyEmailTemplate = useCallback(async () => {
+    try {
+      if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            "text/html": new Blob([emailTemplate.html], { type: "text/html" }),
+            "text/plain": new Blob([emailTemplate.text], { type: "text/plain" }),
+          }),
+        ]);
+      } else {
+        await navigator.clipboard.writeText(emailTemplate.text);
+      }
+      setEmailCopied(true);
+      toast.success("E-posta şablonu panoya kopyalandı");
+    } catch (e) {
+      console.error("[Export] E-posta şablonu kopyalanamadı:", e);
+      toast.error("E-posta şablonu kopyalanamadı");
+    }
+  }, [emailTemplate, toast]);
+
+  const handlePdfDialogOpenChange = useCallback((open: boolean) => {
+    setPdfDialogOpen(open);
+    if (open) return;
+    if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
+    setPdfPreviewUrl(null);
+    setPdfPreviewLoading(false);
+    setPdfDownloadLoading(false);
+  }, [pdfPreviewUrl]);
+
+  const previewExportPDF = useCallback(async () => {
+    setPdfPreviewLoading(true);
+    try {
+      const nextUrl = await createPDFPreviewUrl(
+        selectedPdfRows,
+        visibleColumnIds,
+        settings.dateFormat,
+        projectById,
+        effectiveUnmaskSensitive,
+        selectedPdfTitle,
+        pdfExportMetadata
+      );
+      setPdfPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return nextUrl;
+      });
+    } catch (e) {
+      console.error("[Export] PDF önizleme oluşturulamadı:", e);
+      toast.error("PDF önizleme oluşturulamadı");
+    } finally {
+      setPdfPreviewLoading(false);
+    }
+  }, [selectedPdfRows, visibleColumnIds, settings.dateFormat, projectById, effectiveUnmaskSensitive, selectedPdfTitle, pdfExportMetadata, toast]);
+
+  const confirmExportPDF = useCallback(
+    async () => {
+      setPdfDownloadLoading(true);
       try {
         await downloadPDF(
-          rows,
+          selectedPdfRows,
           visibleColumnIds,
           settings.dateFormat,
-          `gorevler-${scope === "all" ? "tum" : "gorunum"}${effectiveUnmaskSensitive ? "-ham" : ""}-${Date.now()}.pdf`,
+          `gorevler-${pdfDialogScope === "all" ? "tum" : "gorunum"}${effectiveUnmaskSensitive ? "-ham" : ""}-${Date.now()}.pdf`,
           projectById,
-          effectiveUnmaskSensitive
+          effectiveUnmaskSensitive,
+          selectedPdfTitle,
+          pdfExportMetadata
         );
         if (effectiveUnmaskSensitive) {
           toast.success("Hassas veriler AÇIK olarak indirildi (admin onayı)");
-          logSensitiveExport(rows);
+          logSensitiveExport(selectedPdfRows);
         }
       } catch (e) {
         console.error("[Export] PDF oluşturulamadı:", e);
+        toast.error("PDF oluşturulamadı");
+      } finally {
+        setPdfDownloadLoading(false);
+        handlePdfDialogOpenChange(false);
       }
     },
-    [tasks, filteredData, visibleColumnIds, settings.dateFormat, projectById, effectiveUnmaskSensitive, toast, logSensitiveExport]
+    [selectedPdfRows, visibleColumnIds, settings.dateFormat, pdfDialogScope, effectiveUnmaskSensitive, projectById, selectedPdfTitle, pdfExportMetadata, toast, logSensitiveExport, handlePdfDialogOpenChange]
   );
 
   const openColumnPicker = useCallback(() => {
@@ -4914,11 +4960,13 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
               )}
               <DropdownMenuItem onClick={() => handleExportCSV("current")}>CSV indir (mevcut görünüm)</DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleExportExcel("current")}>Excel indir (mevcut görünüm)</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => void handleExportPDF("current")}>PDF indir (mevcut görünüm)</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openPdfDialog("current")}>PDF indir (mevcut görünüm)</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openEmailDialog("current")}>E-posta şablonu (mevcut görünüm)</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => handleExportCSV("all")}>CSV indir (tüm veri)</DropdownMenuItem>
               <DropdownMenuItem onClick={() => handleExportExcel("all")}>Excel indir (tüm veri)</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => void handleExportPDF("all")}>PDF indir (tüm veri)</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openPdfDialog("all")}>PDF indir (tüm veri)</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openEmailDialog("all")}>E-posta şablonu (tüm veri)</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
           )}
@@ -4967,6 +5015,241 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
           )}
         </div>
       )}
+      <Dialog open={pdfDialogOpen} onOpenChange={handlePdfDialogOpenChange}>
+        <DialogContent className="max-h-[92vh] max-w-5xl overflow-hidden border-slate-200 p-0 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" showClose>
+          <div className="flex max-h-[92vh] flex-col">
+            <DialogHeader className="border-b border-slate-200 px-5 py-4 text-left dark:border-slate-700">
+              <DialogTitle>PDF İndir</DialogTitle>
+              <DialogDescription>
+                {pdfDialogScope === "all" ? "Tüm veri" : "Mevcut görünüm"} için indirilecek PDF'i önce kontrol edebilirsiniz.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-5 py-4 lg:grid-cols-[18rem_1fr]">
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="pdf-report-template" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Rapor şablonu
+                  </label>
+                  <select
+                    id="pdf-report-template"
+                    value={reportTemplateId}
+                    onChange={(e) => applyReportTemplate(e.target.value as ReportTemplateId)}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  >
+                    {Object.entries(REPORT_TEMPLATES).map(([id, template]) => (
+                      <option key={id} value={id}>
+                        {template.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    {selectedReportTemplate.description}
+                  </p>
+                </div>
+                <div>
+                  <label htmlFor="pdf-title-input" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Belge Başlığı
+                  </label>
+                  <input
+                    id="pdf-title-input"
+                    type="text"
+                    value={pdfTitleInput}
+                    onChange={(e) => {
+                      setPdfTitleInput(e.target.value);
+                      if (pdfPreviewUrl) {
+                        URL.revokeObjectURL(pdfPreviewUrl);
+                        setPdfPreviewUrl(null);
+                      }
+                    }}
+                    placeholder="Görev Listesi"
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void previewExportPDF();
+                      }
+                    }}
+                  />
+                </div>
+                <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
+                  <div className="font-medium text-slate-800 dark:text-slate-100">
+                    {selectedPdfRows.length} satır PDF'e eklenecek
+                  </div>
+                  <div className="mt-1">
+                    Sütunlar canlı tablodaki görünür kolonlardan alınır.
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void previewExportPDF()}
+                  disabled={pdfPreviewLoading || pdfDownloadLoading}
+                  className="w-full justify-center"
+                >
+                  {pdfPreviewLoading ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                  ) : (
+                    <Eye className="mr-2 h-4 w-4" aria-hidden />
+                  )}
+                  Önizle
+                </Button>
+              </div>
+
+              <div className="min-h-[28rem] overflow-hidden rounded-md border border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-900">
+                {pdfPreviewUrl ? (
+                  <iframe
+                    title="PDF önizleme"
+                    src={pdfPreviewUrl}
+                    className="h-full min-h-[28rem] w-full bg-white"
+                  />
+                ) : (
+                  <div className="flex h-full min-h-[28rem] items-center justify-center px-4 text-center text-sm text-slate-500 dark:text-slate-400">
+                    Önizleme için Önizle butonuna tıklayın.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <DialogFooter className="gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3 dark:border-slate-700 dark:bg-slate-800/80 sm:gap-2">
+              <Button type="button" variant="outline" onClick={() => handlePdfDialogOpenChange(false)} disabled={pdfDownloadLoading}>
+                İptal
+              </Button>
+              <Button type="button" onClick={() => void confirmExportPDF()} disabled={pdfDownloadLoading || pdfPreviewLoading}>
+                {pdfDownloadLoading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" aria-hidden />
+                )}
+                PDF indir
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={emailDialogOpen} onOpenChange={setEmailDialogOpen}>
+        <DialogContent className="max-h-[92vh] max-w-5xl overflow-hidden border-slate-200 p-0 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" showClose>
+          <div className="flex max-h-[92vh] flex-col">
+            <DialogHeader className="border-b border-slate-200 px-5 py-4 text-left dark:border-slate-700">
+              <DialogTitle>E-posta şablonu</DialogTitle>
+              <DialogDescription>
+                {pdfDialogScope === "all" ? "Tüm veri" : "Mevcut görünüm"} için e-postaya yapıştırılabilir HTML şablonu oluşturulur.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-5 py-4 lg:grid-cols-[18rem_1fr]">
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="email-report-template" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Rapor şablonu
+                  </label>
+                  <select
+                    id="email-report-template"
+                    value={reportTemplateId}
+                    onChange={(e) => applyReportTemplate(e.target.value as ReportTemplateId)}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  >
+                    {Object.entries(REPORT_TEMPLATES).map(([id, template]) => (
+                      <option key={id} value={id}>
+                        {template.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    {selectedReportTemplate.description}
+                  </p>
+                </div>
+                <div>
+                  <label htmlFor="email-subject-input" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    E-posta konusu
+                  </label>
+                  <input
+                    id="email-subject-input"
+                    type="text"
+                    value={emailSubjectInput}
+                    onChange={(e) => {
+                      setEmailSubjectInput(e.target.value);
+                      setEmailCopied(false);
+                    }}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                  />
+                </div>
+                <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
+                  <div className="font-medium text-slate-800 dark:text-slate-100">
+                    {selectedPdfRows.length} satır e-posta şablonuna eklenecek
+                  </div>
+                  <div className="mt-1">
+                    Mobil uyumlu mod ilk 30 kaydı kart olarak gösterir; tam liste için detaylı tabloyu seçin.
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-1.5 text-xs font-medium text-slate-600 dark:text-slate-400">Şablon tipi</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant={emailTemplateMode === "mobile" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        setEmailTemplateMode("mobile");
+                        setEmailCopied(false);
+                      }}
+                    >
+                      Mobil uyumlu
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={emailTemplateMode === "table" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        setEmailTemplateMode("table");
+                        setEmailCopied(false);
+                      }}
+                    >
+                      Detaylı tablo
+                    </Button>
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-1.5 text-xs font-medium text-slate-600 dark:text-slate-400">Düz metin önizleme</div>
+                  <textarea
+                    readOnly
+                    value={emailTemplate.text}
+                    className="h-56 w-full resize-none rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+                  />
+                </div>
+              </div>
+
+              <div className="min-h-[28rem] overflow-auto rounded-md border border-slate-200 bg-white p-4 dark:border-slate-700">
+                <div dangerouslySetInnerHTML={{ __html: emailTemplate.html }} />
+              </div>
+            </div>
+
+            <DialogFooter className="gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3 dark:border-slate-700 dark:bg-slate-800/80 sm:gap-2">
+              <Button type="button" variant="outline" onClick={() => setEmailDialogOpen(false)}>
+                Kapat
+              </Button>
+              <Button type="button" variant="outline" onClick={() => void copyEmailTemplate()}>
+                {emailCopied ? (
+                  <Check className="mr-2 h-4 w-4" aria-hidden />
+                ) : (
+                  <Copy className="mr-2 h-4 w-4" aria-hidden />
+                )}
+                {emailCopied ? "Kopyalandı" : "Şablonu kopyala"}
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  window.location.href = `mailto:?subject=${encodeURIComponent(emailTemplate.subject)}&body=${encodeURIComponent(emailTemplate.text)}`;
+                }}
+              >
+                <Mail className="mr-2 h-4 w-4" aria-hidden />
+                Mailde aç
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={bulkDeleteConfirmOpen} onOpenChange={setBulkDeleteConfirmOpen}>
         <DialogContent className="sm:max-w-md" showClose>
           <DialogHeader>
