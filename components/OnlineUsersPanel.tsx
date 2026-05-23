@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { User, Pencil, Users } from "lucide-react";
+import { User, Pencil, Users, Circle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useProfileLookup } from "@/contexts/profile-lookup-context";
@@ -26,6 +26,7 @@ export type OnlineUsersPanelProps = {
   tasks?: Task[];
   /** Sadece sayıyı göster, liste açılmasın */
   compact?: boolean;
+  label?: string;
   className?: string;
 };
 
@@ -73,6 +74,7 @@ export function OnlineUsersPanel({
   currentUserEmail = null,
   tasks = [],
   compact = false,
+  label = "Aktif ekip",
   className,
 }: OnlineUsersPanelProps) {
   const taskById = React.useMemo(() => {
@@ -85,19 +87,49 @@ export function OnlineUsersPanel({
   const profileLookup = useProfileLookup();
 
   if (onlineUsers.length === 0) return null;
+  const visibleUsers = onlineUsers.slice(0, 4);
+  const extraCount = Math.max(0, onlineUsers.length - visibleUsers.length);
 
   const trigger = (
     <button
       type="button"
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-100 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-1 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:border-slate-500",
+        "inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 shadow-sm transition-colors hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-1 dark:border-emerald-800 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-emerald-950/30",
         className
       )}
-      title="Çevrimiçi kullanıcıları göster"
+      title="Aktif ekip üyelerini göster"
       aria-label={`${onlineUsers.length} çevrimiçi kullanıcı`}
     >
-      <Users className="h-3.5 w-3.5 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden />
-      <span>{onlineUsers.length} çevrimiçi</span>
+      <span className="relative flex -space-x-2">
+        {visibleUsers.map((u) => {
+          const p = profileLookup.byEmail(u.email);
+          const isMe = (u.email ?? "").trim().toLowerCase() === currentEmailNorm;
+          return (
+            <Avatar
+              key={u.key}
+              className={cn(
+                "h-7 w-7 border-2 border-white ring-1 ring-emerald-300 dark:border-slate-800 dark:ring-emerald-700",
+                isMe && "ring-2 ring-emerald-400"
+              )}
+            >
+              {p.avatarUrl ? <AvatarImage src={p.avatarUrl} alt={u.name ?? u.email ?? ""} /> : null}
+              <AvatarFallback className="bg-emerald-100 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900 dark:text-emerald-100">
+                {getInitials(u.name, u.email, u.key)}
+              </AvatarFallback>
+              <span className="absolute bottom-0 right-0 h-2 w-2 rounded-full border border-white bg-emerald-500 dark:border-slate-800" />
+            </Avatar>
+          );
+        })}
+        {extraCount > 0 && (
+          <span className="flex h-7 min-w-7 items-center justify-center rounded-full border-2 border-white bg-slate-100 px-1 text-[10px] font-semibold text-slate-600 ring-1 ring-slate-300 dark:border-slate-800 dark:bg-slate-700 dark:text-slate-200">
+            +{extraCount}
+          </span>
+        )}
+      </span>
+      <span className="hidden sm:inline">{label}</span>
+      <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-200">
+        {onlineUsers.length}
+      </span>
     </button>
   );
 
@@ -112,8 +144,8 @@ export function OnlineUsersPanel({
         className="min-w-[240px] max-w-[320px] rounded-lg border-slate-200 bg-white p-0 shadow-lg dark:border-slate-700 dark:bg-slate-800"
       >
         <DropdownMenuLabel className="flex items-center gap-2 px-3 py-2.5 text-slate-700 dark:text-slate-200">
-          <User className="h-4 w-4 text-slate-500" />
-          Çevrimiçi kullanıcılar
+          <Users className="h-4 w-4 text-emerald-600" />
+          {label}
         </DropdownMenuLabel>
         <DropdownMenuSeparator className="my-0" />
         <div className="max-h-[280px] overflow-y-auto py-1">
@@ -132,7 +164,7 @@ export function OnlineUsersPanel({
                 key={u.key}
                 className="flex items-center gap-3 px-3 py-2 text-left outline-none hover:bg-slate-50 dark:hover:bg-slate-700/50"
               >
-                <Avatar className="h-8 w-8 shrink-0 border border-slate-200 dark:border-slate-600">
+                <Avatar className="h-8 w-8 shrink-0 border border-emerald-200 ring-1 ring-emerald-300 dark:border-emerald-800 dark:ring-emerald-700">
                   {(() => {
                     const p = profileLookup.byEmail(u.email);
                     return p.avatarUrl ? <AvatarImage src={p.avatarUrl} alt={u.name ?? u.email ?? ""} /> : null;
@@ -147,6 +179,7 @@ export function OnlineUsersPanel({
                   >
                     {getInitials(u.name, u.email, u.key)}
                   </AvatarFallback>
+                  <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border border-white bg-emerald-500 dark:border-slate-800" />
                 </Avatar>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
@@ -158,6 +191,10 @@ export function OnlineUsersPanel({
                         Sen
                       </span>
                     )}
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-300">
+                    <Circle className="h-2 w-2 fill-current" />
+                    <span>çevrimiçi</span>
                   </div>
                   {editingSnippet && (
                     <div className="mt-0.5 flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">

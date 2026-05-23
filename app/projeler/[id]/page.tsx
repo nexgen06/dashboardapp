@@ -720,15 +720,16 @@ export default function ProjeDetayPage() {
           )}
           {onlineUsers.length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="text-xs text-slate-500 dark:text-slate-400 inline-flex items-center gap-1">
+              <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
                 <Users className="h-3.5 w-3.5 shrink-0" />
-                Şu an bu projede çevrimiçi:
+                Şu an bu projede:
               </span>
               <OnlineUsersPanel
                 onlineUsers={onlineUsers}
                 editorsByRowId={new Map()}
                 currentUserEmail={currentUserEmail}
                 tasks={[]}
+                label="Aktif ekip"
               />
             </div>
           )}

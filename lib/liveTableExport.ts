@@ -18,6 +18,7 @@ const EXPORT_COLUMN_LABELS: Record<string, string> = {
 
 const EXPORT_SKIP_IDS = new Set(["select", "actions", "presence"]);
 const EXPORT_DEFAULT_COLUMNS = ["status", "content", "assignee", "priority", "updated", "due_date"];
+const INTERNAL_EXTRA_DATA_KEYS = new Set(["__reference_warnings"]);
 
 export type PdfExportScope = "current" | "all";
 export type PdfExportMetadata = {
@@ -112,6 +113,7 @@ function getExportValue(
         if (!task.extra_data) return "";
         const safe: Record<string, string> = {};
         for (const [k, v] of Object.entries(task.extra_data)) {
+          if (INTERNAL_EXTRA_DATA_KEYS.has(k)) continue;
           const raw = String(v ?? "");
           safe[k] = isSensitiveExtraColumnKey(k) && !unmaskSensitive ? maskSensitiveExtraValue(raw) : raw;
         }

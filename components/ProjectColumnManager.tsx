@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Plus, Trash2, GripVertical, Wand2 } from "lucide-react";
+import { FileJson, Loader2, Plus, Trash2, GripVertical, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/modals";
@@ -17,6 +17,7 @@ import {
   type ProjectColumnType,
 } from "@/lib/projectColumns";
 import { cn } from "@/lib/utils";
+import { listReferenceSources, type ReferenceSource } from "@/lib/referenceSources";
 
 type Props = {
   projectId: string;
@@ -40,6 +41,10 @@ export function ProjectColumnManager({ projectId, observedKeys, sampleValuesByKe
   const [busyId, setBusyId] = useState<string | null>(null);
   /** Yerel düzenleme tamponu: kullanıcı yazarken her tuşa DB'ye yazmayalım */
   const [drafts, setDrafts] = useState<Record<string, { type: ProjectColumnType; optionsText: string }>>({});
+  const [jsonDrafts, setJsonDrafts] = useState<
+    Record<string, { fileName: string; fields: string[]; rows: Record<string, unknown>[]; labelField: string }>
+  >({});
+  const [referenceSources, setReferenceSources] = useState<ReferenceSource[]>([]);
   const debounceRef = useRef<Record<string, number>>({});
 
   const refresh = useCallback(async () => {
@@ -64,6 +69,20 @@ export function ProjectColumnManager({ projectId, observedKeys, sampleValuesByKe
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listReferenceSources()
+      .then((list) => {
+        if (!cancelled) setReferenceSources(list);
+      })
+      .catch(() => {
+        if (!cancelled) setReferenceSources([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /** Henüz tiplenmemiş anahtarlar — görevde var ama project_columns'ta yok */
   const untyped = useMemo(() => {
@@ -125,6 +144,117 @@ export function ProjectColumnManager({ projectId, observedKeys, sampleValuesByKe
     }, 800);
   };
 
+  const handleReferenceJsonFile = async (col: ProjectColumn, file: File | null) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as unknown;
+      const rows = Array.isArray(parsed)
+        ? parsed
+        : parsed && typeof parsed === "object"
+          ? Object.values(parsed as Record<string, unknown>).flatMap((value) => (Array.isArray(value) ? value : []))
+          : [];
+      const objectRows = rows.filter(
+        (row): row is Record<string, unknown> => row != null && typeof row === "object" && !Array.isArray(row)
+      );
+      if (objectRows.length === 0) {
+        toast.error("JSON içinde obje dizisi bulunamadı.");
+        return;
+      }
+      const fields = Array.from(
+        objectRows.slice(0, 100).reduce((set, row) => {
+          Object.keys(row).forEach((key) => set.add(key));
+          return set;
+        }, new Set<string>())
+      ).sort((a, b) => a.localeCompare(b, "tr", { sensitivity: "base" }));
+      const preferred = fields.find((f) => f.toLocaleLowerCase("tr").includes("adi")) ?? fields[0] ?? "";
+      setJsonDrafts((prev) => ({
+        ...prev,
+        [col.id]: { fileName: file.name, fields, rows: objectRows, labelField: preferred },
+      }));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "JSON okunamadı.");
+    }
+  };
+
+  const applyReferenceOptions = async (col: ProjectColumn) => {
+    const draft = jsonDrafts[col.id];
+    if (!draft || !draft.labelField) return;
+    const options = Array.from(
+      new Set(
+        draft.rows
+          .map((row) => String(row[draft.labelField] ?? "").trim())
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b, "tr", { sensitivity: "base" }));
+    if (options.length === 0) {
+      toast.error("Seçilen JSON alanında kullanılabilir değer bulunamadı.");
+      return;
+    }
+    const records = draft.rows.map((row) =>
+      Object.fromEntries(draft.fields.map((field) => [field, String(row[field] ?? "").trim()]))
+    );
+    setBusyId(col.id);
+    try {
+      await updateProjectColumn(col.id, {
+        type: "select",
+        config: {
+          ...col.config,
+          options,
+          reference: {
+            sourceName: draft.fileName,
+            labelField: draft.labelField,
+            fields: draft.fields,
+            recordCount: draft.rows.length,
+            records,
+          },
+        },
+      });
+      await refresh();
+      toast.success(`${options.length} seçenek JSON kaynağından aktarıldı`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "JSON seçenekleri kaydedilemedi");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const applySavedReferenceSource = async (col: ProjectColumn, sourceId: string) => {
+    const source = referenceSources.find((item) => item.id === sourceId);
+    if (!source || !source.labelField) return;
+    const options = Array.from(
+      new Set(source.records.map((row) => String(row[source.labelField ?? ""] ?? "").trim()).filter(Boolean))
+    ).sort((a, b) => a.localeCompare(b, "tr", { sensitivity: "base" }));
+    if (options.length === 0) {
+      toast.error("Bu kaynakta etiket alanından seçenek üretilemedi.");
+      return;
+    }
+    setBusyId(col.id);
+    try {
+      await updateProjectColumn(col.id, {
+        type: "select",
+        config: {
+          ...col.config,
+          options,
+          reference: {
+            sourceName: source.name,
+            labelField: source.labelField,
+            valueField: source.keyField ?? undefined,
+            fields: source.fields,
+            recordCount: source.recordCount,
+            records: source.records,
+          },
+        },
+      });
+      await refresh();
+      toast.success(`${source.name} kaynağı sütuna bağlandı`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Kayıtlı kaynak bağlanamadı.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const handleDelete = async (col: ProjectColumn) => {
     const ok = await confirm({
       title: "Sütun tanımını kaldır",
@@ -184,7 +314,7 @@ export function ProjectColumnManager({ projectId, observedKeys, sampleValuesByKe
             Sütun tipi yönetimi
           </h4>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Her ek sütuna tip ata. (A.3.2&apos;de tablo bu tiplere göre render edilecek.)
+            Her ek sütuna tip ata; JSON dosyalarından dropdown seçenekleri üret.
           </p>
         </div>
         {untyped.length > 0 && (
@@ -220,6 +350,7 @@ export function ProjectColumnManager({ projectId, observedKeys, sampleValuesByKe
           {columns.map((col) => {
             const draft = drafts[col.id] ?? { type: col.type, optionsText: "" };
             const showOptions = draft.type === "select" || draft.type === "multi_select";
+            const jsonDraft = jsonDrafts[col.id];
             return (
               <li
                 key={col.id}
@@ -256,7 +387,7 @@ export function ProjectColumnManager({ projectId, observedKeys, sampleValuesByKe
                   {PROJECT_COLUMN_TYPE_HINTS[draft.type]}
                 </p>
                 {showOptions && (
-                  <div className="ml-5 mt-2">
+                  <div className="ml-5 mt-2 space-y-2">
                     <label className="mb-0.5 block text-[11px] font-medium text-slate-600 dark:text-slate-300">
                       Seçenekler (virgülle veya satırla ayrı)
                     </label>
@@ -269,6 +400,77 @@ export function ProjectColumnManager({ projectId, observedKeys, sampleValuesByKe
                     />
                   </div>
                 )}
+                <div className="ml-5 mt-2 rounded border border-dashed border-slate-300 bg-slate-50 p-2 dark:border-slate-600 dark:bg-slate-900/30">
+                  {col.config.reference && (
+                    <p className="mb-1 text-[11px] text-blue-700 dark:text-blue-300">
+                      JSON kaynak: {col.config.reference.sourceName} · alan: {col.config.reference.labelField} · {col.config.reference.recordCount} kayıt
+                      {!col.config.reference.records?.length ? " · otomatik doldurma için yeniden aktar" : ""}
+                    </p>
+                  )}
+                  <label className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    <FileJson className="h-3.5 w-3.5" aria-hidden />
+                    JSON’dan seçenek üret
+                    <input
+                      type="file"
+                      accept=".json,application/json"
+                      className="hidden"
+                      onChange={(e) => void handleReferenceJsonFile(col, e.target.files?.[0] ?? null)}
+                    />
+                  </label>
+                  {referenceSources.length > 0 && (
+                    <div className="mt-2 grid gap-1">
+                      <label className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                        Kayıtlı kaynaktan aktar
+                      </label>
+                      <select
+                        value=""
+                        onChange={(e) => void applySavedReferenceSource(col, e.target.value)}
+                        className="h-8 rounded border border-slate-200 bg-white px-2 text-xs text-slate-700 focus:border-blue-400 focus:outline-none dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                      >
+                        <option value="">Kaynak seçin</option>
+                        {referenceSources.map((source) => (
+                          <option key={source.id} value={source.id}>
+                            {source.name} ({source.recordCount})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {jsonDraft && (
+                    <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
+                      <select
+                        value={jsonDraft.labelField}
+                        onChange={(e) =>
+                          setJsonDrafts((prev) => ({
+                            ...prev,
+                            [col.id]: { ...jsonDraft, labelField: e.target.value },
+                          }))
+                        }
+                        className="h-8 rounded border border-slate-200 bg-white px-2 text-xs text-slate-700 focus:border-blue-400 focus:outline-none dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                        aria-label="JSON etiket alanı"
+                      >
+                        {jsonDraft.fields.map((field) => (
+                          <option key={field} value={field}>
+                            {field}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs"
+                        onClick={() => void applyReferenceOptions(col)}
+                        disabled={busyId === col.id}
+                      >
+                        Aktar
+                      </Button>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 sm:col-span-2">
+                        {jsonDraft.fileName} · {jsonDraft.rows.length} kayıt · Aktarınca sütun otomatik Tek seçim olur.
+                      </p>
+                    </div>
+                  )}
+                </div>
               </li>
             );
           })}

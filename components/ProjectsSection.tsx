@@ -26,6 +26,7 @@ import {
 } from "@/lib/importAssignment";
 import { offsetToDateIso, type ProjectTemplate } from "@/lib/projectTemplates";
 import { SaveTemplateDialog, TemplateListDialog } from "@/components/ProjectTemplateDialogs";
+import { isSensitiveExtraColumnKey } from "@/lib/extraColumnSensitiveDisplay";
 import type { Project, ProjectStatus, ProjectPriority } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -130,6 +131,23 @@ function parseExtraColumnKeysFromForm(text: string): string[] {
   }
   return Array.from(set);
 }
+
+const SMART_EXTRA_COLUMN_CHIPS = [
+  { label: "Sicil", group: "Kimlik" },
+  { label: "TCKN", group: "Kimlik" },
+  { label: "Personel No", group: "Kimlik" },
+  { label: "Ad Soyad", group: "Kimlik" },
+  { label: "Telefon", group: "İletişim" },
+  { label: "E-posta", group: "İletişim" },
+  { label: "Departman", group: "Organizasyon" },
+  { label: "Bölge", group: "Organizasyon" },
+  { label: "Şube", group: "Organizasyon" },
+  { label: "İl", group: "Organizasyon" },
+  { label: "Ekip", group: "Operasyon" },
+  { label: "Uzmanlık", group: "Operasyon" },
+  { label: "Durum Notu", group: "Operasyon" },
+  { label: "Son İşlem Tarihi", group: "Tarih" },
+] as const;
 
 /** Proje hedef tarihine göre "Gecikmiş" veya "Yaklaşan" etiketi. */
 function getProjectDueLabel(project: Project): "Gecikmiş" | "Yaklaşan" | null {
@@ -476,6 +494,23 @@ function ProjectFormModal({
     );
   };
 
+  const addExtraColumnKey = (key: string) => {
+    const nextKey = key.trim();
+    if (!nextKey) return;
+    const existing = parseExtraColumnKeysFromForm(extraColumnKeysText);
+    if (existing.some((k) => k.toLowerCase() === nextKey.toLowerCase())) return;
+    setExtraColumnKeysText([...existing, nextKey].join("\n"));
+  };
+
+  const removeExtraColumnKeyFromForm = (key: string) => {
+    const target = key.trim().toLowerCase();
+    if (!target) return;
+    const next = parseExtraColumnKeysFromForm(extraColumnKeysText).filter(
+      (k) => k.trim().toLowerCase() !== target
+    );
+    setExtraColumnKeysText(next.join("\n"));
+  };
+
   const addAssignedEmail = () => {
     const email = emailInput.trim().toLowerCase();
     if (!email) return;
@@ -676,12 +711,45 @@ function ProjectFormModal({
     const availableKeys = Array.from(merged).sort((a, b) =>
       a.localeCompare(b, "tr", { sensitivity: "base" })
     );
+    const schemaKeySet = new Set(schemaKeys.map((k) => k.trim().toLowerCase()));
     return (
       <div className="grid gap-4">
         <div>
           <label htmlFor="project-extra-columns" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
             Canlı tablo ek sütunları
           </label>
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {SMART_EXTRA_COLUMN_CHIPS.map((chip) => {
+              const selected = schemaKeySet.has(chip.label.toLowerCase());
+              const sensitive = isSensitiveExtraColumnKey(chip.label);
+              return (
+                <button
+                  key={chip.label}
+                  type="button"
+                  onClick={() =>
+                    selected ? removeExtraColumnKeyFromForm(chip.label) : addExtraColumnKey(chip.label)
+                  }
+                  aria-pressed={selected}
+                  title={`${chip.group}${sensitive ? " · hassas veri olabilir" : ""}`}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                    selected
+                      ? "border-blue-300 bg-blue-100 text-blue-800 hover:bg-blue-200 dark:border-blue-700 dark:bg-blue-900/45 dark:text-blue-200"
+                      : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700",
+                    sensitive && !selected && "border-amber-300 text-amber-800 dark:border-amber-700 dark:text-amber-300"
+                  )}
+                >
+                  {selected ? <Check className="h-3 w-3" aria-hidden /> : <PlusCircle className="h-3 w-3" aria-hidden />}
+                  <span>{chip.label}</span>
+                  {sensitive && (
+                    <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
+                      hassas
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
           <textarea
             id="project-extra-columns"
             value={extraColumnKeysText}
@@ -1000,21 +1068,17 @@ function ProjectFormModal({
     </div>
   );
 
-  const fieldsAdvanced = isEdit && project ? (
-    <div className="grid gap-4">
-      <div>
-        <h4 className="text-sm font-medium text-slate-800 dark:text-slate-100">Sütun tipi yönetimi</h4>
-        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-          Her sütuna tip ata: metin, sayı, tarih, seçenek, vb. Tipli render &amp; filtre için kullanılır.
-        </p>
-      </div>
+  const fieldsAdvanced = isEdit && project ? (() => {
+    const schemaKeys = parseExtraColumnKeysFromForm(extraColumnKeysText);
+    const mergedKeys = Array.from(new Set([...(observedExtraKeys ?? []), ...schemaKeys].map((k) => k.trim()).filter(Boolean)));
+    return (
       <ProjectColumnManager
         projectId={project.id}
-        observedKeys={observedExtraKeys ?? []}
+        observedKeys={mergedKeys}
         sampleValuesByKey={observedSampleValues ?? {}}
       />
-    </div>
-  ) : null;
+    );
+  })() : null;
 
   const newProjectStepOne = (
     <Tabs defaultValue="general" className="flex min-h-0 flex-1 flex-col">
@@ -1088,7 +1152,6 @@ function ProjectFormModal({
                 <TabsTrigger value="general">Genel</TabsTrigger>
                 <TabsTrigger value="table">Tablo &amp; Görünüm</TabsTrigger>
                 <TabsTrigger value="people">Atananlar</TabsTrigger>
-                {fieldsAdvanced && <TabsTrigger value="advanced">Gelişmiş</TabsTrigger>}
               </TabsList>
               <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
                 <TabsContent value="general" className="m-0 data-[state=inactive]:hidden">
@@ -1096,15 +1159,15 @@ function ProjectFormModal({
                 </TabsContent>
                 <TabsContent value="table" className="m-0 data-[state=inactive]:hidden">
                   {fieldsTableView}
+                  {fieldsAdvanced && (
+                    <div className="mt-5 border-t border-slate-200 pt-4 dark:border-slate-700">
+                      {fieldsAdvanced}
+                    </div>
+                  )}
                 </TabsContent>
                 <TabsContent value="people" className="m-0 data-[state=inactive]:hidden">
                   {fieldsAssignees}
                 </TabsContent>
-                {fieldsAdvanced && (
-                  <TabsContent value="advanced" className="m-0 data-[state=inactive]:hidden">
-                    {fieldsAdvanced}
-                  </TabsContent>
-                )}
               </div>
             </Tabs>
           ) : (

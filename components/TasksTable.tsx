@@ -55,6 +55,7 @@ import { getRelativeTime } from "@/lib/relativeTime";
 import { parseCSV } from "@/lib/csvParser";
 import { parseJSON } from "@/lib/jsonParser";
 import { isSensitiveExtraColumnKey, maskSensitiveExtraValue } from "@/lib/extraColumnSensitiveDisplay";
+import { normalizeExtraDataBySmartRules } from "@/lib/extraColumnFormatRules";
 import { logPiiAccess, countPiiAccessLastHour } from "@/lib/piiAccessLog";
 import { isStatusDone, isStatusInProgress, getStatusKind } from "@/lib/statusKind";
 import {
@@ -103,11 +104,14 @@ import { SavedViewsControl } from "@/components/SavedViewsControl";
 import type { SavedViewConfig } from "@/lib/savedViews";
 import { urgentPrioritySetFromCsv, isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
 import { canEditTaskRow } from "@/lib/taskRowPermissions";
+import { listProjectColumns, type ProjectColumn } from "@/lib/projectColumns";
 import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, Expand, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban, Eye, Mail } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
 const STATUS_FILTER_OPTIONS = ["Tümü", "Yapılacak", "Devam ediyor", "Devam", "Tamamlandı"] as const;
 const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
+const REFERENCE_WARNINGS_KEY = "__reference_warnings";
+const INTERNAL_EXTRA_DATA_KEYS = new Set([REFERENCE_WARNINGS_KEY]);
 
 /** Kolon id -> export/visibility etiketi (veri sütunları) */
 const COLUMN_LABELS: Record<string, string> = {
@@ -381,6 +385,164 @@ function computeBalancedColumnSizing(
 
 const columnHelper = createColumnHelper<Task>();
 
+function normalizeReferenceFieldName(value: string): string {
+  return value
+    .trim()
+    .toLocaleLowerCase("tr")
+    .replace(/ı/g, "i")
+    .replace(/ğ/g, "g")
+    .replace(/ü/g, "u")
+    .replace(/ş/g, "s")
+    .replace(/ö/g, "o")
+    .replace(/ç/g, "c")
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function compactReferenceFieldName(value: string): string {
+  return normalizeReferenceFieldName(value).replace(/\s+/g, "");
+}
+
+const REFERENCE_FIELD_TARGET_ALIASES: Record<string, string[]> = {
+  il: ["İl", "Il"],
+  i_l: ["İl", "Il"],
+  ilce: ["İlçe", "Ilce"],
+  i_lce: ["İlçe", "Ilce"],
+  kurumadi: ["Kurum Adı", "Kurum"],
+  kurum_adi: ["Kurum Adı", "Kurum"],
+  kurumkodu: ["Kurum Kodu"],
+  kurum_kodu: ["Kurum Kodu"],
+  kurumturu: ["Kurum Türü"],
+  kurum_turu: ["Kurum Türü"],
+  detsiskodu: ["DETSİS Kodu", "Detsis Kodu", "DETSIS Kodu"],
+  detsi_s_kodu: ["DETSİS Kodu", "Detsis Kodu", "DETSIS Kodu"],
+  sirano: ["Sıra No", "Sira No"],
+  sira_no: ["Sıra No", "Sira No"],
+};
+
+function preferredReferenceTargets(field: string): string[] {
+  const compact = compactReferenceFieldName(field);
+  return REFERENCE_FIELD_TARGET_ALIASES[compact] ?? REFERENCE_FIELD_TARGET_ALIASES[field] ?? [field];
+}
+
+function resolveReferenceTargetKey(field: string, availableKeys: string[]): string | null {
+  const available = availableKeys.map((key) => ({
+    key,
+    normalized: normalizeReferenceFieldName(key),
+    compact: compactReferenceFieldName(key),
+  }));
+  const candidates = preferredReferenceTargets(field);
+  for (const candidate of candidates) {
+    const normalized = normalizeReferenceFieldName(candidate);
+    const compact = compactReferenceFieldName(candidate);
+    const found = available.find((item) => item.normalized === normalized || item.compact === compact);
+    if (found) return found.key;
+  }
+  const fieldNormalized = normalizeReferenceFieldName(field);
+  const fieldCompact = compactReferenceFieldName(field);
+  return available.find((item) => item.normalized === fieldNormalized || item.compact === fieldCompact)?.key ?? null;
+}
+
+function valuesMatch(a: string | null | undefined, b: string | null | undefined): boolean {
+  const av = String(a ?? "").trim();
+  const bv = String(b ?? "").trim();
+  if (!av || !bv) return false;
+  return normalizeReferenceFieldName(av) === normalizeReferenceFieldName(bv);
+}
+
+function numbersMatch(a: string | null | undefined, b: string | null | undefined): boolean {
+  const av = String(a ?? "").replace(/\D/g, "");
+  const bv = String(b ?? "").replace(/\D/g, "");
+  return av !== "" && av === bv;
+}
+
+function textIncludesMatch(a: string | null | undefined, b: string | null | undefined): boolean {
+  const av = normalizeReferenceFieldName(String(a ?? ""));
+  const bv = normalizeReferenceFieldName(String(b ?? ""));
+  return av.length >= 4 && bv.length >= 4 && (av.includes(bv) || bv.includes(av));
+}
+
+function findBestReferenceRecord(
+  extraData: Record<string, string>,
+  records: Record<string, string>[],
+  availableKeys: string[]
+): Record<string, string> | null {
+  let best: { record: Record<string, string>; score: number } | null = null;
+  for (const record of records) {
+    let score = 0;
+    for (const [field, recordValue] of Object.entries(record)) {
+      const targetKey = resolveReferenceTargetKey(field, availableKeys);
+      const inputValue = targetKey ? extraData[targetKey] : extraData[field];
+      if (!inputValue) continue;
+      if (numbersMatch(inputValue, recordValue)) score += 20;
+      else if (valuesMatch(inputValue, recordValue)) score += 10;
+      else if (/adi|ad[ıi]|kurum/i.test(normalizeReferenceFieldName(field)) && textIncludesMatch(inputValue, recordValue)) {
+        score += 4;
+      }
+    }
+    if (score > 0 && (!best || score > best.score)) {
+      best = { record, score };
+    }
+  }
+  return best?.record ?? null;
+}
+
+function referenceWarningsFromRecord(
+  extraData: Record<string, string>,
+  record: Record<string, string>,
+  availableKeys: string[],
+  labelField?: string
+): string[] {
+  const warnings: string[] = [];
+  for (const [field, recordValue] of Object.entries(record)) {
+    if (field === labelField) continue;
+    const targetKey = resolveReferenceTargetKey(field, availableKeys);
+    if (!targetKey) continue;
+    const currentValue = String(extraData[targetKey] ?? "").trim();
+    const expectedValue = String(recordValue ?? "").trim();
+    if (!currentValue || !expectedValue) continue;
+    if (!valuesMatch(currentValue, expectedValue) && !numbersMatch(currentValue, expectedValue)) {
+      warnings.push(`${targetKey}: "${currentValue}" yerine referansta "${expectedValue}"`);
+    }
+  }
+  return warnings;
+}
+
+function enrichExtraDataFromReferenceRecords(
+  extraData: Record<string, string> | null | undefined,
+  referenceColumns: ProjectColumn[],
+  knownKeys: string[]
+): Record<string, string> | null {
+  if (!extraData || Object.keys(extraData).length === 0) return extraData ?? null;
+  const next: Record<string, string> = { ...extraData };
+  const availableKeys = Array.from(new Set([...knownKeys, ...Object.keys(next)]));
+
+  for (const column of referenceColumns) {
+    const reference = column.config.reference;
+    const records = reference?.records ?? [];
+    if (!reference?.labelField || records.length === 0) continue;
+
+    const matchedRecord = findBestReferenceRecord(next, records, availableKeys);
+    if (!matchedRecord) continue;
+    const warnings = referenceWarningsFromRecord(next, matchedRecord, availableKeys, reference.labelField);
+
+    for (const [field, recordValue] of Object.entries(matchedRecord)) {
+      const cellValue = String(recordValue ?? "").trim();
+      if (!cellValue) continue;
+      const targetKey = resolveReferenceTargetKey(field, availableKeys);
+      if (!targetKey) continue;
+      if (String(next[targetKey] ?? "").trim() === "") {
+        next[targetKey] = cellValue;
+      }
+    }
+    if (warnings.length > 0) {
+      next[REFERENCE_WARNINGS_KEY] = warnings.join(" | ");
+    }
+  }
+
+  return Object.keys(next).length > 0 ? next : null;
+}
+
 type EditableCellProps = {
   value: string;
   /** Düzenleme dışında gösterilecek metin (örn. maskeli TCKN); verilmezse value kullanılır */
@@ -524,6 +686,161 @@ function EditableCell({
   );
 }
 
+function ReferenceSelectCell({
+  value,
+  options,
+  disabled,
+  density,
+  title,
+  onSave,
+}: {
+  value: string;
+  options: string[];
+  disabled: boolean;
+  density: LiveTableDensity;
+  title?: string;
+  onSave: (value: string) => void;
+}) {
+  const [localValue, setLocalValue] = useState(value);
+  const [open, setOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 260 });
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    setLocalValue(value);
+  }, [value]);
+
+  const normalizedQuery = localValue.trim().toLocaleLowerCase("tr");
+  const filteredOptions = useMemo(() => {
+    const source = normalizedQuery
+      ? options.filter((opt) => opt.toLocaleLowerCase("tr").includes(normalizedQuery))
+      : options;
+    return source.slice(0, 40);
+  }, [normalizedQuery, options]);
+
+  const commitValue = useCallback(
+    (nextValue = localValue) => {
+      const trimmed = nextValue.trim();
+      setOpen(false);
+      if (trimmed !== value) {
+        onSave(trimmed);
+      }
+    },
+    [localValue, onSave, value]
+  );
+
+  const cellText =
+    density === "compact" ? "text-xs" : density === "comfortable" ? "text-base" : "text-sm";
+  const inputPad =
+    density === "compact"
+      ? "px-1.5 py-0.5"
+      : density === "comfortable"
+        ? "px-2.5 py-2"
+        : "px-2 py-1";
+
+  const updateMenuPos = useCallback(() => {
+    const rect = inputRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setMenuPos({
+      top: rect.bottom + 4,
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - 428)),
+      width: Math.max(240, Math.min(420, Math.max(rect.width, 280))),
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    updateMenuPos();
+    window.addEventListener("scroll", updateMenuPos, true);
+    window.addEventListener("resize", updateMenuPos);
+    return () => {
+      window.removeEventListener("scroll", updateMenuPos, true);
+      window.removeEventListener("resize", updateMenuPos);
+    };
+  }, [open, updateMenuPos]);
+
+  if (disabled) {
+    return (
+      <span className={cn("block w-full min-w-0 truncate text-slate-500 dark:text-slate-400", cellText)} title={value || undefined}>
+        {value || "—"}
+      </span>
+    );
+  }
+
+  return (
+    <div ref={wrapperRef} className="relative w-full min-w-0 max-w-full">
+      <input
+        ref={inputRef}
+        type="text"
+        value={localValue}
+        onFocus={() => {
+          setOpen(true);
+          updateMenuPos();
+        }}
+        onChange={(e) => {
+          setLocalValue(e.target.value);
+          setOpen(true);
+        }}
+        onBlur={() => {
+          window.setTimeout(() => {
+            if (!wrapperRef.current?.contains(document.activeElement)) {
+              commitValue();
+            }
+          }, 0);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commitValue();
+          }
+          if (e.key === "Escape") {
+            setLocalValue(value);
+            setOpen(false);
+            inputRef.current?.blur();
+          }
+        }}
+        placeholder="Ara ve seç"
+        title={title}
+        className={cn(
+          "w-full min-w-0 rounded border border-slate-200 bg-white text-slate-800 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100",
+          cellText,
+          inputPad
+        )}
+      />
+      {open && filteredOptions.length > 0 && createPortal(
+        <div
+          className="fixed z-[9999] max-h-56 overflow-y-auto rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-600 dark:bg-slate-800"
+          style={{ top: menuPos.top, left: menuPos.left, width: menuPos.width }}
+        >
+          {filteredOptions.map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                setLocalValue(opt);
+                commitValue(opt);
+              }}
+              className="block w-full truncate rounded px-2 py-1.5 text-left text-xs text-slate-700 hover:bg-blue-50 hover:text-blue-700 dark:text-slate-200 dark:hover:bg-blue-950/40 dark:hover:text-blue-200"
+              title={opt}
+            >
+              {opt}
+            </button>
+          ))}
+          {(normalizedQuery ? options.filter((opt) => opt.toLocaleLowerCase("tr").includes(normalizedQuery)).length : options.length) > filteredOptions.length && (
+            <p className="px-2 py-1 text-[10px] text-slate-500 dark:text-slate-400">
+              Daha fazla sonuç için yazmaya devam et.
+            </p>
+          )}
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
+
 /**
  * Dinamik (extra) sütunlarda: hover ile panoya — hassas sütunlarda tam değer kopyalanır.
  *
@@ -615,7 +932,7 @@ const EXTRA_DATA_LINK_KEY = "link";
 
 function toExtraDataRows(extra_data: Record<string, string> | null | undefined, excludeKeys: string[] = []): Array<{ key: string; value: string }> {
   if (!extra_data || Object.keys(extra_data).length === 0) return [{ key: "", value: "" }];
-  const set = new Set(excludeKeys);
+  const set = new Set([...excludeKeys, ...Array.from(INTERNAL_EXTRA_DATA_KEYS)]);
   const entries = Object.entries(extra_data).filter(([k]) => !set.has(k)).map(([key, value]) => ({ key, value: String(value ?? "") }));
   return entries.length > 0 ? entries : [{ key: "", value: "" }];
 }
@@ -657,6 +974,7 @@ function TaskFormDialog({
   const [linkUrl, setLinkUrl] = useState(initialTask?.extra_data?.[EXTRA_DATA_LINK_KEY] ?? "");
   const [customFields, setCustomFields] = useState<Array<{ key: string; value: string }>>(() => toExtraDataRows(initialTask?.extra_data ?? undefined, [EXTRA_DATA_LINK_KEY]));
   const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     setContent(initialTask?.content ?? "");
@@ -665,6 +983,7 @@ function TaskFormDialog({
     setPriority(initialTask?.priority ?? defaultPriority);
     setLinkUrl(initialTask?.extra_data?.[EXTRA_DATA_LINK_KEY] ?? "");
     setCustomFields(toExtraDataRows(initialTask?.extra_data ?? undefined, [EXTRA_DATA_LINK_KEY]));
+    setFormError(null);
   }, [initialTask, open, defaultStatus, defaultPriority]);
 
   const addCustomField = () => setCustomFields((prev) => [...prev, { key: "", value: "" }]);
@@ -679,6 +998,12 @@ function TaskFormDialog({
       .filter((r) => r.key.trim() !== "")
       .reduce((acc, { key, value }) => ({ ...acc, [key.trim()]: value.trim() }), {} as Record<string, string>);
     if (linkUrl.trim() !== "") extra_data[EXTRA_DATA_LINK_KEY] = linkUrl.trim();
+    const formattedExtraData = normalizeExtraDataBySmartRules(extra_data);
+    if (formattedExtraData.errors.length > 0) {
+      setFormError(formattedExtraData.errors.map((err) => err.message).join("\n"));
+      return;
+    }
+    setFormError(null);
     setSaving(true);
     try {
       await onSubmit({
@@ -686,7 +1011,7 @@ function TaskFormDialog({
         status: status || defaultStatus,
         assignee: assignee.trim() || "",
         priority: priority && priorityOptions.includes(priority) ? priority : defaultPriority,
-        extra_data: Object.keys(extra_data).length > 0 ? extra_data : null,
+        extra_data: formattedExtraData.data,
       });
       onOpenChange(false);
     } finally {
@@ -813,6 +1138,9 @@ function TaskFormDialog({
                 </div>
               ))}
             </div>
+            {formError && (
+              <p className="whitespace-pre-line text-sm text-red-600 dark:text-red-400">{formError}</p>
+            )}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
@@ -840,12 +1168,16 @@ function CSVImportDialog({
   open,
   onOpenChange,
   onImport,
+  referenceColumns = [],
+  referenceKnownKeys = [],
   defaultStatus = "Yapılacak",
   defaultPriority = "Medium",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onImport: (tasks: Array<{ content: string; status: string; assignee: string | null; priority?: string | null; extra_data?: Record<string, string> | null }>, replaceExisting: boolean) => Promise<void>;
+  referenceColumns?: ProjectColumn[];
+  referenceKnownKeys?: string[];
   defaultStatus?: string;
   defaultPriority?: string;
 }) {
@@ -1013,10 +1345,37 @@ function CSVImportDialog({
       setError(importMode === "paste" ? "En az bir satır metin girin (boş satırlar yok sayılır)." : "Dosyada geçerli veri bulunamadı (en az bir satırda veri olmalı).");
       return;
     }
+    const formatErrors: string[] = [];
+    const formattedTasks = tasks.map((task, index) => {
+      const formattedExtraData = normalizeExtraDataBySmartRules(task.extra_data);
+      if (formattedExtraData.errors.length > 0) {
+        for (const err of formattedExtraData.errors) {
+          formatErrors.push(`Satır ${index + 1} · ${err.message}`);
+        }
+      }
+      const enrichedExtraData = enrichExtraDataFromReferenceRecords(
+        formattedExtraData.data,
+        referenceColumns,
+        referenceKnownKeys
+      );
+      return { ...task, extra_data: enrichedExtraData };
+    });
+    if (formatErrors.length > 0) {
+      setError(
+        [
+          "İçe aktarma durduruldu. Aşağıdaki akıllı sütun formatlarını düzeltin:",
+          ...formatErrors.slice(0, 8),
+          formatErrors.length > 8 ? `+${formatErrors.length - 8} hata daha` : "",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      );
+      return;
+    }
     setImporting(true);
     setError(null);
     try {
-      await onImport(tasks, replaceExisting);
+      await onImport(formattedTasks, replaceExisting);
       onOpenChange(false);
     } catch (err: unknown) {
       const msg =
@@ -1029,7 +1388,7 @@ function CSVImportDialog({
     } finally {
       setImporting(false);
     }
-  }, [importMode, buildTasksFromPaste, buildTasks, replaceExisting, onImport, onOpenChange]);
+  }, [importMode, buildTasksFromPaste, buildTasks, referenceColumns, referenceKnownKeys, replaceExisting, onImport, onOpenChange]);
 
   const canImport = importMode === "paste" ? pasteLines.length > 0 : rows.length > 0;
 
@@ -1188,7 +1547,7 @@ function CSVImportDialog({
           )}
             </>
           )}
-          {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+          {error && <p className="whitespace-pre-line text-sm text-red-600 dark:text-red-400">{error}</p>}
         </div>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
@@ -1652,6 +2011,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   /** Ek sütun silme onay diyaloğu: hedef anahtar adı (extra:KEY -> KEY) veya null */
   const [removeExtraColumnKey, setRemoveExtraColumnKey] = useState<string | null>(null);
   const [removingExtraColumn, setRemovingExtraColumn] = useState(false);
+  const [projectColumnsByProjectId, setProjectColumnsByProjectId] = useState<Record<string, ProjectColumn[]>>({});
   const toast = useToast();
   const [globalSearch, setGlobalSearch] = useState("");
   /** Varsayılan: sadece projeye bağlı görevler (standart tablo verisi gösterilmez) */
@@ -1703,6 +2063,23 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     const map = new Map<string, Project>();
     projects.forEach((p) => map.set(p.id, p));
     return map;
+  }, [projects]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const ids = projects.map((p) => p.id).filter(Boolean);
+    if (ids.length === 0) {
+      setProjectColumnsByProjectId({});
+      return;
+    }
+    void (async () => {
+      const entries = await Promise.all(ids.map(async (id) => [id, await listProjectColumns(id)] as const));
+      if (cancelled) return;
+      setProjectColumnsByProjectId(Object.fromEntries(entries));
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [projects]);
 
   const canEditRow = useCallback(
@@ -1808,6 +2185,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       if (t.extra_data && typeof t.extra_data === "object") {
         for (const [k, v] of Object.entries(t.extra_data)) {
           if (k == null || String(k).trim() === "") continue;
+          if (INTERNAL_EXTRA_DATA_KEYS.has(k)) continue;
           // Filtre yoksa: sadece değer içeren anahtarlar (küresel tablo temizliği)
           // Filtre varsa: tüm anahtarlar dahil (kullanıcı projeye odaklı)
           if (scopedProjectIdSet != null || String(v ?? "").trim() !== "") {
@@ -1818,6 +2196,14 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     });
     return Array.from(keys).sort();
   }, [scopedTasksForSchema, scopedProjectSchemaKeys, scopedProjectIdSet]);
+
+  const activeReferenceColumns = useMemo(() => {
+    const source =
+      Array.isArray(projectFilter) && projectFilter.length === 1
+        ? projectColumnsByProjectId[projectFilter[0]] ?? []
+        : Object.values(projectColumnsByProjectId).flat();
+    return source.filter((col) => (col.config.reference?.records?.length ?? 0) > 0);
+  }, [projectColumnsByProjectId, projectFilter]);
 
   const advancedFilterFieldOptions = useMemo(() => {
     const opts: { id: string; label: string }[] = [
@@ -2444,15 +2830,20 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
 
   const handleNewTask = useCallback(
     async (data: TaskFormData) => {
+      const formattedExtraData = normalizeExtraDataBySmartRules(data.extra_data);
+      if (formattedExtraData.errors.length > 0) {
+        toast.error(formattedExtraData.errors[0].message);
+        throw new Error(formattedExtraData.errors[0].message);
+      }
       await createTask({
         content: data.content,
         status: data.status,
         assignee: data.assignee || null,
         priority: data.priority ?? null,
-        extra_data: data.extra_data ?? null,
+        extra_data: formattedExtraData.data,
       });
     },
-    [createTask]
+    [createTask, toast]
   );
 
   /**
@@ -2564,12 +2955,17 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         setEditTask(null);
         return;
       }
+      const formattedExtraData = normalizeExtraDataBySmartRules(data.extra_data);
+      if (formattedExtraData.errors.length > 0) {
+        toast.error(formattedExtraData.errors[0].message);
+        throw new Error(formattedExtraData.errors[0].message);
+      }
       const patch = {
         content: data.content,
         status: data.status,
         assignee: data.assignee || null,
         priority: data.priority ?? null,
-        extra_data: data.extra_data ?? null,
+        extra_data: formattedExtraData.data,
       };
       updateTaskOptimistic(editTask.id, patch);
       const r = await saveTask(editTask.id, patch);
@@ -2648,9 +3044,59 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const handleDynamicCellSave = useCallback((taskId: string, key: string, value: string) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
-    const newExtraData = { ...(task.extra_data ?? {}), [key]: value };
+    const formattedExtraData = normalizeExtraDataBySmartRules({ [key]: value });
+    if (formattedExtraData.errors.length > 0) {
+      toast.error(formattedExtraData.errors[0].message);
+      return;
+    }
+    const nextValue = formattedExtraData.data?.[key] ?? "";
+    const newExtraData = { ...(task.extra_data ?? {}), [key]: nextValue };
     handleSave(taskId, { extra_data: newExtraData });
-  }, [tasks, handleSave]);
+  }, [tasks, handleSave, toast]);
+
+  const handleReferenceCellSave = useCallback(
+    (taskId: string, key: string, value: string, column: ProjectColumn | null) => {
+      const task = tasks.find((t) => t.id === taskId);
+      if (!task) return;
+      const formattedExtraData = normalizeExtraDataBySmartRules({ [key]: value });
+      if (formattedExtraData.errors.length > 0) {
+        toast.error(formattedExtraData.errors[0].message);
+        return;
+      }
+
+      const nextValue = formattedExtraData.data?.[key] ?? value.trim();
+      const nextExtraData: Record<string, string> = { ...(task.extra_data ?? {}), [key]: nextValue };
+      delete nextExtraData[REFERENCE_WARNINGS_KEY];
+      const reference = column?.config.reference;
+      const labelField = reference?.labelField;
+      const records = reference?.records ?? [];
+      const matchedRecord =
+        labelField && nextValue
+          ? records.find((record) => String(record[labelField] ?? "").trim() === nextValue)
+          : null;
+
+      if (matchedRecord) {
+        const availableKeys = Array.from(new Set([...extraDataKeys, ...Object.keys(nextExtraData), key]));
+        const warnings = referenceWarningsFromRecord(nextExtraData, matchedRecord, availableKeys, labelField);
+        for (const [field, raw] of Object.entries(matchedRecord)) {
+          const cellValue = String(raw ?? "").trim();
+          if (!cellValue || field === labelField) continue;
+          const targetKey = resolveReferenceTargetKey(field, availableKeys);
+          if (!targetKey || targetKey === key) continue;
+          nextExtraData[targetKey] = cellValue;
+        }
+        if (warnings.length > 0) {
+          nextExtraData[REFERENCE_WARNINGS_KEY] = warnings.join(" | ");
+          toast.warning("Referans kaydı bulundu ama satırda çelişen alanlar vardı; sistem değerleri referansa göre güncelledi.");
+        }
+      } else if (reference && nextValue) {
+        toast.info("Seçilen değer için referans satırı bulunamadı. Sadece bu hücre kaydedildi.");
+      }
+
+      handleSave(taskId, { extra_data: nextExtraData });
+    },
+    [extraDataKeys, handleSave, tasks, toast]
+  );
 
   const columns: ColumnDef<Task, string | null>[] = useMemo(
     () => [
@@ -2873,8 +3319,51 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         cell: ({ row }) => {
           const task = row.original;
           const value = task.extra_data?.[key] ?? "";
+          const referenceWarning = String(task.extra_data?.[REFERENCE_WARNINGS_KEY] ?? "").trim();
           const taskId = task.id;
           const rowCanEdit = canEditRow(task);
+          const normalizedExtraKey = key.trim().toLocaleLowerCase("tr");
+          const candidateProjectIds = [
+            task.project_id ? String(task.project_id) : "",
+            ...(Array.isArray(projectFilter) && projectFilter.length === 1 ? [projectFilter[0]] : []),
+          ].filter(Boolean);
+          const typedColumn =
+            candidateProjectIds
+              .map((projectId) =>
+                projectColumnsByProjectId[projectId]?.find(
+                  (col) => col.key.trim().toLocaleLowerCase("tr") === normalizedExtraKey
+                )
+              )
+              .find(Boolean) ??
+            Object.values(projectColumnsByProjectId)
+              .flat()
+              .find((col) => col.key.trim().toLocaleLowerCase("tr") === normalizedExtraKey) ??
+            null;
+          const typedReference = typedColumn?.config.reference;
+          const typedRecords = typedReference?.records ?? [];
+          const filteredReferenceRecords =
+            typedReference?.labelField && typedRecords.length > 0
+              ? typedRecords.filter((record) => {
+                  for (const [field, recordValue] of Object.entries(record)) {
+                    if (field === typedReference.labelField) continue;
+                    const targetKey = resolveReferenceTargetKey(field, extraDataKeys);
+                    if (!targetKey || targetKey === key) continue;
+                    const currentValue = String(task.extra_data?.[targetKey] ?? "").trim();
+                    if (currentValue && !valuesMatch(currentValue, recordValue)) return false;
+                  }
+                  return true;
+                })
+              : [];
+          const typedOptions =
+            typedReference?.labelField && filteredReferenceRecords.length > 0
+              ? Array.from(
+                  new Set(
+                    filteredReferenceRecords
+                      .map((record) => String(record[typedReference.labelField] ?? "").trim())
+                      .filter(Boolean)
+                  )
+                ).sort((a, b) => a.localeCompare(b, "tr", { sensitivity: "base" }))
+              : typedColumn?.config.options?.filter(Boolean) ?? [];
           // Checkbox için: "yapıldı", "tamamlandı", "done", "completed", "ok", "✓"
           const isCheckbox = /^(yapıldı|yapildi|tamamlandı|tamamlandi|done|completed|ok|✓|x|check)$/i.test(key);
           if (isCheckbox) {
@@ -2916,6 +3405,28 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
               </select>
             );
           }
+          if (typedColumn && (typedColumn.type === "select" || typedColumn.type === "multi_select") && typedOptions.length > 0) {
+            return (
+              <div className="flex min-w-0 items-center gap-1">
+                {referenceWarning && (
+                  <AlertTriangle
+                    className="h-3.5 w-3.5 shrink-0 text-amber-500"
+                    aria-label="Referans veri uyarısı"
+                  >
+                    <title>{referenceWarning}</title>
+                  </AlertTriangle>
+                )}
+                <ReferenceSelectCell
+                  value={String(value ?? "")}
+                  options={typedOptions}
+                  disabled={!rowCanEdit}
+                  density={tableDensity}
+                  title={typedColumn.config.reference ? `${typedColumn.config.reference.sourceName} kaynağından` : undefined}
+                  onSave={(nextValue) => handleReferenceCellSave(taskId, key, nextValue, typedColumn)}
+                />
+              </div>
+            );
+          }
           // Inline editable text + hover ile kopyala (TCKN/sicil: maskeli gösterim)
           const raw = String(value ?? "");
           const sensitive = isSensitiveExtraColumnKey(key);
@@ -2924,6 +3435,14 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
 
           return (
             <div className="group/extra-cell flex min-w-0 items-center gap-0.5">
+              {referenceWarning && (
+                <AlertTriangle
+                  className="h-3.5 w-3.5 shrink-0 text-amber-500"
+                  aria-label="Referans veri uyarısı"
+                >
+                  <title>{referenceWarning}</title>
+                </AlertTriangle>
+              )}
               <div className="min-w-0 flex-1">
                 <EditableCell
                   value={raw}
@@ -3008,6 +3527,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       dui,
       extraDataKeys,
       handleDynamicCellSave,
+      handleReferenceCellSave,
       deletingIds,
       editorsByRowId,
       canEditRow,
@@ -3019,6 +3539,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       setEditTask,
       settings.defaultTaskStatus,
       projectById,
+      projectColumnsByProjectId,
+      projectFilter,
     ]
   );
 
@@ -3925,6 +4447,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
           open={importOpen}
           onOpenChange={setImportOpen}
           onImport={handleCSVImport}
+          referenceColumns={activeReferenceColumns}
+          referenceKnownKeys={extraDataKeys}
           defaultStatus={settings.defaultTaskStatus}
           defaultPriority={settings.defaultTaskPriority}
         />
@@ -4677,14 +5201,13 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
             </span>
           )}
           {onlineUsers.length > 0 && (
-            <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-              <User className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              <span className="sr-only sm:not-sr-only">Şu an çevrimiçi:</span>
+            <span className="inline-flex items-center gap-1.5">
               <OnlineUsersPanel
                 onlineUsers={onlineUsers}
                 editorsByRowId={editorsByRowId}
                 currentUserEmail={currentUserEmail}
                 tasks={tasks}
+                label={projectFilter.length === 1 ? "Aktif ekip" : "Aktif kullanıcılar"}
               />
             </span>
           )}

@@ -22,6 +22,15 @@ export type ProjectColumnType =
 export type ProjectColumnConfig = {
   /** select / multi_select: önceden tanımlı seçenekler */
   options?: string[];
+  /** JSON gibi dış referans kaynaklardan seçenek üretildiğinde kısa metadata */
+  reference?: {
+    sourceName: string;
+    labelField: string;
+    valueField?: string;
+    fields: string[];
+    recordCount: number;
+    records?: Record<string, string>[];
+  };
   /** number: format (örn. "TL", "%", "x") */
   format?: string;
   /** number: ondalık basamak sayısı */

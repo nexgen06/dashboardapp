@@ -201,7 +201,7 @@ export function TaskDetailSheet({
   const statusLabel = task.status?.trim() || statusStyle.label;
 
   const extraEntries = task.extra_data
-    ? Object.entries(task.extra_data).filter(([, v]) => String(v ?? "").trim() !== "")
+    ? Object.entries(task.extra_data).filter(([k, v]) => k !== "__reference_warnings" && String(v ?? "").trim() !== "")
     : [];
   const linkValue =
     task.extra_data?.[EXTRA_DATA_LINK_KEY] && isSafeUrl(String(task.extra_data[EXTRA_DATA_LINK_KEY]))

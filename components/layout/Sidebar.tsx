@@ -15,6 +15,7 @@ import {
   Settings,
   Shield,
   BarChart3,
+  Database,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -59,6 +60,7 @@ export function Sidebar() {
     { href: "/ayarlar", label: "Ayarlar", icon: Settings, permission: "area.settings" as const, alsoRequire: "settings.view" as const },
     { href: "/yonetim/kullanici-yetkileri", label: "Kullanıcı yetkileri", icon: Shield, permission: "area.userManagement" as const, alsoRequire: null },
     { href: "/yonetim/gorev-istatistikleri", label: "Görev istatistikleri", icon: BarChart3, permission: "area.userManagement" as const, alsoRequire: null },
+    { href: "/yonetim/referans-veriler", label: "Referans veriler", tooltip: "JSON kaynakları ve merkezi dropdown verileri", icon: Database, permission: "area.userManagement" as const, alsoRequire: null },
     { href: "/yonetim/pii-access", label: "PII erişim kayıtları", tooltip: "TCKN/Sicil kopya/export izleme", icon: Shield, permission: "area.piiAccess" as const, alsoRequire: "piiAccess.view" as const },
     { href: "/yonetim/geri-bildirimler", label: "Geri bildirim yönetimi", tooltip: "Kullanıcılardan gelen öneri/hata/soru", icon: MessageSquarePlus, permission: "area.feedbackAdmin" as const, alsoRequire: "feedback.manage" as const },
     { href: "/yonetim/duyurular", label: "Duyurular", tooltip: "Tüm kullanıcılara mesaj gönder", icon: Megaphone, permission: "area.announcementsAdmin" as const, alsoRequire: "notifications.send" as const },
