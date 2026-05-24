@@ -109,6 +109,8 @@ export type RecentPresenceRow = {
   last_seen_at: string | null;
 };
 
+export type SessionPresenceStatus = "active" | "recent" | "stale";
+
 export type SystemBuildInfo = {
   version: string;
   commit: string;
@@ -129,6 +131,16 @@ export async function listRecentPresenceRows(): Promise<RecentPresenceRow[]> {
     return [];
   }
   return (data ?? []) as RecentPresenceRow[];
+}
+
+export function getPresenceStatus(lastSeenAt?: string | null): SessionPresenceStatus {
+  if (!lastSeenAt) return "stale";
+  const time = new Date(lastSeenAt).getTime();
+  if (!Number.isFinite(time)) return "stale";
+  const age = Date.now() - time;
+  if (age <= 120_000) return "active";
+  if (age <= 30 * 60_000) return "recent";
+  return "stale";
 }
 
 export function getClientBuildInfo(): SystemBuildInfo {

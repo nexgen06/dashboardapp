@@ -1,7 +1,7 @@
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import type { OnlineUser } from "@/lib/supabasePresenceHelpers";
 
-export type PresenceScope = "tasks" | "project";
+export type PresenceScope = "app" | "tasks" | "project";
 
 export type PresenceHeartbeatInput = {
   scope: PresenceScope;
@@ -31,6 +31,7 @@ function isHeartbeatReady(input: PresenceHeartbeatInput): boolean {
 export async function upsertPresenceHeartbeat(input: PresenceHeartbeatInput): Promise<void> {
   if (!isHeartbeatReady(input)) return;
   const projectId = input.scope === "project" ? input.projectId!.trim() : null;
+  const projectKey = input.scope === "project" ? projectId : "";
   const now = new Date().toISOString();
   const { error } = await supabase.from("presence_heartbeats").upsert(
     {
@@ -39,7 +40,7 @@ export async function upsertPresenceHeartbeat(input: PresenceHeartbeatInput): Pr
       user_name: input.userName?.trim() || null,
       scope: input.scope,
       project_id: projectId,
-      project_key: projectId ?? "",
+      project_key: projectKey,
       row_id: input.rowId?.trim() || null,
       client_id: input.clientId?.trim() || null,
       last_seen_at: now,
