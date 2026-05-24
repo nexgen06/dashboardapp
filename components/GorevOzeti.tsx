@@ -487,7 +487,7 @@ export function GorevOzeti({ projectFilter = [] }: GorevOzetiProps = {}) {
                   </button>
                 </div>
               </div>
-              <ul className="space-y-1 max-h-[180px] overflow-auto pr-1">
+              <ul className="scrollbar-themed max-h-[180px] space-y-1 overflow-auto pr-1">
                 {acilGorevler.map((task) => {
                   const urgency = getTaskUrgency(task);
                   const isOverdue = urgency === "overdue";
@@ -570,7 +570,7 @@ export function GorevOzeti({ projectFilter = [] }: GorevOzetiProps = {}) {
               tasksByAssignee.length === 0 ? (
                 <p className="py-2 text-xs text-slate-500 dark:text-slate-400">Görev yok.</p>
               ) : (
-                <ul className="max-h-[280px] space-y-2 overflow-auto pr-1">
+                <ul className="scrollbar-themed max-h-[280px] space-y-2 overflow-auto pr-1">
                   {tasksByAssignee.map(([assignee, assigneeTasks]) => {
                     const completed = assigneeTasks.filter((t) => isTaskCompleted(t)).length;
                     const rate = assigneeTasks.length > 0 ? Math.round((completed / assigneeTasks.length) * 100) : 0;
@@ -600,7 +600,7 @@ export function GorevOzeti({ projectFilter = [] }: GorevOzetiProps = {}) {
                 {filterMode === "mine" ? "Size atanmış görev yok." : "Henüz görev yok."}
               </p>
             ) : (
-              <ul className="max-h-[220px] space-y-0.5 overflow-auto pr-1">
+              <ul className="scrollbar-themed max-h-[220px] space-y-0.5 overflow-auto pr-1">
                 {sonGorevler.map((task) => {
                   const urgency = getTaskUrgency(task);
                   const isOverdue = urgency === "overdue";

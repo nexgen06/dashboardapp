@@ -201,7 +201,7 @@ export default function CanliTabloPage() {
               spacing="none"
             />
           </div>
-          <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
+          <div className="scrollbar-themed min-h-0 flex-1 overflow-auto px-4 py-3">
             <GorevOzeti projectFilter={projectFilter} />
           </div>
         </Section>
