@@ -26,6 +26,10 @@ import {
   History,
   Plus,
   Trash2,
+  Send,
+  RotateCcw,
+  XCircle,
+  GitMerge,
 } from "lucide-react";
 import type { Task } from "@/types/tasks";
 import { cn } from "@/lib/utils";
@@ -51,6 +55,11 @@ import {
   isSensitiveExtraColumnKey,
   maskSensitiveExtraValue,
 } from "@/lib/extraColumnSensitiveDisplay";
+import {
+  normalizeWorkflowStatus,
+  WORKFLOW_STATUS_LABELS,
+  WORKFLOW_STATUS_CLASS,
+} from "@/lib/taskWorkflow";
 
 const EXTRA_DATA_LINK_KEY = "link";
 
@@ -89,6 +98,108 @@ const STATUS_TONE: Record<string, { bg: string; text: string; icon: React.ReactN
     label: "Diğer",
   },
 };
+
+/** Onay süreci adım adım görsel çubuk */
+const WORKFLOW_STEPS: Array<{
+  key: "draft" | "submitted" | "approved" | "rejected" | "revision_requested";
+  label: string;
+  icon: React.ReactNode;
+}> = [
+  { key: "draft", label: "Taslak", icon: <GitMerge className="h-3.5 w-3.5" aria-hidden /> },
+  { key: "submitted", label: "Kontrolde", icon: <Send className="h-3.5 w-3.5" aria-hidden /> },
+  { key: "approved", label: "Onaylandı", icon: <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> },
+];
+
+function WorkflowProgressBar({ task }: { task: Task }) {
+  const status = normalizeWorkflowStatus(task.workflow_status);
+  const isRejected = status === "rejected";
+  const isRevision = status === "revision_requested";
+
+  // Adım indeksi: draft=0, submitted=1, approved=2 (ya da rejected/revision için submitted=1 hatalı renk)
+  const stepIndex =
+    status === "draft" ? 0
+    : status === "submitted" || status === "revision_requested" ? 1
+    : status === "approved" ? 2
+    : status === "rejected" ? 1
+    : 0;
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+      {/* Adım göstergesi */}
+      <div className="flex items-center gap-0">
+        {WORKFLOW_STEPS.map((step, idx) => {
+          const isCurrent = stepIndex === idx && !isRejected && !isRevision;
+          const isPast = stepIndex > idx;
+          const isFinal = step.key === "approved";
+
+          return (
+            <div key={step.key} className="flex flex-1 items-center">
+              <div className="flex flex-col items-center gap-1">
+                <span
+                  className={cn(
+                    "flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-medium transition-colors",
+                    isCurrent && !isRejected
+                      ? "border-blue-500 bg-blue-500 text-white"
+                      : isPast && !isRejected && !isRevision
+                        ? "border-emerald-500 bg-emerald-500 text-white"
+                        : isRejected && idx === 1
+                          ? "border-red-400 bg-red-50 text-red-600 dark:bg-red-950/40"
+                          : isRevision && idx === 1
+                            ? "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-950/40"
+                            : "border-slate-300 bg-white text-slate-400 dark:border-slate-600 dark:bg-slate-800"
+                  )}
+                >
+                  {step.icon}
+                </span>
+                <span className={cn(
+                  "text-[10px] font-medium leading-none text-center",
+                  isCurrent ? "text-blue-700 dark:text-blue-300"
+                  : isPast && !isRejected && !isRevision ? "text-emerald-700 dark:text-emerald-300"
+                  : "text-slate-500 dark:text-slate-400"
+                )}>
+                  {isRejected && idx === 1 ? "Reddedildi"
+                  : isRevision && idx === 1 ? "Revize İstendi"
+                  : step.label}
+                </span>
+              </div>
+              {!isFinal && (
+                <div className={cn(
+                  "mx-1 h-0.5 flex-1 rounded-full",
+                  isPast && !isRejected && !isRevision
+                    ? "bg-emerald-400"
+                    : isCurrent
+                      ? "bg-gradient-to-r from-blue-400 to-slate-200 dark:to-slate-600"
+                      : "bg-slate-200 dark:bg-slate-600"
+                )} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Durum özeti */}
+      <div className="mt-2.5 flex items-center gap-2">
+        <span className={cn(
+          "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium",
+          WORKFLOW_STATUS_CLASS[status]
+        )}>
+          {isRejected ? <XCircle className="h-3 w-3" aria-hidden /> : isRevision ? <RotateCcw className="h-3 w-3" aria-hidden /> : null}
+          {WORKFLOW_STATUS_LABELS[status]}
+        </span>
+        {task.workflow_submitted_at && (
+          <span className="text-[10px] text-slate-400 dark:text-slate-500">
+            Gönderildi: {new Date(task.workflow_submitted_at).toLocaleDateString("tr-TR")}
+          </span>
+        )}
+        {task.workflow_reviewed_at && (
+          <span className="text-[10px] text-slate-400 dark:text-slate-500">
+            · İncelendi: {new Date(task.workflow_reviewed_at).toLocaleDateString("tr-TR")}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 type TaskDetailSheetProps = {
   task: Task | null;
@@ -350,6 +461,16 @@ export function TaskDetailSheet({
                   );
                 })}
               </dl>
+            </section>
+          )}
+
+          {/* Onay workflow progress bar — yalnızca workflow_status varsa göster */}
+          {task.workflow_status && (
+            <section>
+              <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Onay Süreci
+              </h3>
+              <WorkflowProgressBar task={task} />
             </section>
           )}
 

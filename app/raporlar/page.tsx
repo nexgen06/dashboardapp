@@ -266,9 +266,19 @@ export default function RaporlarPage() {
 
       {stats.total === 0 ? (
         <EmptyState
-          icon={<BarChart3 className="h-10 w-10" />}
-          title="Bu aralıkta veri yok"
-          description="Tarih aralığını değiştirin veya görev/proje oluşturun."
+          icon={<TrendingUp className="h-10 w-10" />}
+          title="Bu aralıkta rapor verisi yok"
+          description="Seçili tarih aralığında tamamlanmış görev bulunmuyor. Aralığı genişletebilir veya görevlerinizin durumunu güncelleyebilirsiniz."
+          action={
+            <Button asChild>
+              <Link href="/canli-tablo">Canlı tabloya git</Link>
+            </Button>
+          }
+          secondaryAction={
+            <Button variant="outline" asChild>
+              <Link href="/projeler">Projelere git</Link>
+            </Button>
+          }
         />
       ) : (
         <>

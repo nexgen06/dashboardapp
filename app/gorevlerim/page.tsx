@@ -365,9 +365,35 @@ export default function GorevlerimPage() {
           </div>
         ) : currentTasks.length === 0 ? (
           <EmptyState
-            icon={tab === "overdue" ? <AlertTriangle className="h-10 w-10" /> : <ListTodo className="h-10 w-10" />}
-            title={`${TAB_LABELS[tab]} listesi boş`}
-            description="Bu görünümde aksiyon bekleyen görev yok."
+            icon={
+              tab === "overdue" ? (
+                <Trophy className="h-10 w-10" />
+              ) : tab === "today" ? (
+                <Sparkles className="h-10 w-10" />
+              ) : tab === "mine" ? (
+                <UserCheck className="h-10 w-10" />
+              ) : (
+                <UserX className="h-10 w-10" />
+              )
+            }
+            title={
+              tab === "today"
+                ? "Bugün için görev yok 🎉"
+                : tab === "overdue"
+                  ? "Geciken görev yok 👏"
+                  : tab === "mine"
+                    ? "Size atanmış görev yok"
+                    : "Atanmamış görev bulunmuyor"
+            }
+            description={
+              tab === "today"
+                ? "Harika! Bugünlük tüm görevlerinizi tamamladınız veya bugüne ait görev atanmamış."
+                : tab === "overdue"
+                  ? "Her şey zamanında! Tüm görevler ya tamamlandı ya da henüz süresi dolmadı."
+                  : tab === "mine"
+                    ? "Şu anda size doğrudan atanmış açık bir görev bulunmuyor."
+                    : "Tüm görevlere bir atanan belirlenmiş durumda."
+            }
           />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">

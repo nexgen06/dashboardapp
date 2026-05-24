@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { Keyboard, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { openCommandPalette } from "@/components/CommandPalette";
+import { useRouter } from "next/navigation";
 
 type Shortcut = {
   keys: string[];
@@ -32,6 +34,10 @@ export function KeyboardShortcutsHUD() {
   const [open, setOpen] = useState(false);
   const mac = useMemo(() => isMac(), []);
   const modKey = mac ? "⌘" : "Ctrl";
+  const router = useRouter();
+  /** G tuşu bekliyor mu (g → p, g → t gibi kombolar için) */
+  const awaitingG = useRef(false);
+  const gTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -41,15 +47,47 @@ export function KeyboardShortcutsHUD() {
       const tag = (t?.tagName ?? "").toLowerCase();
       const isTyping = tag === "input" || tag === "textarea" || tag === "select" || t?.isContentEditable === true;
       if (isTyping) return;
-      // `?` ile aç (Shift + / / üzerinde)
-      if (e.key === "?" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      // Modal açıksa sadece Esc ile kapat
+      if (open) {
+        if (e.key === "Escape") setOpen(false);
+        return;
+      }
+
+      // G + harf → hızlı sayfa geçişi
+      if (awaitingG.current) {
+        awaitingG.current = false;
+        if (gTimerRef.current) clearTimeout(gTimerRef.current);
+        if (e.key === "p" || e.key === "P") { e.preventDefault(); router.push("/projeler"); return; }
+        if (e.key === "t" || e.key === "T") { e.preventDefault(); router.push("/canli-tablo"); return; }
+        if (e.key === "r" || e.key === "R") { e.preventDefault(); router.push("/raporlar"); return; }
+        if (e.key === "m" || e.key === "M") { e.preventDefault(); router.push("/mesajlar"); return; }
+        if (e.key === "b" || e.key === "B") { e.preventDefault(); router.push("/bildirimler"); return; }
+        if (e.key === "h" || e.key === "H") { e.preventDefault(); router.push("/"); return; }
+        return;
+      }
+
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      // `?` ile HUD aç
+      if (e.key === "?") { e.preventDefault(); setOpen(true); return; }
+
+      // `N` → komut paleti (yeni görev / hızlı arama)
+      if (e.key === "n" || e.key === "N") { e.preventDefault(); openCommandPalette(); return; }
+
+      // `G` → sayfa geçiş modu başlat
+      if (e.key === "g" || e.key === "G") {
         e.preventDefault();
-        setOpen((prev) => !prev);
+        awaitingG.current = true;
+        gTimerRef.current = setTimeout(() => { awaitingG.current = false; }, 1500);
+        return;
       }
     };
     window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
+    return () => {
+      window.removeEventListener("keydown", handler);
+      if (gTimerRef.current) clearTimeout(gTimerRef.current);
+    };
+  }, [open, router]);
 
   const sections: Section[] = [
     {
@@ -57,7 +95,19 @@ export function KeyboardShortcutsHUD() {
       shortcuts: [
         { keys: ["?"], description: "Bu kısayol listesini aç/kapa" },
         { keys: [modKey, "K"], description: "Komut paleti (sayfa ve aksiyon arama)" },
+        { keys: ["N"], description: "Komut paletini aç (hızlı oluşturma)" },
         { keys: ["Esc"], description: "Açık modal/paneli kapat" },
+      ],
+    },
+    {
+      title: "Sayfa geçişleri (G + harf)",
+      shortcuts: [
+        { keys: ["G", "H"], description: "Ana sayfa (Dashboard)" },
+        { keys: ["G", "P"], description: "Projeler" },
+        { keys: ["G", "T"], description: "Canlı Tablo" },
+        { keys: ["G", "R"], description: "Raporlar" },
+        { keys: ["G", "M"], description: "Mesajlar" },
+        { keys: ["G", "B"], description: "Bildirimler" },
       ],
     },
     {
@@ -89,7 +139,7 @@ export function KeyboardShortcutsHUD() {
               Klavye Kısayolları
             </DialogTitle>
           </DialogHeader>
-          <div className="grid gap-4 py-2 sm:grid-cols-2">
+          <div className="grid gap-4 py-2 sm:grid-cols-2 lg:grid-cols-2">
             {sections.map((section) => (
               <section key={section.title}>
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">

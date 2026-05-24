@@ -81,6 +81,26 @@ const ORDER: NotifType[] = [
   "admin_team_done",
 ];
 
+type DateGroup = "today" | "week" | "older" | "unknown";
+const DATE_GROUP_LABELS: Record<DateGroup, string> = {
+  today: "Bugün",
+  week: "Bu Hafta",
+  older: "Daha Eski",
+  unknown: "Diğer",
+};
+
+function getDateGroup(createdAt?: string): DateGroup {
+  if (!createdAt) return "unknown";
+  const now = new Date();
+  const d = new Date(createdAt);
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const weekStart = new Date(todayStart);
+  weekStart.setDate(weekStart.getDate() - 6);
+  if (d >= todayStart) return "today";
+  if (d >= weekStart) return "week";
+  return "older";
+}
+
 export default function BildirimlerPage() {
   const { isLoaded, user } = useAuth();
   const summary = useNotifications();
@@ -106,6 +126,26 @@ export default function BildirimlerPage() {
     if (activeType === "all") return summary.items;
     return summary.items.filter((i) => i.type === activeType);
   }, [summary.items, activeType]);
+
+  // Tarih bazlı gruplama
+  const groupedItems = useMemo(() => {
+    const groups: Partial<Record<DateGroup, typeof filteredItems>> = {};
+    for (const item of filteredItems) {
+      const createdAt =
+        item.createdAt ??
+        (item.type === "announcement"
+          ? summary.announcements?.find((a) => a.id === item.id)?.created_at
+          : undefined);
+      const g = getDateGroup(createdAt);
+      if (!groups[g]) groups[g] = [];
+      groups[g]!.push(item);
+    }
+    return groups;
+  }, [filteredItems, summary.announcements]);
+
+  const groupOrder: DateGroup[] = ["today", "week", "older", "unknown"];
+  const activeGroups = groupOrder.filter((g) => (groupedItems[g]?.length ?? 0) > 0);
+  const hasMultipleGroups = activeGroups.length > 1;
 
   // Görüntülenen tür için sıralı sekmeler (mevcut + 0 sayanlar dahil)
   const tabs: Array<{ value: NotifType | "all"; label: string; count: number }> = [
@@ -221,123 +261,136 @@ export default function BildirimlerPage() {
           }
         />
       ) : (
-        <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white dark:divide-slate-700 dark:border-slate-700 dark:bg-slate-800/50">
-          {filteredItems.map((item) => {
-            const meta = TYPE_META[item.type];
-            const Icon = meta.icon;
-
-            // Duyurular için özel render: body göster + tıkla = okundu işaretle
-            if (item.type === "announcement" && item.id) {
-              const announcement = summary.announcements?.find((a) => a.id === item.id);
-              const isRead = item.count === 0 || (summary.readAnnouncementIds?.has(item.id) ?? false);
-              const title = announcement?.title ?? item.label;
-              const body = announcement?.body ?? item.body ?? "";
-              const createdAt = announcement?.created_at ?? item.createdAt;
-              const authorEmail =
-                announcement?.author_email ??
-                (typeof item.body === "string" ? null : null);
-              return (
-                <li key={item.notificationId ?? item.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!isRead) void summary.markAnnouncementRead?.(item.id!);
-                    }}
-                    className={cn(
-                      "group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors",
-                      isRead
-                        ? "opacity-70 hover:bg-slate-50 dark:hover:bg-slate-700/40"
-                        : "bg-violet-50/40 hover:bg-violet-50 dark:bg-violet-900/10 dark:hover:bg-violet-900/20"
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
-                        meta.bg,
-                        meta.text
-                      )}
-                      aria-hidden
-                    >
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    <span className="flex min-w-0 flex-1 flex-col gap-1">
-                      <span className="flex flex-wrap items-center gap-2">
-                        <span className={cn("shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide", meta.bg, meta.text)}>
-                          {meta.chip}
-                        </span>
-                        {announcement?.pinned && (
-                          <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-                            📌 Sabit
-                          </span>
-                        )}
-                        {!isRead && (
-                          <span className="h-2 w-2 rounded-full bg-violet-500" aria-label="Okunmamış" />
-                        )}
-                        {createdAt && (
-                          <span className="ml-auto text-[10px] text-slate-400">
-                            {new Date(createdAt).toLocaleString("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
-                          </span>
-                        )}
-                      </span>
-                      <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                        {title}
-                      </span>
-                      <span className="whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-400">
-                        {body}
-                      </span>
-                      {authorEmail && <span className="text-[10px] text-slate-400">— {authorEmail}</span>}
-                    </span>
-                  </button>
-                </li>
-              );
-            }
-
+        <div className="flex flex-col gap-4">
+          {groupOrder.map((group) => {
+            const items = groupedItems[group];
+            if (!items || items.length === 0) return null;
             return (
-              <li key={item.id ?? `${item.type}-${item.label}`}>
-                <Link
-                  href={item.href}
-                  className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/40"
-                >
-                  <span
-                    className={cn(
-                      "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
-                      meta.bg,
-                      meta.text
-                    )}
-                    aria-hidden
-                  >
-                    <Icon className="h-4 w-4" />
-                  </span>
-                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="flex items-center gap-2">
-                      <span
-                        className={cn(
-                          "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                          meta.bg,
-                          meta.text
-                        )}
-                      >
-                        {meta.chip}
-                      </span>
-                      {item.count > 1 && (
-                        <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
-                          {item.count}
-                        </span>
-                      )}
-                    </span>
-                    <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
-                      {item.label}
-                    </span>
-                  </span>
-                  <ArrowRight
-                    className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-hover:translate-x-0.5 group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300"
-                    aria-hidden
-                  />
-                </Link>
-              </li>
+              <div key={group}>
+                {hasMultipleGroups && (
+                  <p className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                    {DATE_GROUP_LABELS[group]}
+                  </p>
+                )}
+                <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white dark:divide-slate-700 dark:border-slate-700 dark:bg-slate-800/50">
+                  {items.map((item) => {
+                    const meta = TYPE_META[item.type];
+                    const Icon = meta.icon;
+
+                    // Duyurular için özel render: body göster + tıkla = okundu işaretle
+                    if (item.type === "announcement" && item.id) {
+                      const announcement = summary.announcements?.find((a) => a.id === item.id);
+                      const isRead = item.count === 0 || (summary.readAnnouncementIds?.has(item.id) ?? false);
+                      const title = announcement?.title ?? item.label;
+                      const body = announcement?.body ?? item.body ?? "";
+                      const createdAt = announcement?.created_at ?? item.createdAt;
+                      const authorEmail = announcement?.author_email ?? null;
+                      return (
+                        <li key={item.notificationId ?? item.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!isRead) void summary.markAnnouncementRead?.(item.id!);
+                            }}
+                            className={cn(
+                              "group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors",
+                              isRead
+                                ? "opacity-70 hover:bg-slate-50 dark:hover:bg-slate-700/40"
+                                : "bg-violet-50/40 hover:bg-violet-50 dark:bg-violet-900/10 dark:hover:bg-violet-900/20"
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
+                                meta.bg,
+                                meta.text
+                              )}
+                              aria-hidden
+                            >
+                              <Icon className="h-4 w-4" />
+                            </span>
+                            <span className="flex min-w-0 flex-1 flex-col gap-1">
+                              <span className="flex flex-wrap items-center gap-2">
+                                <span className={cn("shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide", meta.bg, meta.text)}>
+                                  {meta.chip}
+                                </span>
+                                {announcement?.pinned && (
+                                  <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                                    📌 Sabit
+                                  </span>
+                                )}
+                                {!isRead && (
+                                  <span className="h-2 w-2 rounded-full bg-violet-500" aria-label="Okunmamış" />
+                                )}
+                                {createdAt && (
+                                  <span className="ml-auto text-[10px] text-slate-400">
+                                    {new Date(createdAt).toLocaleString("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                                  </span>
+                                )}
+                              </span>
+                              <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                {title}
+                              </span>
+                              <span className="whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-400">
+                                {body}
+                              </span>
+                              {authorEmail && <span className="text-[10px] text-slate-400">— {authorEmail}</span>}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    }
+
+                    return (
+                      <li key={item.id ?? `${item.type}-${item.label}`}>
+                        <Link
+                          href={item.href}
+                          className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/40"
+                        >
+                          <span
+                            className={cn(
+                              "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
+                              meta.bg,
+                              meta.text
+                            )}
+                            aria-hidden
+                          >
+                            <Icon className="h-4 w-4" />
+                          </span>
+                          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                            <span className="flex items-center gap-2">
+                              <span
+                                className={cn(
+                                  "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                                  meta.bg,
+                                  meta.text
+                                )}
+                              >
+                                {meta.chip}
+                              </span>
+                              {item.count > 1 && (
+                                <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                                  {item.count}
+                                </span>
+                              )}
+                            </span>
+                            <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
+                              {item.label}
+                            </span>
+                          </span>
+                          <ArrowRight
+                            className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-hover:translate-x-0.5 group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300"
+                            aria-hidden
+                          />
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
             );
           })}
-        </ul>
+        </div>
       )}
 
       <p className="text-[11px] text-slate-400 dark:text-slate-500">

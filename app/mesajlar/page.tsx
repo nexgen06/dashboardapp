@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ExternalLink, MessageCircle, Shield, Search } from "lucide-react";
+import { ExternalLink, MessageCircle, MessagesSquare, Shield, Search } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useProjects } from "@/hooks/useProjects";
 import { useProjectChatUnread } from "@/contexts/project-chat-unread-context";
@@ -11,6 +11,7 @@ import { useProjectChatRoom } from "@/hooks/useProjectChatRoom";
 import { ProjectChatPanel } from "@/components/ProjectChatPanel";
 import { canAccessProjectChat } from "@/lib/projectAccess";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 
 function MesajlarContent() {
@@ -104,19 +105,17 @@ function MesajlarContent() {
       <div className="container max-w-3xl py-10">
         <header className="mb-6">
           <h1 className="text-2xl font-semibold text-slate-800 dark:text-slate-100">Mesajlar</h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Size atanmış proje yok; proje sohbetleri burada listelenir.
-          </p>
         </header>
-        <div className="rounded-lg border border-slate-200 bg-slate-50/80 px-6 py-12 text-center dark:border-slate-700 dark:bg-slate-800/50">
-          <MessageCircle className="mx-auto h-10 w-10 text-slate-400 dark:text-slate-500" aria-hidden />
-          <p className="mt-3 text-sm text-slate-600 dark:text-slate-400">
-            Henüz mesajlaşabileceğiniz bir proje bulunmuyor.
-          </p>
-          <Button variant="outline" asChild className="mt-4">
-            <Link href="/projeler">Projelere git</Link>
-          </Button>
-        </div>
+        <EmptyState
+          icon={<MessagesSquare className="h-10 w-10" />}
+          title="Henüz proje sohbetiniz yok"
+          description="Proje sohbetleri burada listelenir. Bir projeye atandıktan sonra ekip üyeleriyle gerçek zamanlı mesajlaşabilirsiniz."
+          action={
+            <Button asChild>
+              <Link href="/projeler">Projelere git</Link>
+            </Button>
+          }
+        />
       </div>
     );
   }
