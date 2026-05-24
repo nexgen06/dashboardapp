@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/contexts/auth-context";
 import { useProfileLookup } from "@/contexts/profile-lookup-context";
@@ -28,10 +28,32 @@ import {
   Table2,
   Activity,
   LayoutGrid,
+  Settings2,
+  Plus,
+  Check,
+  RotateCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Task } from "@/types/tasks";
 import type { Project } from "@/types/project";
+import {
+  WIDGET_CATALOG,
+  defaultWidgetVisibility,
+  loadDashboardWidgetVisibility,
+  saveDashboardWidgetVisibility,
+  type DashboardWidgetId,
+} from "@/lib/dashboardPreferences";
+import { WidgetWrapper } from "@/components/dashboard/WidgetWrapper";
+import { PendingApprovalsWidget } from "@/components/dashboard/widgets/PendingApprovalsWidget";
+import { NotificationsSummaryWidget } from "@/components/dashboard/widgets/NotificationsSummaryWidget";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 import { isStatusDone, isStatusInProgress, isStatusTodo } from "@/lib/statusKind";
 
@@ -268,6 +290,40 @@ export function DashboardSection() {
     user?.email ||
     "Kullanıcı";
 
+  // Widget görünürlük tercihleri — kullanıcı başına localStorage'da saklanır
+  const userIdKey = user?.id ?? null;
+  const [widgetVisibility, setWidgetVisibility] = useState<Record<DashboardWidgetId, boolean>>(() =>
+    defaultWidgetVisibility()
+  );
+  const [isWidgetEditMode, setIsWidgetEditMode] = useState(false);
+
+  // İlk render'da ve user değişince tercihleri yükle
+  useEffect(() => {
+    setWidgetVisibility(loadDashboardWidgetVisibility(userIdKey));
+  }, [userIdKey]);
+
+  // Tercih değişince kaydet
+  const updateWidgetVisibility = (id: DashboardWidgetId, visible: boolean) => {
+    setWidgetVisibility((prev) => {
+      const next = { ...prev, [id]: visible };
+      saveDashboardWidgetVisibility(userIdKey, next);
+      return next;
+    });
+  };
+
+  const resetWidgetLayout = () => {
+    const fresh = defaultWidgetVisibility();
+    setWidgetVisibility(fresh);
+    saveDashboardWidgetVisibility(userIdKey, fresh);
+  };
+
+  // Edit mode'da görünür widget'lar üzerinde gizlenecek aday + ekleme listesi için kullanılacak
+  const hiddenWidgets = useMemo(
+    () => WIDGET_CATALOG.filter((w) => !w.pinned && !widgetVisibility[w.id]),
+    [widgetVisibility]
+  );
+  const isAdminOrPM = isAdmin || user?.roleId === "project_manager";
+
   if (projectsLoading && tasksLoading) {
     return (
       <div className="min-h-0 space-y-6" aria-busy="true" aria-label="Dashboard yükleniyor">
@@ -313,7 +369,77 @@ export function DashboardSection() {
 
   return (
     <div className="min-h-0 space-y-6">
-      {/* Hoş geldin + kişisel içgörü */}
+      {/* Widget kişiselleştirme çubuğu */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {isWidgetEditMode && hiddenWidgets.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-950/50"
+              >
+                <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                Widget Ekle ({hiddenWidgets.length})
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-72">
+              <DropdownMenuLabel className="text-xs">Gizli widget'lar — eklemek için tıklayın</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {hiddenWidgets.map((w) => (
+                <DropdownMenuItem
+                  key={w.id}
+                  onClick={() => updateWidgetVisibility(w.id, true)}
+                  className="flex-col items-start gap-0.5"
+                >
+                  <span className="text-sm font-medium">{w.label}</span>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400">{w.description}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        {isWidgetEditMode && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={resetWidgetLayout}
+            title="Tüm widget'ları görünür yap"
+            className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+          >
+            <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+            Sıfırla
+          </Button>
+        )}
+        <Button
+          type="button"
+          size="sm"
+          variant={isWidgetEditMode ? "default" : "outline"}
+          onClick={() => setIsWidgetEditMode((v) => !v)}
+          className={isWidgetEditMode ? "bg-emerald-600 hover:bg-emerald-700 text-white" : ""}
+          title={isWidgetEditMode ? "Düzenlemeyi bitir" : "Dashboard widget'larını kişiselleştir"}
+        >
+          {isWidgetEditMode ? (
+            <>
+              <Check className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+              Düzenlemeyi bitir
+            </>
+          ) : (
+            <>
+              <Settings2 className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+              Widget'ları düzenle
+            </>
+          )}
+        </Button>
+      </div>
+
+      {/* Hoş geldin + kişisel içgörü (pinned — her zaman görünür) */}
+      <WidgetWrapper
+        meta={WIDGET_CATALOG.find((w) => w.id === "welcome")!}
+        isEditMode={isWidgetEditMode}
+      >
       <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-500/10 via-slate-50 to-emerald-500/10 dark:from-blue-600/20 dark:via-slate-800 dark:to-emerald-600/20 border border-slate-200/80 dark:border-slate-700/80 p-4 sm:p-6 md:p-8">
         <div className="relative z-10 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
@@ -346,6 +472,8 @@ export function DashboardSection() {
         </div>
       </section>
 
+      </WidgetWrapper>
+
       {scopedProjects.length === 0 && canProjects && (
         <section
           className="rounded-xl border border-blue-200 bg-blue-50/60 p-4 dark:border-blue-800 dark:bg-blue-950/35"
@@ -377,6 +505,12 @@ export function DashboardSection() {
       )}
 
       {/* KPI kartları — 1 dominant tamamlanma + 4 secondary */}
+      {widgetVisibility.kpi && (
+      <WidgetWrapper
+        meta={WIDGET_CATALOG.find((w) => w.id === "kpi")!}
+        isEditMode={isWidgetEditMode}
+        onHide={() => updateWidgetVisibility("kpi", false)}
+      >
       <section>
         <SectionHeader
           level="section"
@@ -418,9 +552,45 @@ export function DashboardSection() {
           <SecondaryKpi icon={<Clock className="h-4 w-4" />} tone="amber" value={kpi.inProgress} label="Devam eden" />
         </div>
       </section>
+      </WidgetWrapper>
+      )}
+
+      {/* YENİ — Onay bekleyen görevler + Bildirim özeti (2 kolon grid) */}
+      {(widgetVisibility.pendingApprovals || widgetVisibility.notificationsSummary) && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {widgetVisibility.pendingApprovals && (
+            <WidgetWrapper
+              meta={WIDGET_CATALOG.find((w) => w.id === "pendingApprovals")!}
+              isEditMode={isWidgetEditMode}
+              onHide={() => updateWidgetVisibility("pendingApprovals", false)}
+            >
+              <PendingApprovalsWidget
+                tasks={projectLinkedTasks}
+                projectById={projectById}
+                currentUserEmail={currentUserEmail}
+                isAdminOrPM={isAdminOrPM}
+              />
+            </WidgetWrapper>
+          )}
+          {widgetVisibility.notificationsSummary && (
+            <WidgetWrapper
+              meta={WIDGET_CATALOG.find((w) => w.id === "notificationsSummary")!}
+              isEditMode={isWidgetEditMode}
+              onHide={() => updateWidgetVisibility("notificationsSummary", false)}
+            >
+              <NotificationsSummaryWidget />
+            </WidgetWrapper>
+          )}
+        </div>
+      )}
 
       {/* Görev durum dağılımı: donut + detay çubukları */}
-      {kpi.totalTasks > 0 && (
+      {widgetVisibility.status && kpi.totalTasks > 0 && (
+        <WidgetWrapper
+          meta={WIDGET_CATALOG.find((w) => w.id === "status")!}
+          isEditMode={isWidgetEditMode}
+          onHide={() => updateWidgetVisibility("status", false)}
+        >
         <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800/80">
           <SectionHeader level="card" title="Görev durum dağılımı" spacing="sm" />
           <div className="grid gap-5 sm:grid-cols-[auto_1fr] sm:items-center">
@@ -477,9 +647,10 @@ export function DashboardSection() {
             </div>
           </div>
         </section>
+        </WidgetWrapper>
       )}
 
-      {/* Hızlı aksiyonlar */}
+      {/* Hızlı aksiyonlar (her zaman görünür — widget değil) */}
       <section>
         <SectionHeader
           level="section"
@@ -514,8 +685,15 @@ export function DashboardSection() {
         </div>
       </section>
 
+      {(widgetVisibility.recentTasks || widgetVisibility.recentProjects) && (
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Son aktiviteler */}
+        {widgetVisibility.recentTasks && (
+        <WidgetWrapper
+          meta={WIDGET_CATALOG.find((w) => w.id === "recentTasks")!}
+          isEditMode={isWidgetEditMode}
+          onHide={() => updateWidgetVisibility("recentTasks", false)}
+        >
         <section className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800/80 overflow-hidden">
           <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
             <SectionHeader
@@ -553,8 +731,16 @@ export function DashboardSection() {
             )}
           </div>
         </section>
+        </WidgetWrapper>
+        )}
 
         {/* Son projeler */}
+        {widgetVisibility.recentProjects && (
+        <WidgetWrapper
+          meta={WIDGET_CATALOG.find((w) => w.id === "recentProjects")!}
+          isEditMode={isWidgetEditMode}
+          onHide={() => updateWidgetVisibility("recentProjects", false)}
+        >
         <section className="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800/80 overflow-hidden">
           <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
             <SectionHeader
@@ -610,7 +796,10 @@ export function DashboardSection() {
             )}
           </div>
         </section>
+        </WidgetWrapper>
+        )}
       </div>
+      )}
     </div>
   );
 }
