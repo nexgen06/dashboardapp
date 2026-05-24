@@ -25,6 +25,14 @@ import {
   type ImportAssignmentMode,
 } from "@/lib/importAssignment";
 import { offsetToDateIso, type ProjectTemplate } from "@/lib/projectTemplates";
+import { listDirectoryUsers, type DirectoryUserProfile } from "@/lib/listDirectoryUsers";
+import {
+  defaultProjectMemberPermission,
+  listProjectMemberPermissions,
+  upsertProjectMemberPermissions,
+  type ProjectMemberPermission,
+  type ProjectMemberRole,
+} from "@/lib/projectMemberPermissions";
 import { SaveTemplateDialog, TemplateListDialog } from "@/components/ProjectTemplateDialogs";
 import { isSensitiveExtraColumnKey } from "@/lib/extraColumnSensitiveDisplay";
 import type { Project, ProjectStatus, ProjectPriority } from "@/types/project";
@@ -50,7 +58,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Search, PlusCircle, MoreVertical, Pencil, Archive, Trash2, RotateCw, Upload, FileText, UserPlus, X, Calendar, Flag, FolderKanban, Check, Bookmark } from "lucide-react";
+import { Search, PlusCircle, MoreVertical, Pencil, Archive, Trash2, RotateCw, Upload, FileText, UserPlus, X, Calendar, Flag, FolderKanban, Check, Bookmark, ShieldCheck, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProjectColumnManager } from "@/components/ProjectColumnManager";
 
@@ -314,6 +322,11 @@ function ProjectFormModal({
   const [titleColumn, setTitleColumn] = useState<string>("");
   const [subtitleColumns, setSubtitleColumns] = useState<string[]>([]);
   const [wipInProgressLimit, setWipInProgressLimit] = useState<string>("");
+  const [directoryUsers, setDirectoryUsers] = useState<DirectoryUserProfile[]>([]);
+  const [memberPermissions, setMemberPermissions] = useState<Record<string, ProjectMemberPermission>>({});
+  const [permissionsLoading, setPermissionsLoading] = useState(false);
+  const [permissionsSaving, setPermissionsSaving] = useState(false);
+  const [permissionsMissingTable, setPermissionsMissingTable] = useState(false);
   /** 2-adım sihirbazı: 1 = proje bilgileri, 2 = opsiyonel görev içe aktarma. Edit modunda kullanılmaz. */
   const [step, setStep] = useState<1 | 2>(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -321,6 +334,34 @@ function ProjectFormModal({
   const isEdit = !!project;
   const title = isEdit ? "Projeyi düzenle" : step === 1 ? "Yeni proje · Bilgiler" : "Yeni proje · Görev içe aktarma (opsiyonel)";
   const isStep1Valid = name.trim().length > 0;
+  const directoryByEmail = useMemo(() => {
+    const map = new Map<string, DirectoryUserProfile>();
+    for (const u of directoryUsers) {
+      const email = u.email.trim().toLowerCase();
+      if (email) map.set(email, u);
+    }
+    return map;
+  }, [directoryUsers]);
+
+  const assignedPermissionRows = useMemo(() => {
+    if (!project) return [];
+    return assignedEmails.map((rawEmail) => {
+      const email = rawEmail.trim().toLowerCase();
+      const profile = directoryByEmail.get(email) ?? null;
+      const existing = profile ? memberPermissions[profile.uid] : null;
+      const permission =
+        existing ??
+        (profile
+          ? defaultProjectMemberPermission({
+              projectId: project.id,
+              userId: profile.uid,
+              userEmail: email,
+              role: "member",
+            })
+          : null);
+      return { email, profile, permission };
+    });
+  }, [assignedEmails, directoryByEmail, memberPermissions, project]);
 
   useEffect(() => {
     if (open && project) {
@@ -396,6 +437,34 @@ function ProjectFormModal({
       setWipInProgressLimit("");
       setStep(1);
     }
+  }, [open, project]);
+
+  useEffect(() => {
+    if (!open || !project) return;
+    let cancelled = false;
+    setPermissionsLoading(true);
+    setPermissionsMissingTable(false);
+    void (async () => {
+      const [users, perms] = await Promise.all([
+        listDirectoryUsers(),
+        listProjectMemberPermissions(project.id),
+      ]);
+      if (cancelled) return;
+      setDirectoryUsers(users);
+      if (perms.ok) {
+        const next: Record<string, ProjectMemberPermission> = {};
+        for (const row of perms.data) next[row.user_id] = row;
+        setMemberPermissions(next);
+        setPermissionsMissingTable(false);
+      } else {
+        setMemberPermissions({});
+        setPermissionsMissingTable(perms.missingTable);
+      }
+      setPermissionsLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [open, project]);
 
   /**
@@ -522,6 +591,60 @@ function ProjectFormModal({
 
   const removeAssignedEmail = (email: string) => {
     setAssignedEmails((prev) => prev.filter((e) => e !== email));
+  };
+
+  const patchMemberPermission = (
+    userId: string,
+    patch: Partial<Omit<ProjectMemberPermission, "project_id" | "user_id" | "user_email">>
+  ) => {
+    if (!project) return;
+    const row = assignedPermissionRows.find((item) => item.profile?.uid === userId);
+    if (!row?.profile) return;
+    setMemberPermissions((prev) => {
+      const current =
+        prev[userId] ??
+        defaultProjectMemberPermission({
+          projectId: project.id,
+          userId,
+          userEmail: row.profile!.email,
+        });
+      return {
+        ...prev,
+        [userId]: { ...current, ...patch },
+      };
+    });
+  };
+
+  const saveMemberPermissions = async () => {
+    if (!project) return;
+    const rows = assignedPermissionRows
+      .filter((row): row is typeof row & { profile: DirectoryUserProfile; permission: ProjectMemberPermission } => !!row.profile && !!row.permission)
+      .map((row) => ({
+        project_id: project.id,
+        user_id: row.profile.uid,
+        user_email: row.email,
+        project_role: row.permission.project_role,
+        can_view: row.permission.can_view,
+        can_edit: row.permission.can_edit,
+        can_comment: row.permission.can_comment,
+        can_copy: row.permission.can_copy,
+        can_export: row.permission.can_export,
+        can_export_unmasked: isAdmin ? row.permission.can_export_unmasked : false,
+        can_bulk_update: row.permission.can_bulk_update,
+        can_bulk_delete: isAdmin ? row.permission.can_bulk_delete : false,
+      }));
+    if (rows.length === 0) return;
+    setPermissionsSaving(true);
+    try {
+      const ok = await upsertProjectMemberPermissions(rows);
+      if (!ok) {
+        setPermissionsMissingTable(true);
+        return;
+      }
+      setPermissionsMissingTable(false);
+    } finally {
+      setPermissionsSaving(false);
+    }
   };
 
   /**
@@ -1080,6 +1203,108 @@ function ProjectFormModal({
     );
   })() : null;
 
+  const fieldsProjectPermissions = isEdit && project ? (
+    <div className="mt-5 border-t border-slate-200 pt-4 dark:border-slate-700">
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+            <ShieldCheck className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            Proje bazlı yetkiler
+          </h3>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            Bu panel proje ekibindeki kullanıcılar için yorum, kopya, export ve toplu işlem izinlerini hazırlar.
+          </p>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => void saveMemberPermissions()}
+          disabled={permissionsSaving || permissionsLoading || assignedPermissionRows.every((row) => !row.profile)}
+        >
+          {permissionsSaving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="mr-1.5 h-3.5 w-3.5" />}
+          Yetkileri kaydet
+        </Button>
+      </div>
+      {permissionsMissingTable && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+          Supabase'de <code>scripts/project-member-permissions.sql</code> henüz uygulanmamış görünüyor. SQL çalışana kadar bu panel kayıt yapmaz.
+        </div>
+      )}
+      {permissionsLoading ? (
+        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/35 dark:text-slate-400">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Proje yetkileri yükleniyor...
+        </div>
+      ) : assignedPermissionRows.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+          Önce Ekip sekmesinden proje kullanıcısı ekleyin.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {assignedPermissionRows.map(({ email, profile, permission }) => (
+            <div key={email} className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800/70">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
+                    {profile?.displayName || email}
+                  </p>
+                  <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                    {email}{!profile && " · profil kaydı yok"}
+                  </p>
+                </div>
+                {profile && permission && (
+                  <select
+                    value={permission.project_role}
+                    onChange={(e) => patchMemberPermission(profile.uid, { project_role: e.target.value as ProjectMemberRole })}
+                    className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                  >
+                    <option value="project_owner">Proje sahibi</option>
+                    <option value="project_manager">Proje yetkilisi</option>
+                    <option value="member">Üye</option>
+                    <option value="viewer">İzleyici</option>
+                  </select>
+                )}
+              </div>
+              {profile && permission ? (
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {([
+                    ["can_view", "Görür"],
+                    ["can_edit", "Düzenler"],
+                    ["can_comment", "Yorum"],
+                    ["can_copy", "Kopya"],
+                    ["can_export", "Export"],
+                    ["can_export_unmasked", "Maskesiz export"],
+                    ["can_bulk_update", "Toplu güncelle"],
+                    ["can_bulk_delete", "Toplu silme"],
+                  ] as const).map(([key, label]) => {
+                    const restricted = (key === "can_export_unmasked" || key === "can_bulk_delete") && !isAdmin;
+                    return (
+                      <label key={key} className={cn("flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300", restricted && "opacity-50")}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(permission[key])}
+                          disabled={restricted}
+                          onChange={(e) => patchMemberPermission(profile.uid, { [key]: e.target.checked } as Partial<ProjectMemberPermission>)}
+                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        {label}
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                  Bu e-posta henüz sisteme giriş yapmadığı için proje bazlı izin kaydı oluşturulamıyor.
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  ) : null;
+
   const newProjectStepOne = (
     <Tabs defaultValue="general" className="flex min-h-0 flex-1 flex-col">
       <TabsList className="grid h-auto w-full grid-cols-3">
@@ -1167,6 +1392,7 @@ function ProjectFormModal({
                 </TabsContent>
                 <TabsContent value="people" className="m-0 data-[state=inactive]:hidden">
                   {fieldsAssignees}
+                  {fieldsProjectPermissions}
                 </TabsContent>
               </div>
             </Tabs>
