@@ -592,6 +592,7 @@ type EditableCellProps = {
   taskId: string;
   field: string;
   navigationColumnId?: string;
+  activeEdit?: boolean;
   onSave: (taskId: string, patch: Record<string, unknown>) => void;
   onFocus: () => void;
   onBlur: () => void;
@@ -616,6 +617,7 @@ function EditableCell({
   taskId,
   field,
   navigationColumnId,
+  activeEdit = false,
   onSave,
   onFocus,
   onBlur,
@@ -625,17 +627,16 @@ function EditableCell({
   onNavigateNext,
   disabled = false,
 }: EditableCellProps) {
-  const [isEditing, setIsEditing] = useState(autoEdit);
+  const [isEditing, setIsEditing] = useState(autoEdit || activeEdit);
   const [localValue, setLocalValue] = useState(value);
   const editableColumnId = navigationColumnId ?? field;
-  // autoEdit yalnızca ilk mount'ta etkin olur; sonraki render'larda parent state'i resetler
   useEffect(() => {
-    if (autoEdit && !disabled) {
+    if ((autoEdit || activeEdit) && !disabled) {
       setIsEditing(true);
       onFocus();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoEdit]);
+  }, [activeEdit, autoEdit, disabled]);
   const cellText =
     density === "compact" ? "text-xs" : density === "comfortable" ? "text-base" : "text-sm";
   const cellPad =
@@ -1961,6 +1962,11 @@ type TasksTableProps = {
   onProjectFilterChange?: (next: string[]) => void;
 };
 
+type ActiveEditableCell = {
+  taskId: string;
+  columnId: string;
+};
+
 export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterChange }: TasksTableProps = {}) {
   const {
     tasks,
@@ -2012,6 +2018,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   /** Hızlı satır ekleme zinciri: id verilirse content sütunundaki EditableCell mount'ta edit moduna geçer. */
   const [quickAddFocusId, setQuickAddFocusId] = useState<string | null>(null);
+  const [activeEditableCell, setActiveEditableCell] = useState<ActiveEditableCell | null>(null);
   const [editTask, setEditTask] = useState<Task | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
@@ -3277,8 +3284,32 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     }
   }, [canCreateTask, createTask, projectFilter, toast]);
 
+  const activateEditableCell = useCallback((taskId: string, columnId: string) => {
+    setActiveEditableCell({ taskId, columnId });
+    setEditingRow(taskId);
+  }, [setEditingRow]);
+
+  const isActiveEditableCell = useCallback(
+    (taskId: string, columnId: string) =>
+      activeEditableCell?.taskId === taskId && activeEditableCell.columnId === columnId,
+    [activeEditableCell]
+  );
+
+  const scheduleEditableCellBlur = useCallback((taskId: string, columnId: string) => {
+    window.setTimeout(() => {
+      const active = document.activeElement as HTMLElement | null;
+      if (active?.closest('[data-live-editable-cell="true"]')) return;
+      setActiveEditableCell((prev) =>
+        prev?.taskId === taskId && prev.columnId === columnId ? null : prev
+      );
+      setEditingRow(null);
+      if (quickAddFocusId === taskId) setQuickAddFocusId(null);
+    }, 0);
+  }, [quickAddFocusId, setEditingRow]);
+
   const focusNextEditableCell = useCallback((taskId: string, columnId: string) => {
     requestAnimationFrame(() => {
+      if (columnId === "content" && quickAddFocusId === taskId) setQuickAddFocusId(null);
       const rowSelector = cssAttrValue(taskId);
       const columnSelector = cssAttrValue(columnId);
       const current = document.querySelector<HTMLElement>(
@@ -3294,11 +3325,13 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       const next = editableCells.slice(currentIndex + 1).find((el) => el.offsetParent !== null);
       if (!next) return;
 
+      const nextColumnId = next.dataset.colId;
+      if (nextColumnId) activateEditableCell(taskId, nextColumnId);
       next.focus();
       if (next instanceof HTMLButtonElement) next.click();
       if (next instanceof HTMLInputElement) next.select();
     });
-  }, []);
+  }, [activateEditableCell, quickAddFocusId]);
 
   const handleCSVImport = useCallback(
     async (
@@ -3660,14 +3693,12 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                 taskId={task.id}
                 field="content"
                 navigationColumnId="content"
+                activeEdit={isActiveEditableCell(task.id, "content")}
                 onSave={(id, patch) => {
                   if ("content" in patch) handleSave(id, patch);
                 }}
-                onFocus={() => rowCanEdit && setEditingRow(task.id)}
-                onBlur={() => {
-                  setEditingRow(null);
-                  if (quickAddFocusId === task.id) setQuickAddFocusId(null);
-                }}
+                onFocus={() => rowCanEdit && activateEditableCell(task.id, "content")}
+                onBlur={() => scheduleEditableCellBlur(task.id, "content")}
                 density={tableDensity}
                 autoEdit={rowCanEdit && quickAddFocusId === task.id}
                 onChainEnter={
@@ -3884,13 +3915,14 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                   taskId={taskId}
                   field={key}
                   navigationColumnId={`extra:${key}`}
+                  activeEdit={isActiveEditableCell(taskId, `extra:${key}`)}
                   onSave={(id, patch) => {
                     if (key in patch) {
                       handleDynamicCellSave(id, key, String(patch[key] ?? ""));
                     }
                   }}
-                  onFocus={() => rowCanEdit && setEditingRow(taskId)}
-                  onBlur={() => setEditingRow(null)}
+                  onFocus={() => rowCanEdit && activateEditableCell(taskId, `extra:${key}`)}
+                  onBlur={() => scheduleEditableCellBlur(taskId, `extra:${key}`)}
                   density={tableDensity}
                   onNavigateNext={focusNextEditableCell}
                   disabled={!rowCanEdit}
@@ -3982,6 +4014,9 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       extraDataKeys,
       handleDynamicCellSave,
       handleReferenceCellSave,
+      activateEditableCell,
+      isActiveEditableCell,
+      scheduleEditableCellBlur,
       focusNextEditableCell,
       handleQuickAddRow,
       quickAddFocusId,
