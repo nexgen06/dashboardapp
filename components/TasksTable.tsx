@@ -598,8 +598,8 @@ type EditableCellProps = {
   density?: LiveTableDensity;
   /** Hücreyi mount'ta doğrudan edit moduna sok ve odakla (hızlı satır ekleme akışı için). */
   autoEdit?: boolean;
-  /** Enter ile kaydedildikten sonra çağrılır — hızlı zincir ekleme için bir sonraki satırı doğurur. */
-  onChainEnter?: () => void;
+  /** Enter ile kaydedildikten sonra çağrılır — boş hızlı girişte bir sonraki satırı doğurur. */
+  onChainEnter?: (value: string) => void;
   /** Enter ile kayıttan sonra aynı satırdaki bir sonraki düzenlenebilir hücreye geçer. */
   onNavigateNext?: (taskId: string, columnId: string) => void;
   disabled?: boolean;
@@ -666,9 +666,10 @@ function EditableCell({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       e.preventDefault();
+      const nextValue = localValue.trim();
       handleSave();
-      if (onChainEnter) {
-        onChainEnter();
+      if (onChainEnter && nextValue === "") {
+        onChainEnter(nextValue);
         return;
       }
       onNavigateNext?.(taskId, editableColumnId);
