@@ -118,6 +118,13 @@ import {
   WORKFLOW_STATUS_LABELS,
   type TaskWorkflowAction,
 } from "@/lib/taskWorkflow";
+import {
+  loadSavedReportTemplates,
+  makeSavedReportTemplateId,
+  persistSavedReportTemplates,
+  type SavedReportTemplate,
+} from "@/lib/reportTemplateStorage";
+import { usePrompt } from "@/components/ui/modals";
 import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, Expand, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban, Eye, Mail } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
@@ -125,6 +132,15 @@ const STATUS_FILTER_OPTIONS = ["Tümü", "Yapılacak", "Devam ediyor", "Devam", 
 const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
 const REFERENCE_WARNINGS_KEY = "__reference_warnings";
 const INTERNAL_EXTRA_DATA_KEYS = new Set([REFERENCE_WARNINGS_KEY]);
+type ReportTemplateSelection = `builtin:${ReportTemplateId}` | `custom:${string}`;
+
+function builtinReportTemplateSelection(id: ReportTemplateId): ReportTemplateSelection {
+  return `builtin:${id}`;
+}
+
+function customReportTemplateSelection(id: string): ReportTemplateSelection {
+  return `custom:${id}`;
+}
 
 /** Kolon id -> export/visibility etiketi (veri sütunları) */
 const COLUMN_LABELS: Record<string, string> = {
@@ -2011,7 +2027,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const [draggedColumnId, setDraggedColumnId] = useState<string | null>(null);
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
-  const [reportTemplateId, setReportTemplateId] = useState<ReportTemplateId>("operations");
+  const [reportTemplateSelection, setReportTemplateSelection] = useState<ReportTemplateSelection>(builtinReportTemplateSelection("operations"));
+  const [savedReportTemplates, setSavedReportTemplates] = useState<SavedReportTemplate[]>([]);
   const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
   const [pdfDialogScope, setPdfDialogScope] = useState<PdfExportScope>("current");
   const [pdfTitleInput, setPdfTitleInput] = useState("");
@@ -2033,6 +2050,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const [projectPermissionsByProjectId, setProjectPermissionsByProjectId] = useState<Record<string, ProjectMemberPermission>>({});
   const [projectPermissionsAvailable, setProjectPermissionsAvailable] = useState(false);
   const toast = useToast();
+  const promptUser = usePrompt();
   const [globalSearch, setGlobalSearch] = useState("");
   /** Varsayılan: sadece projeye bağlı görevler (standart tablo verisi gösterilmez) */
   const [projectLinkedFilter, setProjectLinkedFilter] = useState<"proje" | "tümü">("proje");
@@ -2319,6 +2337,10 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       setExportUnmaskSensitive(false);
     }
   }, [canExportSensitiveUnmasked, exportUnmaskSensitive]);
+
+  useEffect(() => {
+    setSavedReportTemplates(loadSavedReportTemplates(currentUserEmail));
+  }, [currentUserEmail]);
 
   /** Proje filtresi seçenekleri: RLS'ten gelen tüm görünür projeler, ada göre sıralı. */
   const projectFilterOptions = useMemo(() => {
@@ -3989,7 +4011,19 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       ? "Tüm erişilebilir satırlar"
       : "Sadece düzenleyebildiğin satırlar";
   const exportSensitivityLabel = effectiveUnmaskSensitive ? "Hassas veri açık" : "Hassas veri maskeli";
-  const selectedReportTemplate = REPORT_TEMPLATES[reportTemplateId];
+  const selectedCustomReportTemplate = reportTemplateSelection.startsWith("custom:")
+    ? savedReportTemplates.find((template) => customReportTemplateSelection(template.id) === reportTemplateSelection) ?? null
+    : null;
+  const selectedBaseReportTemplateId: ReportTemplateId = reportTemplateSelection.startsWith("builtin:")
+    ? (reportTemplateSelection.replace("builtin:", "") as ReportTemplateId)
+    : selectedCustomReportTemplate?.baseTemplateId ?? "operations";
+  const selectedBuiltInReportTemplate = REPORT_TEMPLATES[selectedBaseReportTemplateId] ?? REPORT_TEMPLATES.operations;
+  const selectedReportTemplate = selectedCustomReportTemplate
+    ? {
+        label: selectedCustomReportTemplate.name,
+        description: `Kayıtlı özel şablon · ${selectedBuiltInReportTemplate.label} tabanlı`,
+      }
+    : selectedBuiltInReportTemplate;
   const selectedPdfTitle = pdfTitleInput.trim() || null;
   const pdfExportMetadata = useMemo<PdfExportMetadata>(() => {
     const generatedAt = new Date().toLocaleString("tr-TR", {
@@ -4203,23 +4237,106 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     },
     [getExportRows, canUnmaskExportRows, visibleColumnIds, settings.dateFormat, projectById, toast, logSensitiveExport]
   );
-  const applyReportTemplate = useCallback((id: ReportTemplateId) => {
-    const template = REPORT_TEMPLATES[id];
-    setReportTemplateId(id);
-    setPdfTitleInput(template.pdfTitle);
-    setEmailSubjectInput(template.emailSubject);
-    setEmailTemplateMode(template.emailMode);
+  const applyReportTemplate = useCallback((selection: ReportTemplateSelection) => {
+    const isCustom = selection.startsWith("custom:");
+    const customTemplate = isCustom
+      ? savedReportTemplates.find((template) => customReportTemplateSelection(template.id) === selection) ?? null
+      : null;
+    const builtinId = selection.startsWith("builtin:")
+      ? (selection.replace("builtin:", "") as ReportTemplateId)
+      : customTemplate?.baseTemplateId ?? "operations";
+    const template = REPORT_TEMPLATES[builtinId] ?? REPORT_TEMPLATES.operations;
+
+    setReportTemplateSelection(selection);
+    setPdfTitleInput(customTemplate?.pdfTitle || template.pdfTitle);
+    setEmailSubjectInput(customTemplate?.emailSubject || template.emailSubject);
+    setEmailTemplateMode(customTemplate?.emailMode ?? template.emailMode);
     setEmailCopied(false);
+
+    if (customTemplate) {
+      setPdfDialogScope(customTemplate.scope);
+      setExportUnmaskSensitive(canExportSensitiveUnmasked && customTemplate.unmaskSensitive);
+      const savedVisible = new Set(customTemplate.visibleColumnIds);
+      if (savedVisible.size > 0) {
+        const allColumnIds = table
+          .getAllLeafColumns()
+          .map((column) => (column.id ?? (column as { accessorKey?: string }).accessorKey ?? "").toString())
+          .filter(Boolean);
+        setColumnVisibility((prev) => {
+          const next = { ...prev };
+          for (const id of allColumnIds) {
+            if (savedVisible.has(id)) delete next[id];
+            else next[id] = false;
+          }
+          return next;
+        });
+      }
+    }
+
     if (pdfPreviewUrl) {
       URL.revokeObjectURL(pdfPreviewUrl);
       setPdfPreviewUrl(null);
     }
-  }, [pdfPreviewUrl]);
+  }, [canExportSensitiveUnmasked, pdfPreviewUrl, savedReportTemplates, table]);
+
+  const saveCurrentReportTemplate = useCallback(async () => {
+    const name = await promptUser({
+      title: "Rapor şablonu kaydet",
+      message: "Mevcut export ayarlarını tekrar kullanmak için bir şablon adı gir:",
+      defaultValue: selectedReportTemplate.label,
+      placeholder: "Örn. Haftalık yönetici özeti",
+      confirmLabel: "Kaydet",
+    });
+    const cleanName = name?.trim();
+    if (!cleanName) return;
+    const id = makeSavedReportTemplateId();
+    const template: SavedReportTemplate = {
+      id,
+      name: cleanName,
+      baseTemplateId: selectedBaseReportTemplateId,
+      pdfTitle: pdfTitleInput.trim() || selectedBuiltInReportTemplate.pdfTitle,
+      emailSubject: emailSubjectInput.trim() || selectedBuiltInReportTemplate.emailSubject,
+      emailMode: emailTemplateMode,
+      scope: pdfDialogScope,
+      visibleColumnIds,
+      unmaskSensitive: effectiveUnmaskSensitive,
+      updatedAt: new Date().toISOString(),
+    };
+    const next = [template, ...savedReportTemplates].slice(0, 30);
+    setSavedReportTemplates(next);
+    persistSavedReportTemplates(currentUserEmail, next);
+    setReportTemplateSelection(customReportTemplateSelection(id));
+    toast.success("Rapor şablonu kaydedildi");
+  }, [
+    currentUserEmail,
+    effectiveUnmaskSensitive,
+    emailSubjectInput,
+    emailTemplateMode,
+    pdfDialogScope,
+    pdfTitleInput,
+    promptUser,
+    savedReportTemplates,
+    selectedBaseReportTemplateId,
+    selectedBuiltInReportTemplate.emailSubject,
+    selectedBuiltInReportTemplate.pdfTitle,
+    selectedReportTemplate.label,
+    toast,
+    visibleColumnIds,
+  ]);
+
+  const deleteSelectedReportTemplate = useCallback(() => {
+    if (!selectedCustomReportTemplate) return;
+    const next = savedReportTemplates.filter((template) => template.id !== selectedCustomReportTemplate.id);
+    setSavedReportTemplates(next);
+    persistSavedReportTemplates(currentUserEmail, next);
+    setReportTemplateSelection(builtinReportTemplateSelection(selectedCustomReportTemplate.baseTemplateId));
+    toast.success("Rapor şablonu silindi");
+  }, [currentUserEmail, savedReportTemplates, selectedCustomReportTemplate, toast]);
 
   const openPdfDialog = useCallback((scope: PdfExportScope) => {
     if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
     setPdfPreviewUrl(null);
-    setReportTemplateId("operations");
+    setReportTemplateSelection(builtinReportTemplateSelection("operations"));
     setPdfTitleInput(REPORT_TEMPLATES.operations.pdfTitle);
     setEmailSubjectInput(REPORT_TEMPLATES.operations.emailSubject);
     setEmailTemplateMode(REPORT_TEMPLATES.operations.emailMode);
@@ -4231,7 +4348,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     const template = scope === "all" ? REPORT_TEMPLATES.fullTable : REPORT_TEMPLATES.mobileBrief;
     const templateId: ReportTemplateId = scope === "all" ? "fullTable" : "mobileBrief";
     setPdfDialogScope(scope);
-    setReportTemplateId(templateId);
+    setReportTemplateSelection(builtinReportTemplateSelection(templateId));
     setPdfTitleInput(template.pdfTitle);
     setEmailSubjectInput(template.emailSubject);
     setEmailTemplateMode(template.emailMode);
@@ -5954,19 +6071,44 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                   </label>
                   <select
                     id="pdf-report-template"
-                    value={reportTemplateId}
-                    onChange={(e) => applyReportTemplate(e.target.value as ReportTemplateId)}
+                    value={reportTemplateSelection}
+                    onChange={(e) => applyReportTemplate(e.target.value as ReportTemplateSelection)}
                     className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                   >
                     {Object.entries(REPORT_TEMPLATES).map(([id, template]) => (
-                      <option key={id} value={id}>
+                      <option key={id} value={builtinReportTemplateSelection(id as ReportTemplateId)}>
                         {template.label}
                       </option>
                     ))}
+                    {savedReportTemplates.length > 0 && (
+                      <optgroup label="Kayıtlı özel şablonlar">
+                        {savedReportTemplates.map((template) => (
+                          <option key={template.id} value={customReportTemplateSelection(template.id)}>
+                            {template.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                   </select>
                   <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                     {selectedReportTemplate.description}
                   </p>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={() => void saveCurrentReportTemplate()}>
+                      <PlusCircle className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                      Kaydet
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={deleteSelectedReportTemplate}
+                      disabled={!selectedCustomReportTemplate}
+                    >
+                      <Trash2 className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                      Sil
+                    </Button>
+                  </div>
                 </div>
                 <div>
                   <label htmlFor="pdf-title-input" className="text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -6067,19 +6209,44 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                   </label>
                   <select
                     id="email-report-template"
-                    value={reportTemplateId}
-                    onChange={(e) => applyReportTemplate(e.target.value as ReportTemplateId)}
+                    value={reportTemplateSelection}
+                    onChange={(e) => applyReportTemplate(e.target.value as ReportTemplateSelection)}
                     className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                   >
                     {Object.entries(REPORT_TEMPLATES).map(([id, template]) => (
-                      <option key={id} value={id}>
+                      <option key={id} value={builtinReportTemplateSelection(id as ReportTemplateId)}>
                         {template.label}
                       </option>
                     ))}
+                    {savedReportTemplates.length > 0 && (
+                      <optgroup label="Kayıtlı özel şablonlar">
+                        {savedReportTemplates.map((template) => (
+                          <option key={template.id} value={customReportTemplateSelection(template.id)}>
+                            {template.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                   </select>
                   <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                     {selectedReportTemplate.description}
                   </p>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={() => void saveCurrentReportTemplate()}>
+                      <PlusCircle className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                      Kaydet
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={deleteSelectedReportTemplate}
+                      disabled={!selectedCustomReportTemplate}
+                    >
+                      <Trash2 className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                      Sil
+                    </Button>
+                  </div>
                 </div>
                 <div>
                   <label htmlFor="email-subject-input" className="text-sm font-medium text-slate-700 dark:text-slate-300">
