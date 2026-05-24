@@ -41,6 +41,7 @@ import { cn } from "@/lib/utils";
 import { useProjectPresence } from "@/hooks/useProjectPresence";
 import { OnlineUsersPanel } from "@/components/OnlineUsersPanel";
 import { ProjectActivityFeed } from "@/components/ProjectActivityFeed";
+import { ProjectMemberPermissionsPanel } from "@/components/ProjectMemberPermissionsPanel";
 import {
   requestNotificationPermission,
   notificationApiAvailable,
@@ -171,6 +172,7 @@ export default function ProjeDetayPage() {
   });
 
   const [browserNotifPerm, setBrowserNotifPerm] = useState<NotificationPermission | null>(null);
+  const [memberPermsOpen, setMemberPermsOpen] = useState(false);
   useEffect(() => {
     if (notificationApiAvailable()) setBrowserNotifPerm(Notification.permission);
   }, [user?.id]);
@@ -717,6 +719,19 @@ export default function ProjeDetayPage() {
                   {email}
                 </span>
               ))}
+              {(isAdmin || user?.roleId === "project_manager") && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMemberPermsOpen(true)}
+                  className="ml-1 h-6 gap-1 border-blue-300 bg-blue-50 px-2 text-[11px] text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-950/50"
+                  title="Üye izinlerini ayrıntılı yönet"
+                >
+                  <ShieldCheck className="h-3 w-3" aria-hidden />
+                  Üye İzinleri
+                </Button>
+              )}
             </div>
           )}
           {onlineUsers.length > 0 && (
@@ -1233,6 +1248,17 @@ export default function ProjeDetayPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Üye izinleri paneli — admin/PM tarafından açılır */}
+      {project && (
+        <ProjectMemberPermissionsPanel
+          open={memberPermsOpen}
+          onOpenChange={setMemberPermsOpen}
+          projectId={project.id}
+          projectName={project.name || "İsimsiz proje"}
+          assignedEmails={assignedEmails}
+        />
+      )}
 
       {viewerNotice && (
         <div
