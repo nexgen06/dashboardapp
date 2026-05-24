@@ -362,9 +362,8 @@ async function createTaskPDF(
     ? metadata.filterSummary.map((line) => `• ${line}`)
     : [];
 
-  // Üst marj — kurumsal başlık varsa biraz daha geniş
   const hasBrandingBand = !!(logoDataUri || orgName);
-  const topMargin = hasBrandingBand ? 86 : 44;
+  const topMargin = hasBrandingBand ? 34 : 40;
 
   type Content = Record<string, unknown>;
   const content: Content[] = [];
@@ -382,7 +381,7 @@ async function createTaskPDF(
           style: "brand",
         },
       ],
-      margin: [0, 0, 0, 12] as [number, number, number, number],
+      margin: [0, 0, 0, 8] as [number, number, number, number],
     });
   }
 
