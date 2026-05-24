@@ -9,6 +9,8 @@ create table if not exists public.report_templates (
   assignment_scope text       not null default 'system' check (assignment_scope in ('system','project')),
   project_id      uuid        references public.projects(id) on delete cascade,
   is_default      boolean     not null default false,
+  access_mode     text        not null default 'all' check (access_mode in ('all','admin_pm','project_team','email_list')),
+  allowed_emails  text[]      not null default '{}'::text[],
   name            text        not null check (length(trim(name)) > 0),
   description     text,
   template_config jsonb       not null default '{}'::jsonb,
@@ -22,6 +24,10 @@ alter table public.report_templates
   add column if not exists project_id uuid references public.projects(id) on delete cascade;
 alter table public.report_templates
   add column if not exists is_default boolean not null default false;
+alter table public.report_templates
+  add column if not exists access_mode text not null default 'all';
+alter table public.report_templates
+  add column if not exists allowed_emails text[] not null default '{}'::text[];
 
 do $$
 begin
@@ -36,9 +42,23 @@ begin
 end;
 $$;
 
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'report_templates_access_mode_check'
+  ) then
+    alter table public.report_templates
+      add constraint report_templates_access_mode_check
+      check (access_mode in ('all','admin_pm','project_team','email_list'));
+  end if;
+end;
+$$;
+
 create index if not exists report_templates_user_idx on public.report_templates (user_id);
 create index if not exists report_templates_scope_idx on public.report_templates (scope);
 create index if not exists report_templates_assignment_idx on public.report_templates (assignment_scope, project_id);
+create index if not exists report_templates_access_idx on public.report_templates (access_mode);
 create index if not exists report_templates_updated_idx on public.report_templates (updated_at desc);
 create unique index if not exists report_templates_one_system_default_idx
   on public.report_templates (assignment_scope)
@@ -51,6 +71,14 @@ create or replace function public.report_templates_touch_updated_at()
 returns trigger language plpgsql as $$
 begin
   new.updated_at := now();
+  new.allowed_emails := coalesce(
+    (
+      select array_agg(distinct lower(trim(email)))
+      from unnest(coalesce(new.allowed_emails, '{}'::text[])) as email
+      where trim(email) <> ''
+    ),
+    '{}'::text[]
+  );
   return new;
 end;
 $$;
@@ -71,7 +99,29 @@ create policy report_templates_select
   on public.report_templates
   for select
   to authenticated
-  using (user_id = auth.uid() or scope = 'shared');
+  using (
+    public.is_app_admin()
+    or user_id = auth.uid()
+    or (
+      scope = 'shared'
+      and (
+        access_mode = 'all'
+        or (
+          access_mode = 'admin_pm'
+          and public.current_profile_role_id() in ('admin','project_manager')
+        )
+        or (
+          access_mode = 'project_team'
+          and project_id is not null
+          and public.user_has_project_access_by_id(project_id)
+        )
+        or (
+          access_mode = 'email_list'
+          and public.auth_email_lower() = any(coalesce(allowed_emails, '{}'::text[]))
+        )
+      )
+    )
+  );
 
 create policy report_templates_insert
   on public.report_templates
@@ -85,6 +135,11 @@ create policy report_templates_insert
         select 1 from public.profiles p
         where p.id = auth.uid() and p.role_id in ('admin','project_manager')
       )
+    )
+    and (
+      access_mode <> 'project_team'
+      or project_id is not null
+      or assignment_scope = 'project'
     )
   );
 
@@ -104,6 +159,11 @@ create policy report_templates_update
     or exists (
       select 1 from public.profiles p
       where p.id = auth.uid() and p.role_id in ('admin','project_manager')
+    )
+    and (
+      access_mode <> 'project_team'
+      or project_id is not null
+      or assignment_scope = 'project'
     )
   );
 

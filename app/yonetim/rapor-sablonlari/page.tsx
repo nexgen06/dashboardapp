@@ -17,6 +17,7 @@ import {
   listManagedReportTemplates,
   updateManagedReportTemplate,
   type ManagedReportTemplate,
+  type ReportTemplateAccessMode,
   type ReportTemplateAssignmentScope,
   type ReportTemplateScope,
 } from "@/lib/reportTemplates";
@@ -29,6 +30,8 @@ type FormState = {
   assignmentScope: ReportTemplateAssignmentScope;
   projectId: string;
   isDefault: boolean;
+  accessMode: ReportTemplateAccessMode;
+  allowedEmailsText: string;
   baseTemplateId: ReportTemplateId;
   pdfTitle: string;
   emailSubject: string;
@@ -48,6 +51,8 @@ function emptyForm(): FormState {
     assignmentScope: "system",
     projectId: "",
     isDefault: false,
+    accessMode: "all",
+    allowedEmailsText: "",
     baseTemplateId: base.baseTemplateId,
     pdfTitle: base.pdfTitle,
     emailSubject: base.emailSubject,
@@ -68,6 +73,8 @@ function formFromTemplate(template: ManagedReportTemplate): FormState {
     assignmentScope: template.assignment_scope,
     projectId: template.project_id ?? "",
     isDefault: template.is_default,
+    accessMode: template.access_mode,
+    allowedEmailsText: template.allowed_emails.join(", "),
     baseTemplateId: config.baseTemplateId,
     pdfTitle: config.pdfTitle,
     emailSubject: config.emailSubject,
@@ -87,6 +94,24 @@ function parseColumnIds(text: string): string[] {
         .filter(Boolean)
     )
   );
+}
+
+function parseEmails(text: string): string[] {
+  return Array.from(
+    new Set(
+      text
+        .split(/[,\n;]/)
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean)
+    )
+  );
+}
+
+function accessModeLabel(mode: ReportTemplateAccessMode): string {
+  if (mode === "admin_pm") return "Admin/PM";
+  if (mode === "project_team") return "Proje ekibi";
+  if (mode === "email_list") return "E-posta listesi";
+  return "Herkes";
 }
 
 export default function RaporSablonlariPage() {
@@ -145,6 +170,16 @@ export default function RaporSablonlariPage() {
         setSaving(false);
         return;
       }
+      if (form.accessMode === "project_team" && form.assignmentScope !== "project") {
+        toast.error("Proje ekibi erişimi için atama kapsamını proje bazlı seçin.");
+        setSaving(false);
+        return;
+      }
+      if (form.accessMode === "email_list" && parseEmails(form.allowedEmailsText).length === 0) {
+        toast.error("E-posta listesi erişimi için en az bir e-posta girin.");
+        setSaving(false);
+        return;
+      }
       const payload = {
         name: form.name,
         description: form.description,
@@ -152,6 +187,8 @@ export default function RaporSablonlariPage() {
         assignment_scope: form.assignmentScope,
         project_id: form.assignmentScope === "project" ? form.projectId : null,
         is_default: form.isDefault,
+        access_mode: form.accessMode,
+        allowed_emails: form.accessMode === "email_list" ? parseEmails(form.allowedEmailsText) : [],
         template_config: {
           baseTemplateId: form.baseTemplateId,
           pdfTitle: form.pdfTitle.trim() || selectedBuiltin.pdfTitle,
@@ -283,6 +320,27 @@ export default function RaporSablonlariPage() {
                 <input type="checkbox" checked={form.isDefault} onChange={(e) => setForm((p) => ({ ...p, isDefault: e.target.checked }))} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
                 Bu kapsam için varsayılan şablon yap
               </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1 text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Kim kullanabilir?
+                  <select value={form.accessMode} onChange={(e) => setForm((p) => ({ ...p, accessMode: e.target.value as ReportTemplateAccessMode }))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100">
+                    <option value="all">Herkes</option>
+                    <option value="admin_pm">Sadece admin / proje yöneticisi</option>
+                    <option value="project_team">Sadece seçili proje ekibi</option>
+                    <option value="email_list">Sadece e-posta listesi</option>
+                  </select>
+                </label>
+                <label className="grid gap-1 text-sm font-medium text-slate-700 dark:text-slate-300">
+                  E-posta listesi
+                  <input
+                    value={form.allowedEmailsText}
+                    disabled={form.accessMode !== "email_list"}
+                    onChange={(e) => setForm((p) => ({ ...p, allowedEmailsText: e.target.value }))}
+                    placeholder="ad@firma.com, ekip@firma.com"
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-60 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                  />
+                </label>
+              </div>
             </div>
 
             <div className="space-y-3">
@@ -337,6 +395,7 @@ export default function RaporSablonlariPage() {
               <th className="px-4 py-3">Şablon</th>
               <th className="px-4 py-3">Kapsam</th>
               <th className="px-4 py-3">Atama</th>
+              <th className="px-4 py-3">Yetki</th>
               <th className="px-4 py-3">Tip</th>
               <th className="px-4 py-3">Kolon</th>
               <th className="px-4 py-3 text-right">İşlem</th>
@@ -344,7 +403,7 @@ export default function RaporSablonlariPage() {
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
             {templates.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-500">Henüz kayıtlı rapor şablonu yok.</td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-500">Henüz kayıtlı rapor şablonu yok.</td></tr>
             ) : templates.map((template) => (
               <tr key={template.id}>
                 <td className="px-4 py-3">
@@ -361,6 +420,14 @@ export default function RaporSablonlariPage() {
                   {template.assignment_scope === "project"
                     ? projects.find((project) => project.id === template.project_id)?.name ?? "Proje bazlı"
                     : "Sistem geneli"}
+                </td>
+                <td className="px-4 py-3">
+                  <Badge variant="outline">{accessModeLabel(template.access_mode)}</Badge>
+                  {template.access_mode === "email_list" && template.allowed_emails.length > 0 && (
+                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      {template.allowed_emails.length} kişi
+                    </div>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
                   {template.template_config.emailMode === "mobile" ? "Mobil" : "Tablo"} · {template.template_config.exportScope === "all" ? "Tüm veri" : "Mevcut görünüm"}

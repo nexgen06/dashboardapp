@@ -5,6 +5,7 @@ import type { EmailTemplateMode, PdfExportScope, ReportTemplateId } from "@/lib/
 
 export type ReportTemplateScope = "private" | "shared";
 export type ReportTemplateAssignmentScope = "system" | "project";
+export type ReportTemplateAccessMode = "all" | "admin_pm" | "project_team" | "email_list";
 
 export type ReportTemplateConfig = {
   baseTemplateId: ReportTemplateId;
@@ -23,6 +24,8 @@ export type ManagedReportTemplate = {
   assignment_scope: ReportTemplateAssignmentScope;
   project_id: string | null;
   is_default: boolean;
+  access_mode: ReportTemplateAccessMode;
+  allowed_emails: string[];
   name: string;
   description: string;
   template_config: ReportTemplateConfig;
@@ -37,6 +40,8 @@ export type SaveManagedReportTemplateInput = {
   assignment_scope: ReportTemplateAssignmentScope;
   project_id?: string | null;
   is_default?: boolean;
+  access_mode?: ReportTemplateAccessMode;
+  allowed_emails?: string[];
   template_config: ReportTemplateConfig;
 };
 
@@ -77,6 +82,15 @@ function rowToTemplate(row: Record<string, unknown>): ManagedReportTemplate {
     assignment_scope: row.assignment_scope === "project" ? "project" : "system",
     project_id: row.project_id == null ? null : String(row.project_id),
     is_default: row.is_default === true,
+    access_mode:
+      row.access_mode === "admin_pm" ||
+      row.access_mode === "project_team" ||
+      row.access_mode === "email_list"
+        ? row.access_mode
+        : "all",
+    allowed_emails: Array.isArray(row.allowed_emails)
+      ? row.allowed_emails.map((email) => String(email).trim().toLowerCase()).filter(Boolean)
+      : [],
     name: String(row.name ?? ""),
     description: String(row.description ?? ""),
     template_config: normalizeConfig(row.template_config),
@@ -118,6 +132,8 @@ export async function createManagedReportTemplate(input: SaveManagedReportTempla
       assignment_scope: input.assignment_scope,
       project_id: input.assignment_scope === "project" ? input.project_id ?? null : null,
       is_default: input.is_default === true,
+      access_mode: input.access_mode ?? "all",
+      allowed_emails: input.allowed_emails ?? [],
       name: input.name.trim(),
       description: input.description?.trim() ?? "",
       template_config: input.template_config,
@@ -140,6 +156,8 @@ export async function updateManagedReportTemplate(
       assignment_scope: input.assignment_scope,
       project_id: input.assignment_scope === "project" ? input.project_id ?? null : null,
       is_default: input.is_default === true,
+      access_mode: input.access_mode ?? "all",
+      allowed_emails: input.allowed_emails ?? [],
       name: input.name.trim(),
       description: input.description?.trim() ?? "",
       template_config: input.template_config,

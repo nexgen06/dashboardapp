@@ -4034,11 +4034,29 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       ? "Tüm erişilebilir satırlar"
       : "Sadece düzenleyebildiğin satırlar";
   const exportSensitivityLabel = effectiveUnmaskSensitive ? "Hassas veri açık" : "Hassas veri maskeli";
+  const availableManagedReportTemplates = useMemo(() => {
+    const isStaff = isAdmin || user?.roleId === "project_manager";
+    return managedReportTemplates.filter((template) => {
+      if (template.template_config.unmaskSensitive && !canExportSensitiveUnmasked) return false;
+      if (template.user_id && user?.id === template.user_id) return true;
+      if (isStaff) return true;
+      if (template.access_mode === "all") return true;
+      if (template.access_mode === "admin_pm") return false;
+      if (template.access_mode === "email_list") {
+        return !!currentUserEmail && template.allowed_emails.includes(currentUserEmail);
+      }
+      if (template.access_mode === "project_team") {
+        const project = template.project_id ? projectById.get(template.project_id) : null;
+        return !!project && (project.assigned_emails ?? []).some((email) => email.trim().toLowerCase() === currentUserEmail);
+      }
+      return false;
+    });
+  }, [canExportSensitiveUnmasked, currentUserEmail, isAdmin, managedReportTemplates, projectById, user?.id, user?.roleId]);
   const selectedCustomReportTemplate = reportTemplateSelection.startsWith("custom:")
     ? savedReportTemplates.find((template) => customReportTemplateSelection(template.id) === reportTemplateSelection) ?? null
     : null;
   const selectedManagedReportTemplate = reportTemplateSelection.startsWith("managed:")
-    ? managedReportTemplates.find((template) => managedReportTemplateSelection(template.id) === reportTemplateSelection) ?? null
+    ? availableManagedReportTemplates.find((template) => managedReportTemplateSelection(template.id) === reportTemplateSelection) ?? null
     : null;
   const selectedBaseReportTemplateId: ReportTemplateId = reportTemplateSelection.startsWith("builtin:")
     ? (reportTemplateSelection.replace("builtin:", "") as ReportTemplateId)
@@ -4271,7 +4289,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       ? savedReportTemplates.find((template) => customReportTemplateSelection(template.id) === selection) ?? null
       : null;
     const managedTemplate = selection.startsWith("managed:")
-      ? managedReportTemplates.find((template) => managedReportTemplateSelection(template.id) === selection) ?? null
+      ? availableManagedReportTemplates.find((template) => managedReportTemplateSelection(template.id) === selection) ?? null
       : null;
     const managedConfig = managedTemplate?.template_config;
     const builtinId = selection.startsWith("builtin:")
@@ -4317,7 +4335,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       URL.revokeObjectURL(pdfPreviewUrl);
       setPdfPreviewUrl(null);
     }
-  }, [canExportSensitiveUnmasked, managedReportTemplates, pdfPreviewUrl, savedReportTemplates, table]);
+  }, [availableManagedReportTemplates, canExportSensitiveUnmasked, pdfPreviewUrl, savedReportTemplates, table]);
 
   const saveCurrentReportTemplate = useCallback(async () => {
     const name = await promptUser({
@@ -4376,7 +4394,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const getDefaultManagedReportTemplate = useCallback(() => {
     const selectedProjectId = projectFilter.length === 1 ? projectFilter[0] : null;
     if (selectedProjectId) {
-      const projectDefault = managedReportTemplates.find(
+      const projectDefault = availableManagedReportTemplates.find(
         (template) =>
           template.is_default &&
           template.assignment_scope === "project" &&
@@ -4384,12 +4402,12 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       );
       if (projectDefault) return projectDefault;
     }
-    return managedReportTemplates.find(
+    return availableManagedReportTemplates.find(
       (template) =>
         template.is_default &&
         template.assignment_scope === "system"
     ) ?? null;
-  }, [managedReportTemplates, projectFilter]);
+  }, [availableManagedReportTemplates, projectFilter]);
 
   const openPdfDialog = useCallback((scope: PdfExportScope) => {
     if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
@@ -6157,9 +6175,9 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                         ))}
                       </optgroup>
                     )}
-                    {managedReportTemplates.length > 0 && (
+                    {availableManagedReportTemplates.length > 0 && (
                       <optgroup label="Kurumsal şablonlar">
-                        {managedReportTemplates.map((template) => (
+                        {availableManagedReportTemplates.map((template) => (
                           <option key={template.id} value={managedReportTemplateSelection(template.id)}>
                             {template.name}
                           </option>
@@ -6304,9 +6322,9 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                         ))}
                       </optgroup>
                     )}
-                    {managedReportTemplates.length > 0 && (
+                    {availableManagedReportTemplates.length > 0 && (
                       <optgroup label="Kurumsal şablonlar">
-                        {managedReportTemplates.map((template) => (
+                        {availableManagedReportTemplates.map((template) => (
                           <option key={template.id} value={managedReportTemplateSelection(template.id)}>
                             {template.name}
                           </option>
