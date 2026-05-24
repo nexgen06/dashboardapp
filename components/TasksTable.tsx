@@ -3285,7 +3285,9 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   }, [canCreateTask, createTask, projectFilter, toast]);
 
   const activateEditableCell = useCallback((taskId: string, columnId: string) => {
-    setActiveEditableCell({ taskId, columnId });
+    setActiveEditableCell((prev) =>
+      prev?.taskId === taskId && prev.columnId === columnId ? prev : { taskId, columnId }
+    );
     setEditingRow(taskId);
   }, [setEditingRow]);
 
