@@ -10,6 +10,7 @@ import {
   Settings,
   Shield,
   BarChart3,
+  FileText,
   Sun,
   Moon,
   Monitor,
@@ -202,6 +203,14 @@ export function CommandPalette() {
         icon: BarChart3,
         group: "Yönetim",
         perform: () => navigate("/yonetim/gorev-istatistikleri"),
+      });
+      list.push({
+        id: "nav-rapor-sablonlari",
+        label: "Rapor şablonları",
+        keywords: ["rapor", "export", "pdf", "email", "şablon"],
+        icon: FileText,
+        group: "Yönetim",
+        perform: () => navigate("/yonetim/rapor-sablonlari"),
       });
     }
 

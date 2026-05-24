@@ -30,6 +30,7 @@ function getPageTitle(pathname: string): string {
   if (pathname === "/yonetim/kurumsal-admin") return "Kurumsal admin";
   if (pathname === "/yonetim/kullanici-yetkileri") return "Kullanıcı yetkileri";
   if (pathname === "/yonetim/gorev-istatistikleri") return "Görev istatistikleri";
+  if (pathname === "/yonetim/rapor-sablonlari") return "Rapor şablonları";
   if (pathname.startsWith("/yonetim")) return "Yönetim";
   if (pathname === "/projeler") return "Projeler";
   if (pathname.startsWith("/projeler/")) return "Proje detay";

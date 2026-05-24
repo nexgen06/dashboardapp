@@ -15,6 +15,7 @@ import {
   Settings,
   Shield,
   ServerCog,
+  FileText,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAuth } from "@/contexts/auth-context";
@@ -73,6 +74,7 @@ export function MobileBottomNav() {
       { href: "/yonetim/kurumsal-admin", label: "Kurumsal admin", icon: ServerCog, permission: "area.userManagement" as const, alsoRequire: null },
       { href: "/yonetim/kullanici-yetkileri", label: "Kullanıcı yetkileri", icon: Shield, permission: "area.userManagement" as const, alsoRequire: null },
       { href: "/yonetim/gorev-istatistikleri", label: "Görev istatistikleri", icon: BarChart3, permission: "area.userManagement" as const, alsoRequire: null },
+      { href: "/yonetim/rapor-sablonlari", label: "Rapor şablonları", icon: FileText, permission: "area.userManagement" as const, alsoRequire: null },
     ] satisfies NavItem[]
   ).filter((i) => {
     if (i.permission && !hasPermission(i.permission)) return false;

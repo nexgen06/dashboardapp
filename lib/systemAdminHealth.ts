@@ -70,6 +70,13 @@ const REQUIRED_SCRIPT_CHECKS: Array<Omit<SystemScriptCheck, "status" | "message"
     description: "JSON kaynaklarıyla arama, dropdown ve satır zenginleştirme.",
   },
   {
+    id: "report-templates",
+    title: "Rapor şablonları",
+    script: "scripts/report-templates.sql",
+    table: "report_templates",
+    description: "PDF/e-posta export şablonlarını kurumsal olarak saklar.",
+  },
+  {
     id: "admin-alerts",
     title: "Admin uyarıları",
     script: "scripts/create-admin-alerts.sql",
