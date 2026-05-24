@@ -105,6 +105,10 @@ import type { SavedViewConfig } from "@/lib/savedViews";
 import { urgentPrioritySetFromCsv, isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
 import { canEditTaskRow } from "@/lib/taskRowPermissions";
 import { listProjectColumns, type ProjectColumn } from "@/lib/projectColumns";
+import {
+  listMyProjectMemberPermissions,
+  type ProjectMemberPermission,
+} from "@/lib/projectMemberPermissions";
 import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, Expand, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban, Eye, Mail } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
@@ -2015,6 +2019,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const [removeExtraColumnKey, setRemoveExtraColumnKey] = useState<string | null>(null);
   const [removingExtraColumn, setRemovingExtraColumn] = useState(false);
   const [projectColumnsByProjectId, setProjectColumnsByProjectId] = useState<Record<string, ProjectColumn[]>>({});
+  const [projectPermissionsByProjectId, setProjectPermissionsByProjectId] = useState<Record<string, ProjectMemberPermission>>({});
+  const [projectPermissionsAvailable, setProjectPermissionsAvailable] = useState(false);
   const toast = useToast();
   const [globalSearch, setGlobalSearch] = useState("");
   /** Varsayılan: sadece projeye bağlı görevler (standart tablo verisi gösterilmez) */
@@ -2085,16 +2091,119 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     };
   }, [projects]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.id) {
+      setProjectPermissionsByProjectId({});
+      setProjectPermissionsAvailable(false);
+      return;
+    }
+
+    void (async () => {
+      const result = await listMyProjectMemberPermissions();
+      if (cancelled) return;
+      if (!result.ok) {
+        setProjectPermissionsByProjectId({});
+        setProjectPermissionsAvailable(false);
+        return;
+      }
+      setProjectPermissionsByProjectId(
+        Object.fromEntries(result.data.map((permission) => [String(permission.project_id), permission]))
+      );
+      setProjectPermissionsAvailable(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const getProjectPermissionForTask = useCallback(
+    (task: Task) => {
+      const projectId = task.project_id ? String(task.project_id) : "";
+      if (!projectId) return null;
+      return projectPermissionsByProjectId[projectId] ?? null;
+    },
+    [projectPermissionsByProjectId]
+  );
+
   const canEditRow = useCallback(
-    (task: Task) =>
-      canEditTaskRow({
+    (task: Task) => {
+      const baseAllowed = canEditTaskRow({
         hasBaseEditPermission: canEditTask,
         task,
         project: task.project_id ? projectById.get(String(task.project_id)) ?? null : null,
         viewerEmail: currentUserEmail,
         viewerRoleId: user?.roleId ?? null,
-      }),
-    [canEditTask, currentUserEmail, projectById, user?.roleId]
+      });
+      if (!baseAllowed) return false;
+      if (isAdmin) return true;
+
+      const projectPermission = getProjectPermissionForTask(task);
+      return projectPermission ? projectPermission.can_edit : baseAllowed;
+    },
+    [canEditTask, currentUserEmail, getProjectPermissionForTask, isAdmin, projectById, user?.roleId]
+  );
+
+  const canCommentRow = useCallback(
+    (task: Task) => {
+      if (!canCommentTask || !canEditRow(task)) return false;
+      if (isAdmin) return true;
+      const projectPermission = getProjectPermissionForTask(task);
+      return projectPermission ? projectPermission.can_comment : true;
+    },
+    [canCommentTask, canEditRow, getProjectPermissionForTask, isAdmin]
+  );
+
+  const canCopyRow = useCallback(
+    (task: Task) => {
+      if (!canCopyCell || !canEditRow(task)) return false;
+      if (isAdmin) return true;
+      const projectPermission = getProjectPermissionForTask(task);
+      return projectPermission ? projectPermission.can_copy : true;
+    },
+    [canCopyCell, canEditRow, getProjectPermissionForTask, isAdmin]
+  );
+
+  const canBulkUpdateRow = useCallback(
+    (task: Task) => {
+      if (!canBulkUpdate || !canEditRow(task)) return false;
+      if (isAdmin) return true;
+      const projectPermission = getProjectPermissionForTask(task);
+      return projectPermission ? projectPermission.can_bulk_update : true;
+    },
+    [canBulkUpdate, canEditRow, getProjectPermissionForTask, isAdmin]
+  );
+
+  const canBulkDeleteRow = useCallback(
+    (task: Task) => {
+      if (!canBulkDelete || !canEditRow(task)) return false;
+      if (isAdmin) return true;
+      const projectPermission = getProjectPermissionForTask(task);
+      return projectPermission ? projectPermission.can_bulk_delete : true;
+    },
+    [canBulkDelete, canEditRow, getProjectPermissionForTask, isAdmin]
+  );
+
+  const canExportRow = useCallback(
+    (task: Task) => {
+      if (!canExportCsv) return false;
+      if (isAdmin) return true;
+      const projectPermission = getProjectPermissionForTask(task);
+      if (projectPermission) return projectPermission.can_export;
+      return canExportAllRows ? true : canEditRow(task);
+    },
+    [canEditRow, canExportAllRows, canExportCsv, getProjectPermissionForTask, isAdmin]
+  );
+
+  const canExportUnmaskedRow = useCallback(
+    (task: Task) => {
+      if (!canExportSensitiveUnmasked) return false;
+      if (isAdmin) return true;
+      const projectPermission = getProjectPermissionForTask(task);
+      return projectPermission ? projectPermission.can_export_unmasked : true;
+    },
+    [canExportSensitiveUnmasked, getProjectPermissionForTask, isAdmin]
   );
 
   useEffect(() => {
@@ -2457,9 +2566,9 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const getExportRows = useCallback(
     (scope: PdfExportScope) => {
       const baseRows = scope === "all" ? tasks : filteredData;
-      return canExportAllRows ? baseRows : baseRows.filter((task) => canEditRow(task));
+      return baseRows.filter((task) => canExportRow(task));
     },
-    [canEditRow, canExportAllRows, filteredData, tasks]
+    [canExportRow, filteredData, tasks]
   );
 
   /** Satır güncellemesi `data` referansını değiştirir; TanStack varsayılanında sayfa 0'a sıçrar — kapatıyoruz. */
@@ -2868,9 +2977,9 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   }, []);
 
   const handleDeleteEmptyRows = useCallback(async () => {
-    const emptyTasks = filteredData.filter(isEmptyTaskRow);
+    const emptyTasks = filteredData.filter((task) => isEmptyTaskRow(task) && canBulkDeleteRow(task));
     if (emptyTasks.length === 0) {
-      toast.info("Mevcut görünümde boş satır yok.");
+      toast.info("Mevcut görünümde silme yetkili boş satır yok.");
       return;
     }
     const ids = emptyTasks.map((t) => t.id);
@@ -2910,7 +3019,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         return next;
       });
     }
-  }, [filteredData, isEmptyTaskRow, deleteTasks, createTasksBulk, toast]);
+  }, [filteredData, isEmptyTaskRow, canBulkDeleteRow, deleteTasks, createTasksBulk, toast]);
 
   /**
    * Hızlı satır ekleme: boş içerikli görev yaratır, content hücresini odakla.
@@ -3463,7 +3572,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                   disabled={!rowCanEdit}
                 />
               </div>
-              {showCopy && rowCanEdit && canCopyCell && (
+              {showCopy && canCopyRow(task) && (
                 <ExtraCellCopyButton
                   text={raw}
                   density={tableDensity}
@@ -3500,7 +3609,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
               {rowCanEdit && (
                 <DropdownMenuItem onClick={() => setEditTask(task)}>Düzenle</DropdownMenuItem>
               )}
-              {rowCanEdit && canCreateTask && canCopyCell && (
+              {rowCanEdit && canCreateTask && canCopyRow(task) && (
                 <DropdownMenuItem onClick={() => handleCopyTask(task)}>Kopyala</DropdownMenuItem>
               )}
               {rowCanEdit && (canCreateTask || canEditTask) && canDeleteTask && <DropdownMenuSeparator />}
@@ -3534,7 +3643,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       deletingIds,
       editorsByRowId,
       canEditRow,
-      canCopyCell,
+      canCopyRow,
       canCreateTask,
       canDeleteTask,
       handleCopyTask,
@@ -3667,16 +3776,22 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   /** Export sırasında hassas sütunların ham olarak yazılıp yazılmayacağı.
    *  Ayrı izin yoksa toggle görünse bile ham veri yazılmaz.
    */
-  const effectiveUnmaskSensitive = canExportSensitiveUnmasked && exportUnmaskSensitive;
   const selectedPdfRows = useMemo(
     () => getExportRows(pdfDialogScope),
     [getExportRows, pdfDialogScope]
   );
   const exportCurrentRows = useMemo(() => getExportRows("current"), [getExportRows]);
   const exportAllRows = useMemo(() => getExportRows("all"), [getExportRows]);
-  const exportScopeLabel = canExportAllRows
-    ? "Tüm erişilebilir satırlar"
-    : "Sadece düzenleyebildiğin satırlar";
+  const canUnmaskExportRows = useCallback(
+    (rows: Task[]) => canExportSensitiveUnmasked && exportUnmaskSensitive && rows.every((task) => canExportUnmaskedRow(task)),
+    [canExportSensitiveUnmasked, canExportUnmaskedRow, exportUnmaskSensitive]
+  );
+  const effectiveUnmaskSensitive = canUnmaskExportRows(selectedPdfRows);
+  const exportScopeLabel = projectPermissionsAvailable
+    ? "Proje bazlı izin verilen satırlar"
+    : canExportAllRows
+      ? "Tüm erişilebilir satırlar"
+      : "Sadece düzenleyebildiğin satırlar";
   const exportSensitivityLabel = effectiveUnmaskSensitive ? "Hassas veri açık" : "Hassas veri maskeli";
   const selectedReportTemplate = REPORT_TEMPLATES[reportTemplateId];
   const selectedPdfTitle = pdfTitleInput.trim() || null;
@@ -3823,8 +3938,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
    * "Bu işlem kaydedildi" caydırıcı toast'u da burada.
    */
   const logSensitiveExport = useCallback(
-    (rows: Task[]) => {
-      if (!effectiveUnmaskSensitive || !user?.email) return;
+    (rows: Task[], unmasked: boolean) => {
+      if (!unmasked || !user?.email) return;
       const sensitiveKeys = new Set<string>();
       for (const id of visibleColumnIds) {
         if (id.startsWith("extra:")) {
@@ -3843,7 +3958,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       });
       toast.info("Hassas alanlar denetim kayıtlarına yazıldı", { durationMs: 2500 });
     },
-    [effectiveUnmaskSensitive, user, visibleColumnIds, toast]
+    [user, visibleColumnIds, toast]
   );
 
   const handleExportCSV = useCallback(
@@ -3853,20 +3968,21 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         toast.error("Dışa aktarılacak yetkili satır bulunamadı.");
         return;
       }
+      const unmaskSensitive = canUnmaskExportRows(rows);
       downloadCSV(
         rows,
         visibleColumnIds,
         settings.dateFormat,
-        `gorevler-${scope === "all" ? "tum" : "gorunum"}${effectiveUnmaskSensitive ? "-ham" : ""}-${Date.now()}.csv`,
+        `gorevler-${scope === "all" ? "tum" : "gorunum"}${unmaskSensitive ? "-ham" : ""}-${Date.now()}.csv`,
         projectById,
-        effectiveUnmaskSensitive
+        unmaskSensitive
       );
-      if (effectiveUnmaskSensitive) {
+      if (unmaskSensitive) {
         toast.success("Hassas veriler AÇIK olarak indirildi (yetkili onay)");
-        logSensitiveExport(rows);
+        logSensitiveExport(rows, unmaskSensitive);
       }
     },
-    [getExportRows, visibleColumnIds, settings.dateFormat, projectById, effectiveUnmaskSensitive, toast, logSensitiveExport]
+    [getExportRows, canUnmaskExportRows, visibleColumnIds, settings.dateFormat, projectById, toast, logSensitiveExport]
   );
   const handleExportExcel = useCallback(
     (scope: "current" | "all") => {
@@ -3875,20 +3991,21 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         toast.error("Dışa aktarılacak yetkili satır bulunamadı.");
         return;
       }
+      const unmaskSensitive = canUnmaskExportRows(rows);
       downloadExcel(
         rows,
         visibleColumnIds,
         settings.dateFormat,
-        `gorevler-${scope === "all" ? "tum" : "gorunum"}${effectiveUnmaskSensitive ? "-ham" : ""}-${Date.now()}.xlsx`,
+        `gorevler-${scope === "all" ? "tum" : "gorunum"}${unmaskSensitive ? "-ham" : ""}-${Date.now()}.xlsx`,
         projectById,
-        effectiveUnmaskSensitive
+        unmaskSensitive
       );
-      if (effectiveUnmaskSensitive) {
+      if (unmaskSensitive) {
         toast.success("Hassas veriler AÇIK olarak indirildi (yetkili onay)");
-        logSensitiveExport(rows);
+        logSensitiveExport(rows, unmaskSensitive);
       }
     },
-    [getExportRows, visibleColumnIds, settings.dateFormat, projectById, effectiveUnmaskSensitive, toast, logSensitiveExport]
+    [getExportRows, canUnmaskExportRows, visibleColumnIds, settings.dateFormat, projectById, toast, logSensitiveExport]
   );
   const applyReportTemplate = useCallback((id: ReportTemplateId) => {
     const template = REPORT_TEMPLATES[id];
@@ -4007,7 +4124,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         );
         if (effectiveUnmaskSensitive) {
           toast.success("Hassas veriler AÇIK olarak indirildi (yetkili onay)");
-          logSensitiveExport(selectedPdfRows);
+          logSensitiveExport(selectedPdfRows, effectiveUnmaskSensitive);
         }
       } catch (e) {
         console.error("[Export] PDF oluşturulamadı:", e);
@@ -4060,17 +4177,25 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const selectedRows = table.getSelectedRowModel().rows;
   const selectedTasks = selectedRows.map((r) => r.original);
   const selectedIds = selectedTasks.map((t) => t.id);
+  const selectedCanBulkUpdate = selectedTasks.some((task) => canBulkUpdateRow(task));
+  const selectedCanBulkDelete = selectedTasks.some((task) => canBulkDeleteRow(task));
 
   const executeBulkDelete = useCallback(async () => {
     if (selectedIds.length === 0 || !canBulkDelete) return;
+    const deletableTasks = selectedTasks.filter((task) => canBulkDeleteRow(task));
+    if (deletableTasks.length === 0) {
+      toast.error("Seçili satırlarda toplu silme yetkiniz yok.");
+      return;
+    }
+    const deletableIds = deletableTasks.map((task) => task.id);
     setBulkDeleteConfirmOpen(false);
     // Undo için seçili görevlerin tamamını yakala
-    const backups = selectedTasks.map((t) => ({ ...t }));
-    setDeletingIds((prev) => new Set([...Array.from(prev), ...selectedIds]));
+    const backups = deletableTasks.map((t) => ({ ...t }));
+    setDeletingIds((prev) => new Set([...Array.from(prev), ...deletableIds]));
     try {
-      await deleteTasks(selectedIds);
+      await deleteTasks(deletableIds);
       setRowSelection({});
-      toast.success(`${selectedIds.length} görev silindi`, {
+      toast.success(`${deletableIds.length} görev silindi`, {
         action:
           backups.length > 0
             ? {
@@ -4108,11 +4233,11 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     } finally {
       setDeletingIds((prev) => {
         const next = new Set(prev);
-        selectedIds.forEach((id) => next.delete(id));
+        deletableIds.forEach((id) => next.delete(id));
         return next;
       });
     }
-  }, [selectedIds, selectedTasks, canBulkDelete, deleteTasks, createTasksBulk, toast]);
+  }, [selectedIds.length, selectedTasks, canBulkDelete, canBulkDeleteRow, deleteTasks, createTasksBulk, toast]);
 
   /**
    * Ek sütun silme etkisi: kaç projenin şeması ve kaç görevin verisi etkilenecek.
@@ -4215,7 +4340,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       let fail = 0;
       let skipped = 0;
       for (const t of selectedTasks) {
-        if (!canEditRow(t)) {
+        if (!canBulkUpdateRow(t)) {
           skipped += 1;
           continue;
         }
@@ -4235,7 +4360,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       }
       setRowSelection({});
     },
-    [selectedTasks, canBulkUpdate, canEditRow, saveTask, updateTaskOptimistic, toast]
+    [selectedTasks, canBulkUpdate, canBulkUpdateRow, saveTask, updateTaskOptimistic, toast]
   );
 
   if (isLoading) {
@@ -4486,7 +4611,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
             dateFormat={settings.dateFormat}
             urgentPrioritySet={urgentPrioritySetForTable}
             canEdit={detailCanEdit}
-            canComment={detailCanEdit && canCommentTask}
+            canComment={canCommentRow(detailTask)}
             onEdit={() => {
               if (!detailCanEdit) return;
               setEditTask(detailTask);
@@ -5586,7 +5711,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
           <span className="text-sm text-slate-600 dark:text-slate-400">
             <strong>{selectedIds.length}</strong> görev seçildi
           </span>
-          {canBulkUpdate && (
+          {selectedCanBulkUpdate && (
             <DropdownMenu open={bulkStatusOpen} onOpenChange={setBulkStatusOpen}>
               <DropdownMenuTrigger asChild>
                 <Button type="button" variant="outline" size="sm">
@@ -5602,7 +5727,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-          {canBulkDelete && (
+          {selectedCanBulkDelete && (
           <Button
             type="button"
             variant="outline"
@@ -5621,7 +5746,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
             <DialogHeader className="border-b border-slate-200 px-5 py-4 text-left dark:border-slate-700">
               <DialogTitle>PDF İndir</DialogTitle>
               <DialogDescription>
-                {pdfDialogScope === "all" ? "Tüm veri" : "Mevcut görünüm"} için indirilecek PDF'i önce kontrol edebilirsiniz.
+                {pdfDialogScope === "all" ? "Tüm veri" : "Mevcut görünüm"} için indirilecek PDF önizlemesini kontrol edebilirsiniz.
               </DialogDescription>
             </DialogHeader>
 
@@ -5674,7 +5799,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                 </div>
                 <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
                   <div className="font-medium text-slate-800 dark:text-slate-100">
-                    {selectedPdfRows.length} satır PDF'e eklenecek
+                    {selectedPdfRows.length} satır PDF&apos;e eklenecek
                   </div>
                   <div className="mt-1">
                     Sütunlar canlı tablodaki görünür kolonlardan alınır.
@@ -5972,9 +6097,9 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                     now={now}
                     canEdit={rowCanEdit}
                     canDelete={rowCanEdit && canDeleteTask}
-                    canCreate={rowCanEdit && canCreateTask && canCopyCell}
+                    canCreate={rowCanEdit && canCreateTask && canCopyRow(t)}
                     onEdit={() => rowCanEdit && setEditTask(t)}
-                    onCopy={() => rowCanEdit && canCopyCell && handleCopyTask(t)}
+                    onCopy={() => canCopyRow(t) && handleCopyTask(t)}
                     onDelete={() => rowCanEdit && handleDeleteTask(t.id)}
                     onOpenDetail={() => {
                       if (!rowCanEdit) {

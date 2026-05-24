@@ -70,6 +70,28 @@ export async function listProjectMemberPermissions(
   return { ok: true, data: (data ?? []) as ProjectMemberPermission[] };
 }
 
+export async function listMyProjectMemberPermissions(): Promise<
+  { ok: true; data: ProjectMemberPermission[] } | { ok: false; missingTable: boolean }
+> {
+  if (!isSupabaseConfigured()) return { ok: false, missingTable: false };
+  const { data: auth, error: authError } = await supabase.auth.getUser();
+  const userId = auth?.user?.id;
+  if (authError || !userId) return { ok: false, missingTable: false };
+
+  const { data, error } = await supabase
+    .from("project_member_permissions")
+    .select("*")
+    .eq("user_id", userId);
+
+  if (error) {
+    const missingTable = isMissingProjectMemberPermissions(error);
+    if (!missingTable) console.warn("[project member permissions] my permissions:", error.message);
+    return { ok: false, missingTable };
+  }
+
+  return { ok: true, data: (data ?? []) as ProjectMemberPermission[] };
+}
+
 export async function upsertProjectMemberPermissions(rows: ProjectMemberPermissionInput[]): Promise<boolean> {
   if (!isSupabaseConfigured() || rows.length === 0) return false;
   const payload = rows.map((row) => ({

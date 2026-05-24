@@ -544,7 +544,7 @@ export default function KullaniciYetkileriPage() {
             ))}
           </div>
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-            Bu panel uygulama tarafındaki beklenen güvenlik modelini gösterir. SQL dosyalarının Supabase SQL Editor'da uygulanması manuel doğrulanmalıdır.
+            Bu panel uygulama tarafındaki beklenen güvenlik modelini gösterir. SQL dosyalarının Supabase SQL Editor&apos;da uygulanması manuel doğrulanmalıdır.
           </p>
         </div>
       </div>

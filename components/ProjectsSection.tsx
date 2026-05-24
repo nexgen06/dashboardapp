@@ -1228,7 +1228,7 @@ function ProjectFormModal({
       </div>
       {permissionsMissingTable && (
         <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
-          Supabase'de <code>scripts/project-member-permissions.sql</code> henüz uygulanmamış görünüyor. SQL çalışana kadar bu panel kayıt yapmaz.
+          Supabase&apos;de <code>scripts/project-member-permissions.sql</code> henüz uygulanmamış görünüyor. SQL çalışana kadar bu panel kayıt yapmaz.
         </div>
       )}
       {permissionsLoading ? (
