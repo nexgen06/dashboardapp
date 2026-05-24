@@ -14,6 +14,7 @@ import {
   BarChart3,
   Settings,
   Shield,
+  ServerCog,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAuth } from "@/contexts/auth-context";
@@ -69,6 +70,7 @@ export function MobileBottomNav() {
       { href: "/canli-tablo", label: "Canlı Tablo", icon: Table2, permission: "area.liveTable" as const, alsoRequire: "liveTable.view" as const },
       { href: "/raporlar", label: "Raporlar", icon: BarChart3, permission: "area.reports" as const, alsoRequire: "reports.view" as const },
       { href: "/ayarlar", label: "Ayarlar", icon: Settings, permission: "area.settings" as const, alsoRequire: "settings.view" as const },
+      { href: "/yonetim/kurumsal-admin", label: "Kurumsal admin", icon: ServerCog, permission: "area.userManagement" as const, alsoRequire: null },
       { href: "/yonetim/kullanici-yetkileri", label: "Kullanıcı yetkileri", icon: Shield, permission: "area.userManagement" as const, alsoRequire: null },
       { href: "/yonetim/gorev-istatistikleri", label: "Görev istatistikleri", icon: BarChart3, permission: "area.userManagement" as const, alsoRequire: null },
     ] satisfies NavItem[]

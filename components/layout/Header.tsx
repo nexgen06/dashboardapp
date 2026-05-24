@@ -27,6 +27,7 @@ import { userInitialsFromDisplay } from "@/lib/userDisplayName";
 function getPageTitle(pathname: string): string {
   if (pathname === "/giris") return "Giriş";
   if (pathname === "/ayarlar") return "Ayarlar";
+  if (pathname === "/yonetim/kurumsal-admin") return "Kurumsal admin";
   if (pathname === "/yonetim/kullanici-yetkileri") return "Kullanıcı yetkileri";
   if (pathname === "/yonetim/gorev-istatistikleri") return "Görev istatistikleri";
   if (pathname.startsWith("/yonetim")) return "Yönetim";
