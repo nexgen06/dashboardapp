@@ -109,6 +109,14 @@ export type RecentPresenceRow = {
   last_seen_at: string | null;
 };
 
+export type SystemBuildInfo = {
+  version: string;
+  commit: string;
+  deployment: string;
+  environment: string;
+  realtimeDisabled: boolean;
+};
+
 export async function listRecentPresenceRows(): Promise<RecentPresenceRow[]> {
   if (!isSupabaseConfigured()) return [];
   const { data, error } = await supabase
@@ -123,7 +131,7 @@ export async function listRecentPresenceRows(): Promise<RecentPresenceRow[]> {
   return (data ?? []) as RecentPresenceRow[];
 }
 
-export function getClientBuildInfo() {
+export function getClientBuildInfo(): SystemBuildInfo {
   return {
     version: process.env.NEXT_PUBLIC_APP_VERSION || "0.1.0",
     commit:

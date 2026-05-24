@@ -34,6 +34,7 @@ import {
   type RecentPresenceRow,
   type SystemCheckStatus,
   type SystemScriptCheck,
+  type SystemBuildInfo,
 } from "@/lib/systemAdminHealth";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { isRealtimeDisabledForClient } from "@/lib/realtimeFallback";
@@ -176,19 +177,23 @@ export default function KurumsalAdminPage() {
   const [checks, setChecks] = useState<SystemScriptCheck[]>([]);
   const [presenceRows, setPresenceRows] = useState<RecentPresenceRow[]>([]);
   const [loadingHealth, setLoadingHealth] = useState(false);
-  const build = useMemo(() => getClientBuildInfo(), []);
+  const [build, setBuild] = useState<SystemBuildInfo>(() => getClientBuildInfo());
 
   const loadHealth = useCallback(async () => {
     setLoadingHealth(true);
     try {
-      const [nextChecks, nextUsers, nextPresence] = await Promise.all([
+      const [nextChecks, nextUsers, nextPresence, nextBuild] = await Promise.all([
         loadSystemScriptChecks(),
         isAdmin ? listDirectoryUsers() : Promise.resolve([]),
         listRecentPresenceRows(),
+        fetch("/api/system/build-info", { cache: "no-store" })
+          .then((res) => (res.ok ? res.json() as Promise<SystemBuildInfo> : getClientBuildInfo()))
+          .catch(() => getClientBuildInfo()),
       ]);
       setChecks(nextChecks);
       setUsers(nextUsers);
       setPresenceRows(nextPresence);
+      setBuild(nextBuild);
     } catch (e) {
       toast.error("Sistem sağlık bilgileri okunamadı", {
         description: e instanceof Error ? e.message : "Beklenmeyen hata",
