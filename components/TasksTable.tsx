@@ -1932,6 +1932,9 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const canCreateTask = hasPermission("liveTable.createTask");
   const canEditTask = hasPermission("liveTable.editTask");
   const canDeleteTask = hasPermission("liveTable.deleteTask");
+  const canCommentTask = hasPermission("liveTable.commentTask");
+  const canCopyCell = hasPermission("liveTable.copyCell");
+  const canBulkUpdate = hasPermission("liveTable.bulkUpdate");
   const canBulkDelete = hasPermission("liveTable.bulkDelete");
   const canImportCsv = hasPermission("liveTable.importCsv");
   const canExportCsv = hasPermission("liveTable.exportCsv");
@@ -3460,7 +3463,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                   disabled={!rowCanEdit}
                 />
               </div>
-              {showCopy && rowCanEdit && (
+              {showCopy && rowCanEdit && canCopyCell && (
                 <ExtraCellCopyButton
                   text={raw}
                   density={tableDensity}
@@ -3497,7 +3500,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
               {rowCanEdit && (
                 <DropdownMenuItem onClick={() => setEditTask(task)}>Düzenle</DropdownMenuItem>
               )}
-              {rowCanEdit && canCreateTask && (
+              {rowCanEdit && canCreateTask && canCopyCell && (
                 <DropdownMenuItem onClick={() => handleCopyTask(task)}>Kopyala</DropdownMenuItem>
               )}
               {rowCanEdit && (canCreateTask || canEditTask) && canDeleteTask && <DropdownMenuSeparator />}
@@ -3531,6 +3534,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       deletingIds,
       editorsByRowId,
       canEditRow,
+      canCopyCell,
       canCreateTask,
       canDeleteTask,
       handleCopyTask,
@@ -4058,7 +4062,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const selectedIds = selectedTasks.map((t) => t.id);
 
   const executeBulkDelete = useCallback(async () => {
-    if (selectedIds.length === 0) return;
+    if (selectedIds.length === 0 || !canBulkDelete) return;
     setBulkDeleteConfirmOpen(false);
     // Undo için seçili görevlerin tamamını yakala
     const backups = selectedTasks.map((t) => ({ ...t }));
@@ -4108,7 +4112,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         return next;
       });
     }
-  }, [selectedIds, selectedTasks, deleteTasks, createTasksBulk, toast]);
+  }, [selectedIds, selectedTasks, canBulkDelete, deleteTasks, createTasksBulk, toast]);
 
   /**
    * Ek sütun silme etkisi: kaç projenin şeması ve kaç görevin verisi etkilenecek.
@@ -4202,6 +4206,11 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
 
   const handleBulkStatusUpdate = useCallback(
     async (status: string) => {
+      if (!canBulkUpdate) {
+        setBulkStatusOpen(false);
+        toast.error("Toplu durum güncelleme yetkiniz yok.");
+        return;
+      }
       setBulkStatusOpen(false);
       let fail = 0;
       let skipped = 0;
@@ -4226,7 +4235,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       }
       setRowSelection({});
     },
-    [selectedTasks, canEditRow, saveTask, updateTaskOptimistic, toast]
+    [selectedTasks, canBulkUpdate, canEditRow, saveTask, updateTaskOptimistic, toast]
   );
 
   if (isLoading) {
@@ -4477,7 +4486,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
             dateFormat={settings.dateFormat}
             urgentPrioritySet={urgentPrioritySetForTable}
             canEdit={detailCanEdit}
-            canComment={detailCanEdit}
+            canComment={detailCanEdit && canCommentTask}
             onEdit={() => {
               if (!detailCanEdit) return;
               setEditTask(detailTask);
@@ -5577,20 +5586,22 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
           <span className="text-sm text-slate-600 dark:text-slate-400">
             <strong>{selectedIds.length}</strong> görev seçildi
           </span>
-          <DropdownMenu open={bulkStatusOpen} onOpenChange={setBulkStatusOpen}>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="outline" size="sm">
-                Durumu güncelle
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              {statusOptions.map((s) => (
-                <DropdownMenuItem key={s} onClick={() => handleBulkStatusUpdate(s)}>
-                  {s}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {canBulkUpdate && (
+            <DropdownMenu open={bulkStatusOpen} onOpenChange={setBulkStatusOpen}>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" size="sm">
+                  Durumu güncelle
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                {statusOptions.map((s) => (
+                  <DropdownMenuItem key={s} onClick={() => handleBulkStatusUpdate(s)}>
+                    {s}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           {canBulkDelete && (
           <Button
             type="button"
@@ -5961,9 +5972,9 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                     now={now}
                     canEdit={rowCanEdit}
                     canDelete={rowCanEdit && canDeleteTask}
-                    canCreate={rowCanEdit && canCreateTask}
+                    canCreate={rowCanEdit && canCreateTask && canCopyCell}
                     onEdit={() => rowCanEdit && setEditTask(t)}
-                    onCopy={() => rowCanEdit && handleCopyTask(t)}
+                    onCopy={() => rowCanEdit && canCopyCell && handleCopyTask(t)}
                     onDelete={() => rowCanEdit && handleDeleteTask(t.id)}
                     onOpenDetail={() => {
                       if (!rowCanEdit) {

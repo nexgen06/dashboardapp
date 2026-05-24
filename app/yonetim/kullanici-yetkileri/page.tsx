@@ -190,6 +190,9 @@ export default function KullaniciYetkileriPage() {
   const currentCanExport = hasPermission("liveTable.exportCsv");
   const currentCanExportAllRows = hasPermission("liveTable.exportAllRows");
   const currentCanExportUnmasked = hasPermission("liveTable.exportSensitiveUnmasked");
+  const currentCanComment = hasPermission("liveTable.commentTask");
+  const currentCanCopy = hasPermission("liveTable.copyCell");
+  const currentCanBulkUpdate = hasPermission("liveTable.bulkUpdate");
   const roleSecurityChecks: Array<{
     title: string;
     description: string;
@@ -223,6 +226,20 @@ export default function KullaniciYetkileriPage() {
         : "İzleyici rolünde dışa aktarma açık görünüyor; veri sızıntısı riski doğurabilir.",
       tone: !roleHas("viewer", "liveTable.exportCsv") ? "ok" : "warn",
     },
+    {
+      title: "Yorum ve kopyalama ayrımı",
+      description: roleHas("member", "liveTable.commentTask") && roleHas("member", "liveTable.copyCell")
+        ? "Yorum ve kopyalama artık satır düzenleme yetkisinden ayrı izin anahtarlarıyla izlenir."
+        : "Üye rolünde yorum/kopyalama izinleri beklenen operatif seviyede değil.",
+      tone: roleHas("member", "liveTable.commentTask") && roleHas("member", "liveTable.copyCell") ? "ok" : "warn",
+    },
+    {
+      title: "Toplu güncelleme sınırı",
+      description: !roleHas("member", "liveTable.bulkUpdate") && roleHas("project_manager", "liveTable.bulkUpdate")
+        ? "Toplu durum güncelleme üye rolünde kapalı, proje yöneticisi/admin rolünde açık."
+        : "Toplu güncelleme rol dağılımı beklenen PM/admin modelinden farklı.",
+      tone: !roleHas("member", "liveTable.bulkUpdate") && roleHas("project_manager", "liveTable.bulkUpdate") ? "ok" : "warn",
+    },
   ];
   const rlsChecks: Array<{
     title: string;
@@ -243,6 +260,16 @@ export default function KullaniciYetkileriPage() {
       title: "PII export logları",
       description: "Maskesiz hassas export ve hassas alan kopyalama kayıtları pii_access_log tablosuna yazılmalı.",
       script: "scripts/pii-access-log.sql",
+    },
+    {
+      title: "Proje bazlı yetki altyapısı",
+      description: "project_member_permissions tablosu, proje özelinde yorum/kopya/export/toplu işlem izinleri için hazır olmalı.",
+      script: "scripts/project-member-permissions.sql",
+    },
+    {
+      title: "Merkezi bildirim kutusu",
+      description: "notifications tablosu, bildirim teslimi ve okundu bilgisini denetlenebilir şekilde tutmalı.",
+      script: "scripts/notifications.sql",
     },
   ];
 
@@ -446,6 +473,28 @@ export default function KullaniciYetkileriPage() {
                 <dt className="text-slate-500 dark:text-slate-400">Satır düzenleme kuralı</dt>
                 <dd className="max-w-[13rem] text-right text-xs leading-snug text-slate-700 dark:text-slate-300">
                   Admin/PM tüm satırlar; üye kendi ve atanmamış satırlar. Projede ekip düzenleme açıksa kapsam genişler.
+                </dd>
+              </div>
+              <div className="flex items-start justify-between gap-3">
+                <dt className="text-slate-500 dark:text-slate-400">Yorum / kopya</dt>
+                <dd className="max-w-[13rem] text-right text-xs leading-snug text-slate-700 dark:text-slate-300">
+                  {currentCanComment ? "Yorum açık" : "Yorum kapalı"} · {currentCanCopy ? "Kopyalama açık" : "Kopyalama kapalı"}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-slate-500 dark:text-slate-400">Toplu durum güncelleme</dt>
+                <dd>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "font-normal",
+                      currentCanBulkUpdate
+                        ? "border-blue-300 bg-blue-50 text-blue-800 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-200"
+                        : "border-slate-300 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300"
+                    )}
+                  >
+                    {currentCanBulkUpdate ? "Açık" : "Kapalı"}
+                  </Badge>
                 </dd>
               </div>
             </dl>

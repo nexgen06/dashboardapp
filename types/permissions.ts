@@ -33,6 +33,9 @@ export type Permission =
   | "liveTable.createTask"
   | "liveTable.editTask"
   | "liveTable.deleteTask"
+  | "liveTable.commentTask"
+  | "liveTable.copyCell"
+  | "liveTable.bulkUpdate"
   | "liveTable.bulkDelete"
   | "liveTable.importCsv"
   | "liveTable.exportCsv"
@@ -92,6 +95,9 @@ export const ROLES: Record<RoleId, Role> = {
       "liveTable.createTask",
       "liveTable.editTask",
       "liveTable.deleteTask",
+      "liveTable.commentTask",
+      "liveTable.copyCell",
+      "liveTable.bulkUpdate",
       "liveTable.bulkDelete",
       "liveTable.importCsv",
       "liveTable.exportCsv",
@@ -137,6 +143,9 @@ export const ROLES: Record<RoleId, Role> = {
       "liveTable.createTask",
       "liveTable.editTask",
       "liveTable.deleteTask",
+      "liveTable.commentTask",
+      "liveTable.copyCell",
+      "liveTable.bulkUpdate",
       "liveTable.bulkDelete",
       "liveTable.importCsv",
       "liveTable.exportCsv",
@@ -166,6 +175,8 @@ export const ROLES: Record<RoleId, Role> = {
       "liveTable.view",
       "liveTable.createTask",
       "liveTable.editTask",
+      "liveTable.commentTask",
+      "liveTable.copyCell",
       "liveTable.exportCsv",
       "liveTable.manageColumns",
       "liveTable.autoSizeColumns",
@@ -226,6 +237,9 @@ export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] =
       "liveTable.createTask",
       "liveTable.editTask",
       "liveTable.deleteTask",
+      "liveTable.commentTask",
+      "liveTable.copyCell",
+      "liveTable.bulkUpdate",
       "liveTable.bulkDelete",
       "liveTable.importCsv",
       "liveTable.exportCsv",
@@ -271,6 +285,9 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "liveTable.createTask": "Görev oluşturma",
   "liveTable.editTask": "Görev düzenleme",
   "liveTable.deleteTask": "Görev silme",
+  "liveTable.commentTask": "Görev yorumu ekleme",
+  "liveTable.copyCell": "Satır/hücre kopyalama",
+  "liveTable.bulkUpdate": "Toplu durum güncelleme",
   "liveTable.bulkDelete": "Toplu silme",
   "liveTable.importCsv": "CSV içe aktarma",
   "liveTable.exportCsv": "CSV/Excel/PDF dışa aktarma",
