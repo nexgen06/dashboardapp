@@ -6264,17 +6264,35 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         </div>
       )}
       <Dialog open={pdfDialogOpen} onOpenChange={handlePdfDialogOpenChange}>
-        <DialogContent className="max-h-[92vh] max-w-5xl overflow-hidden border-slate-200 p-0 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" showClose>
-          <div className="flex max-h-[92vh] flex-col">
-            <DialogHeader className="border-b border-slate-200 px-5 py-4 text-left dark:border-slate-700">
-              <DialogTitle>PDF İndir</DialogTitle>
-              <DialogDescription>
-                {pdfDialogScope === "all" ? "Tüm veri" : "Mevcut görünüm"} için indirilecek PDF önizlemesini kontrol edebilirsiniz.
-              </DialogDescription>
+        <DialogContent className="h-[min(92vh,920px)] max-w-[min(96vw,1440px)] overflow-hidden border-slate-200 p-0 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" showClose>
+          <div className="flex h-full min-h-0 flex-col">
+            <DialogHeader className="shrink-0 border-b border-slate-200 px-5 py-4 text-left dark:border-slate-700">
+              <div className="flex flex-wrap items-start justify-between gap-3 pr-8">
+                <div>
+                  <DialogTitle>PDF İndir</DialogTitle>
+                  <DialogDescription>
+                    {pdfDialogScope === "all" ? "Tüm veri" : "Mevcut görünüm"} için indirilecek PDF&apos;i geniş önizleme alanında kontrol edin.
+                  </DialogDescription>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="rounded-full border border-slate-200 bg-white px-2 py-1 font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                    {selectedPdfRows.length} satır
+                  </span>
+                  <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                    {pdfDialogScope === "all" ? "Tüm veri" : "Mevcut görünüm"}
+                  </span>
+                  {selectedManagedReportTemplate && (
+                    <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200">
+                      {selectedManagedReportTemplate.template_config.pdfPageSize} · {selectedManagedReportTemplate.template_config.pdfOrientation === "portrait" ? "Dikey" : "Yatay"}
+                    </span>
+                  )}
+                </div>
+              </div>
             </DialogHeader>
 
-            <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-5 py-4 lg:grid-cols-[18rem_1fr]">
-              <div className="space-y-4">
+            <div className="grid min-h-0 flex-1 bg-slate-100 dark:bg-slate-950 lg:grid-cols-[20rem_minmax(0,1fr)]">
+              <aside className="min-h-0 overflow-y-auto border-b border-slate-200 bg-white px-4 py-4 dark:border-slate-700 dark:bg-slate-900 lg:border-b-0 lg:border-r">
+                <div className="space-y-4">
                 <div>
                   <label htmlFor="pdf-report-template" className="text-sm font-medium text-slate-700 dark:text-slate-300">
                     Rapor şablonu
@@ -6415,23 +6433,59 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                   Önizle
                 </Button>
               </div>
+              </aside>
 
-              <div className="min-h-[28rem] overflow-hidden rounded-md border border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-900">
-                {pdfPreviewUrl ? (
-                  <iframe
-                    title="PDF önizleme"
-                    src={pdfPreviewUrl}
-                    className="h-full min-h-[28rem] w-full bg-white"
-                  />
-                ) : (
-                  <div className="flex h-full min-h-[28rem] items-center justify-center px-4 text-center text-sm text-slate-500 dark:text-slate-400">
-                    Önizleme için Önizle butonuna tıklayın.
+              <section className="flex min-h-0 flex-col p-3 sm:p-4">
+                <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
+                      {selectedPdfTitle || "Görev Listesi"}
+                    </div>
+                    <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                      {pdfPreviewUrl ? "Önizleme hazır. İçeriği kontrol edip indirebilirsiniz." : "Önizleme oluşturulmadı."}
+                    </div>
                   </div>
-                )}
-              </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void previewExportPDF()}
+                    disabled={pdfPreviewLoading || pdfDownloadLoading}
+                  >
+                    {pdfPreviewLoading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                    ) : (
+                      <Eye className="mr-2 h-4 w-4" aria-hidden />
+                    )}
+                    Önizle
+                  </Button>
+                </div>
+
+                <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-300 bg-slate-200 shadow-inner dark:border-slate-700 dark:bg-slate-950">
+                  {pdfPreviewUrl ? (
+                    <iframe
+                      title="PDF önizleme"
+                      src={pdfPreviewUrl}
+                      className="h-full w-full bg-white"
+                    />
+                  ) : (
+                    <div className="flex h-full min-h-[34rem] items-center justify-center p-6">
+                      <div className="max-w-sm rounded-xl border border-dashed border-slate-300 bg-white px-6 py-8 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300">
+                          <Eye className="h-5 w-5" aria-hidden />
+                        </div>
+                        <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">PDF önizlemesi hazır değil</div>
+                        <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                          Şablon, başlık ve kapsamı kontrol ettikten sonra Önizle butonuna basın. PDF burada geniş görüntüleyici olarak açılır.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
             </div>
 
-            <DialogFooter className="gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3 dark:border-slate-700 dark:bg-slate-800/80 sm:gap-2">
+            <DialogFooter className="shrink-0 gap-2 border-t border-slate-200 bg-white px-5 py-3 dark:border-slate-700 dark:bg-slate-900 sm:gap-2">
               <Button type="button" variant="outline" onClick={() => handlePdfDialogOpenChange(false)} disabled={pdfDownloadLoading}>
                 İptal
               </Button>
