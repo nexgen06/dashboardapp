@@ -12,6 +12,15 @@ import {
   isRealtimeDisabledForClient,
   shouldPollInBrowser,
 } from "@/lib/realtimeFallback";
+import {
+  listMyNotifications,
+  markAllMyNotificationsRead,
+  markNotificationSourceRead,
+  markNotificationTypesRead,
+  upsertMyNotifications,
+  type CentralNotification,
+  type NotificationType,
+} from "@/lib/notifications";
 import { markProjectChatRead } from "@/lib/projectChatApi";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
@@ -28,17 +37,17 @@ import {
 } from "@/lib/announcements";
 
 export type NotificationSummaryItem = {
-  type:
-    | "project_assigned"
-    | "task_assigned"
-    | "overdue"
-    | "admin_team_done"
-    | "chat_unread"
-    | "announcement";
+  type: NotificationType;
   id?: string;
+  notificationId?: string;
+  sourceKey?: string;
+  sourceId?: string;
   label: string;
+  body?: string | null;
   href: string;
   count: number;
+  createdAt?: string;
+  readAt?: string | null;
 };
 
 export type NotificationSummary = {
@@ -78,6 +87,12 @@ export function useNotificationSummary(): NotificationSummary {
   const adminUnreadRef = useRef<AdminAlertRow[]>([]);
   adminUnreadRef.current = adminUnread;
 
+  const [centralNotifications, setCentralNotifications] = useState<CentralNotification[]>([]);
+  const [centralNotificationsAvailable, setCentralNotificationsAvailable] = useState(false);
+  const [centralNotificationsLoading, setCentralNotificationsLoading] = useState(false);
+  const centralNotificationsRef = useRef<CentralNotification[]>([]);
+  centralNotificationsRef.current = centralNotifications;
+
   // Duyurular (announcements) — herkes okur
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [readAnnouncementIds, setReadAnnouncementIds] = useState<Set<string>>(new Set());
@@ -92,6 +107,61 @@ export function useNotificationSummary(): NotificationSummary {
   if (channelIdRef.current === null) {
     channelIdRef.current = `${Math.random().toString(36).slice(2, 10)}`;
   }
+
+  const fetchCentralNotifications = useCallback(async () => {
+    if (!isSupabaseConfigured() || !userId || userId === "demo") {
+      setCentralNotifications([]);
+      setCentralNotificationsAvailable(false);
+      return;
+    }
+    setCentralNotificationsLoading(true);
+    try {
+      const result = await listMyNotifications(120);
+      if (!result.ok) {
+        setCentralNotificationsAvailable(false);
+        return;
+      }
+      setCentralNotificationsAvailable(true);
+      setCentralNotifications(result.data);
+    } finally {
+      setCentralNotificationsLoading(false);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    void fetchCentralNotifications();
+  }, [fetchCentralNotifications]);
+
+  useEffect(() => {
+    if (!userId) return;
+    const onFocus = () => void fetchCentralNotifications();
+    window.addEventListener("focus", onFocus);
+    const interval = window.setInterval(() => {
+      if (shouldPollInBrowser()) void fetchCentralNotifications();
+    }, 60_000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.clearInterval(interval);
+    };
+  }, [userId, fetchCentralNotifications]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !userId || userId === "demo") return;
+    if (isRealtimeDisabledForClient()) return;
+    const ch: RealtimeChannel = supabase
+      .channel(`notifications-${userId}-${channelIdRef.current}`, { config: { private: true } })
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "notifications", filter: `recipient_id=eq.${userId}` },
+        () => {
+          void fetchCentralNotifications();
+        }
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(ch);
+    };
+  }, [userId, fetchCentralNotifications]);
 
   const fetchAnnouncements = useCallback(async () => {
     if (!isSupabaseConfigured() || !userId || userId === "demo") {
@@ -258,7 +328,135 @@ export function useNotificationSummary(): NotificationSummary {
     };
   }, [canAdminNotifications, userId, fetchAdminUnread]);
 
+  useEffect(() => {
+    if (!centralNotificationsAvailable || !userId || userId === "demo") return;
+    const email = (currentUserEmail ?? "").trim().toLowerCase();
+    const items: Parameters<typeof upsertMyNotifications>[0] = [];
+
+    for (const a of announcements) {
+      if (readAnnouncementIds.has(a.id)) continue;
+      items.push({
+        type: "announcement",
+        title: a.title,
+        body: a.body,
+        href: "/bildirimler",
+        sourceTable: "announcements",
+        sourceId: a.id,
+        sourceKey: `announcement:${a.id}`,
+        payload: {
+          author_email: a.author_email,
+          pinned: a.pinned,
+          expires_at: a.expires_at,
+        },
+      });
+    }
+
+    if (canAdminNotifications) {
+      for (const a of adminUnread) {
+        items.push({
+          type: "admin_team_done",
+          title: a.summary,
+          href: "/canli-tablo",
+          sourceTable: "admin_alerts",
+          sourceId: a.id,
+          sourceKey: `admin_alert:${a.id}`,
+        });
+      }
+    }
+
+    if (email) {
+      const assignedProjects = projects.filter((p) =>
+        (p.assigned_emails ?? []).some((e) => e.trim().toLowerCase() === email)
+      );
+      const myTasks = tasks.filter((t) => (t.assignee ?? "").trim().toLowerCase() === email);
+      const today = new Date().toISOString().split("T")[0];
+      const overdueTasks = myTasks.filter(
+        (t) => t.due_date && String(t.due_date).trim() && String(t.due_date) < today
+      );
+
+      const seenProjects = new Set(derivedAck.projectIds);
+      const seenTasks = new Set(derivedAck.taskIds);
+      const seenOverdue = new Set(derivedAck.overdueTaskIds);
+
+      for (const p of assignedProjects.filter((p) => !seenProjects.has(p.id))) {
+        items.push({
+          type: "project_assigned",
+          title: `Size "${p.name}" projesi atandı`,
+          href: "/projeler",
+          sourceTable: "projects",
+          sourceId: p.id,
+          sourceKey: `project_assigned:${p.id}`,
+        });
+      }
+
+      for (const t of myTasks.filter((t) => !seenTasks.has(t.id))) {
+        items.push({
+          type: "task_assigned",
+          title: "Size yeni bir görev atandı",
+          body: t.content || null,
+          href: "/canli-tablo",
+          sourceTable: "tasks",
+          sourceId: t.id,
+          sourceKey: `task_assigned:${t.id}`,
+          payload: { project_id: t.project_id ?? null },
+        });
+      }
+
+      for (const t of overdueTasks.filter((t) => !seenOverdue.has(t.id))) {
+        items.push({
+          type: "overdue",
+          title: "Gecikmiş göreviniz var",
+          body: t.content || null,
+          href: "/canli-tablo",
+          sourceTable: "tasks",
+          sourceId: t.id,
+          sourceKey: `overdue:${t.id}`,
+          payload: { due_date: t.due_date ?? null, project_id: t.project_id ?? null },
+        });
+      }
+    }
+
+    for (const p of projects) {
+      const n = unreadByProjectId[p.id] ?? 0;
+      if (n > 0) {
+        items.push({
+          type: "chat_unread",
+          title: n === 1 ? `${p.name}: 1 yeni mesaj` : `${p.name}: ${n} yeni mesaj`,
+          href: `/projeler/${p.id}`,
+          count: n,
+          sourceTable: "project_chat_messages",
+          sourceId: p.id,
+          sourceKey: `project_chat:${p.id}`,
+          resetRead: true,
+        });
+      }
+    }
+
+    if (items.length === 0) return;
+    void upsertMyNotifications(items).then((ok) => {
+      if (ok) void fetchCentralNotifications();
+    });
+  }, [
+    centralNotificationsAvailable,
+    userId,
+    currentUserEmail,
+    announcements,
+    readAnnouncementIds,
+    canAdminNotifications,
+    adminUnread,
+    projects,
+    tasks,
+    derivedAck,
+    unreadByProjectId,
+    fetchCentralNotifications,
+  ]);
+
   const onPanelOpened = useCallback(async () => {
+    if (centralNotificationsAvailable) {
+      await markNotificationTypesRead(["project_assigned", "task_assigned", "overdue", "admin_team_done"]);
+      void fetchCentralNotifications();
+    }
+
     const snapshot = adminUnreadRef.current;
     if (userId && userId !== "demo" && canAdminNotifications && snapshot.length > 0) {
       const rows = snapshot.map((a) => ({ alert_id: a.id, reader_id: userId }));
@@ -292,9 +490,27 @@ export function useNotificationSummary(): NotificationSummary {
     // NOT: Duyuruları (announcements) burada OKUNDU işaretlemiyoruz — kullanıcı
     // sadece dropdown'ı açtı diye duyurular silinmemeli. /bildirimler sayfasında
     // bireysel tıklama veya "Hepsini okundu işaretle" butonuyla manuel olarak işaretlenir.
-  }, [userId, canAdminNotifications, currentUserEmail, projects, tasks]);
+  }, [centralNotificationsAvailable, fetchCentralNotifications, userId, canAdminNotifications, currentUserEmail, projects, tasks]);
 
   const summary = useMemo(() => {
+    if (centralNotificationsAvailable) {
+      const items: NotificationSummaryItem[] = centralNotifications.map((n) => ({
+        type: n.type,
+        id: n.source_id ?? n.id,
+        notificationId: n.id,
+        sourceId: n.source_id ?? undefined,
+        sourceKey: n.source_key,
+        label: n.title,
+        body: n.body,
+        href: n.href || "/bildirimler",
+        count: n.read_at ? 0 : Math.max(1, Number(n.count ?? 1)),
+        createdAt: n.created_at,
+        readAt: n.read_at,
+      }));
+      const totalCount = items.reduce((s, i) => s + i.count, 0);
+      return { totalCount, items };
+    }
+
     const email = (currentUserEmail ?? "").trim().toLowerCase();
     const items: NotificationSummaryItem[] = [];
 
@@ -398,13 +614,30 @@ export function useNotificationSummary(): NotificationSummary {
 
     const totalCount = items.reduce((s, i) => s + i.count, 0);
     return { totalCount, items };
-  }, [currentUserEmail, projects, tasks, canAdminNotifications, adminUnread, derivedAck, unreadByProjectId, announcements, readAnnouncementIds]);
+  }, [
+    centralNotificationsAvailable,
+    centralNotifications,
+    currentUserEmail,
+    projects,
+    tasks,
+    canAdminNotifications,
+    adminUnread,
+    derivedAck,
+    unreadByProjectId,
+    announcements,
+    readAnnouncementIds,
+  ]);
 
   /**
    * "Hepsini okundu işaretle": türetilmiş ack + admin alert read + proje sohbet read'leri.
    * Bell popover'daki butona bağlanır; auto-ACK ile aynı sonucu verir, kullanıcıya kontrol verir.
    */
   const onMarkAllRead = useCallback(async () => {
+    if (centralNotificationsAvailable) {
+      await markAllMyNotificationsRead();
+      void fetchCentralNotifications();
+    }
+
     await onPanelOpened();
 
     // Tüm duyuruları okundu işaretle (manuel buton)
@@ -430,10 +663,22 @@ export function useNotificationSummary(): NotificationSummary {
       unreadProjectIds.map((pid) => markProjectChatRead(pid, email))
     );
     refreshChatUnread();
-  }, [onPanelOpened, currentUserEmail, unreadByProjectId, refreshChatUnread, readAnnouncementIds]);
+  }, [
+    centralNotificationsAvailable,
+    fetchCentralNotifications,
+    onPanelOpened,
+    currentUserEmail,
+    unreadByProjectId,
+    refreshChatUnread,
+    readAnnouncementIds,
+  ]);
 
   const markAnnouncementRead = useCallback(
     async (id: string) => {
+      if (centralNotificationsAvailable) {
+        await markNotificationSourceRead(`announcement:${id}`);
+        void fetchCentralNotifications();
+      }
       await markAnnouncementReadFn(id);
       setReadAnnouncementIds((prev) => {
         const nextSet = new Set(prev);
@@ -441,12 +686,16 @@ export function useNotificationSummary(): NotificationSummary {
         return nextSet;
       });
     },
-    []
+    [centralNotificationsAvailable, fetchCentralNotifications]
   );
 
   return {
     ...summary,
-    isLoading: projectsLoading || tasksLoading || (canAdminNotifications && adminAlertsLoading),
+    isLoading:
+      projectsLoading ||
+      tasksLoading ||
+      centralNotificationsLoading ||
+      (canAdminNotifications && adminAlertsLoading),
     onPanelOpened: userId ? () => void onPanelOpened() : undefined,
     onMarkAllRead: userId ? () => void onMarkAllRead() : undefined,
     announcements,

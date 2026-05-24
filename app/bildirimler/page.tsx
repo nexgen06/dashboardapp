@@ -97,7 +97,7 @@ export default function BildirimlerPage() {
       announcement: 0,
     };
     for (const item of summary.items) {
-      m[item.type] = (m[item.type] ?? 0) + (item.count || 1);
+      m[item.type] = (m[item.type] ?? 0) + item.count;
     }
     return m;
   }, [summary.items]);
@@ -229,10 +229,15 @@ export default function BildirimlerPage() {
             // Duyurular için özel render: body göster + tıkla = okundu işaretle
             if (item.type === "announcement" && item.id) {
               const announcement = summary.announcements?.find((a) => a.id === item.id);
-              const isRead = summary.readAnnouncementIds?.has(item.id) ?? false;
-              if (!announcement) return null;
+              const isRead = item.count === 0 || (summary.readAnnouncementIds?.has(item.id) ?? false);
+              const title = announcement?.title ?? item.label;
+              const body = announcement?.body ?? item.body ?? "";
+              const createdAt = announcement?.created_at ?? item.createdAt;
+              const authorEmail =
+                announcement?.author_email ??
+                (typeof item.body === "string" ? null : null);
               return (
-                <li key={item.id}>
+                <li key={item.notificationId ?? item.id}>
                   <button
                     type="button"
                     onClick={() => {
@@ -260,7 +265,7 @@ export default function BildirimlerPage() {
                         <span className={cn("shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide", meta.bg, meta.text)}>
                           {meta.chip}
                         </span>
-                        {announcement.pinned && (
+                        {announcement?.pinned && (
                           <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
                             📌 Sabit
                           </span>
@@ -268,19 +273,19 @@ export default function BildirimlerPage() {
                         {!isRead && (
                           <span className="h-2 w-2 rounded-full bg-violet-500" aria-label="Okunmamış" />
                         )}
-                        <span className="ml-auto text-[10px] text-slate-400">
-                          {new Date(announcement.created_at).toLocaleString("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
-                        </span>
+                        {createdAt && (
+                          <span className="ml-auto text-[10px] text-slate-400">
+                            {new Date(createdAt).toLocaleString("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                        )}
                       </span>
                       <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                        {announcement.title}
+                        {title}
                       </span>
                       <span className="whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-400">
-                        {announcement.body}
+                        {body}
                       </span>
-                      <span className="text-[10px] text-slate-400">
-                        — {announcement.author_email}
-                      </span>
+                      {authorEmail && <span className="text-[10px] text-slate-400">— {authorEmail}</span>}
                     </span>
                   </button>
                 </li>
@@ -336,8 +341,7 @@ export default function BildirimlerPage() {
       )}
 
       <p className="text-[11px] text-slate-400 dark:text-slate-500">
-        Bildirimler proje ve görev verilerinden türetilir; ayrı bir bildirim tablosu yoktur.
-        &quot;Okundu işaretle&quot; ile mevcut bildirimler 24 saat boyunca yeniden gösterilmez.
+        Bildirimler merkezi kayıt kutusundan okunur; SQL henüz uygulanmamış ortamlarda eski türetilmiş bildirimler yedek olarak çalışır.
       </p>
     </div>
   );

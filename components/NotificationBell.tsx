@@ -101,7 +101,7 @@ export function NotificationBell({ summary }: { summary: NotificationSummary }) 
               const Icon = ICON_MAP[item.type];
               return (
                 <Link
-                  key={item.id ?? item.type}
+                  key={item.notificationId ?? item.id ?? item.type}
                   href={item.href}
                   className="flex items-center gap-3 px-3 py-2.5 text-left text-sm outline-none transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/50"
                 >
