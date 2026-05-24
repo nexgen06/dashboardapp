@@ -76,12 +76,16 @@ export async function listMyProjectMemberPermissions(): Promise<
   if (!isSupabaseConfigured()) return { ok: false, missingTable: false };
   const { data: auth, error: authError } = await supabase.auth.getUser();
   const userId = auth?.user?.id;
+  const userEmail = (auth?.user?.email ?? "").trim().toLowerCase();
   if (authError || !userId) return { ok: false, missingTable: false };
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("project_member_permissions")
-    .select("*")
-    .eq("user_id", userId);
+    .select("*");
+  query = userEmail
+    ? query.or(`user_id.eq.${userId},user_email.eq.${userEmail}`)
+    : query.eq("user_id", userId);
+  const { data, error } = await query;
 
   if (error) {
     const missingTable = isMissingProjectMemberPermissions(error);
@@ -92,8 +96,12 @@ export async function listMyProjectMemberPermissions(): Promise<
   return { ok: true, data: (data ?? []) as ProjectMemberPermission[] };
 }
 
-export async function upsertProjectMemberPermissions(rows: ProjectMemberPermissionInput[]): Promise<boolean> {
-  if (!isSupabaseConfigured() || rows.length === 0) return false;
+export async function upsertProjectMemberPermissions(
+  rows: ProjectMemberPermissionInput[]
+): Promise<{ ok: true } | { ok: false; missingTable: boolean; message: string }> {
+  if (!isSupabaseConfigured() || rows.length === 0) {
+    return { ok: false, missingTable: false, message: "Supabase bağlantısı yok veya kaydedilecek satır bulunamadı." };
+  }
   const payload = rows.map((row) => ({
     ...row,
     user_email: row.user_email.trim().toLowerCase(),
@@ -102,8 +110,15 @@ export async function upsertProjectMemberPermissions(rows: ProjectMemberPermissi
     onConflict: "project_id,user_id",
   });
   if (error) {
-    if (!isMissingProjectMemberPermissions(error)) console.warn("[project member permissions] upsert:", error.message);
-    return false;
+    const missingTable = isMissingProjectMemberPermissions(error);
+    if (!missingTable) console.warn("[project member permissions] upsert:", error.message);
+    return {
+      ok: false,
+      missingTable,
+      message: missingTable
+        ? "Proje bazlı yetki SQL tablosu bulunamadı."
+        : error.message || "Proje bazlı yetkiler kaydedilemedi.",
+    };
   }
-  return true;
+  return { ok: true };
 }

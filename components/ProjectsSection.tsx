@@ -6,6 +6,7 @@ import { useProjects } from "@/hooks/useProjects";
 import { useTaskCountByProject } from "@/hooks/useTaskCountByProject";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
 import { usePrompt } from "@/components/ui/modals";
+import { useToast } from "@/components/ui/toast";
 import { useSettings } from "@/contexts/settings-context";
 import { useAuth } from "@/contexts/auth-context";
 import { useProjectChatUnread } from "@/contexts/project-chat-unread-context";
@@ -327,6 +328,7 @@ function ProjectFormModal({
   const [permissionsLoading, setPermissionsLoading] = useState(false);
   const [permissionsSaving, setPermissionsSaving] = useState(false);
   const [permissionsMissingTable, setPermissionsMissingTable] = useState(false);
+  const toast = useToast();
   /** 2-adım sihirbazı: 1 = proje bilgileri, 2 = opsiyonel görev içe aktarma. Edit modunda kullanılmaz. */
   const [step, setStep] = useState<1 | 2>(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -615,6 +617,78 @@ function ProjectFormModal({
     });
   };
 
+  const buildPermissionPatchForRole = (
+    role: ProjectMemberRole,
+    current: ProjectMemberPermission
+  ): Partial<Omit<ProjectMemberPermission, "project_id" | "user_id" | "user_email">> => {
+    if (role === "viewer") {
+      return {
+        project_role: role,
+        can_view: true,
+        can_edit: false,
+        can_comment: false,
+        can_copy: false,
+        can_export: false,
+        can_export_unmasked: false,
+        can_bulk_update: false,
+        can_bulk_delete: false,
+      };
+    }
+    if (role === "member") {
+      return {
+        project_role: role,
+        can_view: true,
+        can_edit: true,
+        can_comment: true,
+        can_copy: true,
+        can_export: false,
+        can_export_unmasked: false,
+        can_bulk_update: false,
+        can_bulk_delete: false,
+      };
+    }
+    return {
+      project_role: role,
+      can_view: true,
+      can_edit: true,
+      can_comment: true,
+      can_copy: true,
+      can_export: true,
+      can_export_unmasked: isAdmin ? current.can_export_unmasked : false,
+      can_bulk_update: true,
+      can_bulk_delete: isAdmin ? current.can_bulk_delete : false,
+    };
+  };
+
+  const buildPermissionPatchForToggle = (
+    key: keyof Pick<
+      ProjectMemberPermission,
+      | "can_view"
+      | "can_edit"
+      | "can_comment"
+      | "can_copy"
+      | "can_export"
+      | "can_export_unmasked"
+      | "can_bulk_update"
+      | "can_bulk_delete"
+    >,
+    checked: boolean
+  ): Partial<Omit<ProjectMemberPermission, "project_id" | "user_id" | "user_email">> => {
+    if (key === "can_view" && !checked) {
+      return {
+        can_view: false,
+        can_edit: false,
+        can_comment: false,
+        can_copy: false,
+        can_export: false,
+        can_export_unmasked: false,
+        can_bulk_update: false,
+        can_bulk_delete: false,
+      };
+    }
+    return checked ? { can_view: true, [key]: true } : { [key]: false };
+  };
+
   const saveMemberPermissions = async () => {
     if (!project) return;
     const rows = assignedPermissionRows
@@ -633,15 +707,22 @@ function ProjectFormModal({
         can_bulk_update: row.permission.can_bulk_update,
         can_bulk_delete: isAdmin ? row.permission.can_bulk_delete : false,
       }));
-    if (rows.length === 0) return;
+    if (rows.length === 0) {
+      toast.warning("Kaydedilecek proje yetkisi bulunamadı.");
+      return;
+    }
     setPermissionsSaving(true);
     try {
-      const ok = await upsertProjectMemberPermissions(rows);
-      if (!ok) {
-        setPermissionsMissingTable(true);
+      const result = await upsertProjectMemberPermissions(rows);
+      if (!result.ok) {
+        setPermissionsMissingTable(result.missingTable);
+        toast.error("Proje yetkileri kaydedilemedi", { description: result.message });
         return;
       }
       setPermissionsMissingTable(false);
+      toast.success("Proje bazlı yetkiler kaydedildi", {
+        description: `${rows.length} kullanıcı için yetki matrisi güncellendi.`,
+      });
     } finally {
       setPermissionsSaving(false);
     }
@@ -1256,7 +1337,10 @@ function ProjectFormModal({
                 {profile && permission && (
                   <select
                     value={permission.project_role}
-                    onChange={(e) => patchMemberPermission(profile.uid, { project_role: e.target.value as ProjectMemberRole })}
+                    onChange={(e) => {
+                      const role = e.target.value as ProjectMemberRole;
+                      patchMemberPermission(profile.uid, buildPermissionPatchForRole(role, permission));
+                    }}
                     className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
                   >
                     <option value="project_owner">Proje sahibi</option>
@@ -1285,7 +1369,7 @@ function ProjectFormModal({
                           type="checkbox"
                           checked={Boolean(permission[key])}
                           disabled={restricted}
-                          onChange={(e) => patchMemberPermission(profile.uid, { [key]: e.target.checked } as Partial<ProjectMemberPermission>)}
+                          onChange={(e) => patchMemberPermission(profile.uid, buildPermissionPatchForToggle(key, e.target.checked))}
                           className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                         />
                         {label}

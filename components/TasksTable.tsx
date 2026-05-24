@@ -2099,7 +2099,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       return;
     }
 
-    void (async () => {
+    const loadPermissions = async () => {
       const result = await listMyProjectMemberPermissions();
       if (cancelled) return;
       if (!result.ok) {
@@ -2111,10 +2111,26 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         Object.fromEntries(result.data.map((permission) => [String(permission.project_id), permission]))
       );
       setProjectPermissionsAvailable(true);
-    })();
+    };
+
+    void loadPermissions();
+    const interval = window.setInterval(() => {
+      void loadPermissions();
+    }, 15000);
+    const onFocus = () => {
+      void loadPermissions();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void loadPermissions();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
       cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [user?.id]);
 
@@ -2140,7 +2156,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       if (isAdmin) return true;
 
       const projectPermission = getProjectPermissionForTask(task);
-      return projectPermission ? projectPermission.can_edit : baseAllowed;
+      return projectPermission ? projectPermission.can_view && projectPermission.can_edit : baseAllowed;
     },
     [canEditTask, currentUserEmail, getProjectPermissionForTask, isAdmin, projectById, user?.roleId]
   );
@@ -2150,7 +2166,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       if (!canCommentTask || !canEditRow(task)) return false;
       if (isAdmin) return true;
       const projectPermission = getProjectPermissionForTask(task);
-      return projectPermission ? projectPermission.can_comment : true;
+      return projectPermission ? projectPermission.can_view && projectPermission.can_comment : true;
     },
     [canCommentTask, canEditRow, getProjectPermissionForTask, isAdmin]
   );
@@ -2160,7 +2176,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       if (!canCopyCell || !canEditRow(task)) return false;
       if (isAdmin) return true;
       const projectPermission = getProjectPermissionForTask(task);
-      return projectPermission ? projectPermission.can_copy : true;
+      return projectPermission ? projectPermission.can_view && projectPermission.can_copy : true;
     },
     [canCopyCell, canEditRow, getProjectPermissionForTask, isAdmin]
   );
@@ -2170,7 +2186,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       if (!canBulkUpdate || !canEditRow(task)) return false;
       if (isAdmin) return true;
       const projectPermission = getProjectPermissionForTask(task);
-      return projectPermission ? projectPermission.can_bulk_update : true;
+      return projectPermission ? projectPermission.can_view && projectPermission.can_bulk_update : true;
     },
     [canBulkUpdate, canEditRow, getProjectPermissionForTask, isAdmin]
   );
@@ -2180,7 +2196,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       if (!canBulkDelete || !canEditRow(task)) return false;
       if (isAdmin) return true;
       const projectPermission = getProjectPermissionForTask(task);
-      return projectPermission ? projectPermission.can_bulk_delete : true;
+      return projectPermission ? projectPermission.can_view && projectPermission.can_bulk_delete : true;
     },
     [canBulkDelete, canEditRow, getProjectPermissionForTask, isAdmin]
   );
@@ -2190,7 +2206,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       if (!canExportCsv) return false;
       if (isAdmin) return true;
       const projectPermission = getProjectPermissionForTask(task);
-      if (projectPermission) return projectPermission.can_export;
+      if (projectPermission) return projectPermission.can_view && projectPermission.can_export;
       return canExportAllRows ? true : canEditRow(task);
     },
     [canEditRow, canExportAllRows, canExportCsv, getProjectPermissionForTask, isAdmin]
@@ -2201,7 +2217,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       if (!canExportSensitiveUnmasked) return false;
       if (isAdmin) return true;
       const projectPermission = getProjectPermissionForTask(task);
-      return projectPermission ? projectPermission.can_export_unmasked : true;
+      return projectPermission ? projectPermission.can_view && projectPermission.can_export_unmasked : true;
     },
     [canExportSensitiveUnmasked, getProjectPermissionForTask, isAdmin]
   );
