@@ -241,6 +241,16 @@ export function TaskDetailSheet({
    */
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
+  /** Sayfalama: 50 ile başla, kullanıcı "Daha fazla yükle" deyince 50'şer artar. */
+  const [auditLimit, setAuditLimit] = useState(50);
+  /** Filtre: yalnızca alan değişikliği olan update'leri göster (insert/delete gizlenir). */
+  const [auditOnlyChanges, setAuditOnlyChanges] = useState(false);
+
+  // Görev değiştiğinde limit ve filtreyi sıfırla
+  useEffect(() => {
+    setAuditLimit(50);
+    setAuditOnlyChanges(false);
+  }, [task?.id]);
 
   useEffect(() => {
     if (!task) {
@@ -249,7 +259,7 @@ export function TaskDetailSheet({
     }
     let cancelled = false;
     setAuditLoading(true);
-    void fetchAuditLog("tasks", task.id, 50).then((entries) => {
+    void fetchAuditLog("tasks", task.id, auditLimit).then((entries) => {
       if (cancelled) return;
       setAuditLog(entries);
       setAuditLoading(false);
@@ -258,7 +268,7 @@ export function TaskDetailSheet({
     if (isRealtimeDisabledForClient()) {
       const interval = window.setInterval(() => {
         if (!shouldPollInBrowser()) return;
-        void fetchAuditLog("tasks", task.id, 50).then((entries) => {
+        void fetchAuditLog("tasks", task.id, auditLimit).then((entries) => {
           if (!cancelled) setAuditLog(entries);
         });
       }, ACTIVITY_FALLBACK_POLL_MS);
@@ -270,7 +280,7 @@ export function TaskDetailSheet({
 
     // Realtime: bu görev için yeni audit_log INSERT olursa listeye ekle
     const channel = supabase
-      .channel(`audit-${task.id}`, { config: { private: true } })
+      .channel(`audit-${task.id}-${auditLimit}`, { config: { private: true } })
       .on(
         "postgres_changes",
         {
@@ -281,7 +291,7 @@ export function TaskDetailSheet({
         },
         () => {
           // Tam yeniden fetch — yeni satırı RLS'le doğru hidrate etmek için
-          void fetchAuditLog("tasks", task.id, 50).then((entries) => {
+          void fetchAuditLog("tasks", task.id, auditLimit).then((entries) => {
             if (!cancelled) setAuditLog(entries);
           });
         }
@@ -292,7 +302,13 @@ export function TaskDetailSheet({
       cancelled = true;
       void supabase.removeChannel(channel);
     };
-  }, [task]);
+  }, [task, auditLimit]);
+
+  /** Filtre uygulanmış audit log — sadece UI tarafında, fetch'i bypass eder. */
+  const filteredAuditLog = auditOnlyChanges
+    ? auditLog.filter((e) => e.action === "update" && Object.keys(e.changedFields).length > 0)
+    : auditLog;
+  const auditHasMore = auditLog.length >= auditLimit; // Tam dolduysa muhtemelen daha fazla var
 
   /**
    * Klavye gezinmesi: Sheet açıkken
@@ -489,15 +505,36 @@ export function TaskDetailSheet({
 
           {/* Aktivite timeline — audit_log üzerinden, realtime senkron */}
           <section className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800/70">
-            <h3 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              <History className="h-3 w-3" aria-hidden />
-              Aktivite
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h3 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                <History className="h-3 w-3" aria-hidden />
+                Aktivite
+                {auditLog.length > 0 && (
+                  <span className="ml-1 rounded-full bg-slate-100 px-1.5 text-[10px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                    {auditOnlyChanges ? `${filteredAuditLog.length}/${auditLog.length}` : auditLog.length}
+                  </span>
+                )}
+              </h3>
               {auditLog.length > 0 && (
-                <span className="ml-1 rounded-full bg-slate-100 px-1.5 text-[10px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-                  {auditLog.length}
-                </span>
+                <label
+                  className={cn(
+                    "inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-0.5 text-[10px] font-medium transition-colors",
+                    auditOnlyChanges
+                      ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-600 dark:bg-blue-950/40 dark:text-blue-300"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                  )}
+                  title="Sadece alan değişikliklerini göster (oluşturma/silme gizlenir)"
+                >
+                  <input
+                    type="checkbox"
+                    checked={auditOnlyChanges}
+                    onChange={(e) => setAuditOnlyChanges(e.target.checked)}
+                    className="h-3 w-3 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  Sadece değişiklikler
+                </label>
               )}
-            </h3>
+            </div>
             {auditLoading && auditLog.length === 0 ? (
               <div className="flex items-center gap-2 px-3 py-4 text-xs text-slate-500 dark:text-slate-400">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -508,12 +545,37 @@ export function TaskDetailSheet({
                 Henüz değişiklik kaydı yok. Görevde yapılacak değişiklikler
                 burada otomatik listelenir.
               </div>
+            ) : filteredAuditLog.length === 0 ? (
+              <div className="rounded-md border border-dashed border-slate-300 bg-slate-50/40 px-3 py-4 text-center text-xs text-slate-500 dark:border-slate-600 dark:bg-slate-800/40 dark:text-slate-400">
+                Bu görevde alan değişikliği yok. Filtreyi kapatarak oluşturma/silme kayıtlarını da görebilirsiniz.
+              </div>
             ) : (
-              <ol className="space-y-2.5">
-                {auditLog.map((entry) => (
-                  <AuditEntryLine key={entry.id} entry={entry} />
-                ))}
-              </ol>
+              <>
+                <ol className="space-y-2.5">
+                  {filteredAuditLog.map((entry) => (
+                    <AuditEntryLine key={entry.id} entry={entry} />
+                  ))}
+                </ol>
+                {auditHasMore && (
+                  <div className="mt-3 flex justify-center">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setAuditLimit((n) => n + 50)}
+                      disabled={auditLoading}
+                      className="text-xs"
+                    >
+                      {auditLoading ? (
+                        <Loader2 className="mr-1.5 h-3 w-3 animate-spin" aria-hidden />
+                      ) : (
+                        <History className="mr-1.5 h-3 w-3" aria-hidden />
+                      )}
+                      Daha fazla yükle ({auditLimit}+ kayıt)
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
           </section>
         </SheetBody>
