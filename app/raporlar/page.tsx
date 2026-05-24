@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import {
   BarChart3,
@@ -13,6 +14,8 @@ import {
   Shield,
   Loader2,
   TrendingUp,
+  PieChart as PieIcon,
+  LineChart as LineIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useProjects } from "@/hooks/useProjects";
@@ -21,9 +24,33 @@ import { Button } from "@/components/ui/button";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { EmptyState } from "@/components/ui/empty-state";
 import { isTaskCompleted } from "@/lib/taskStats";
+import { isStatusDone, isStatusInProgress, isStatusTodo } from "@/lib/statusKind";
 import { cn } from "@/lib/utils";
 import type { Task } from "@/types/tasks";
 import type { Project } from "@/types/project";
+
+// Recharts ~115KB → SSR kapalı, sadece bu sayfada lazy yüklenir
+const ProjectsBarChart = dynamic(
+  () => import("@/components/charts/ReportCharts").then((m) => m.ProjectsBarChart),
+  { ssr: false, loading: () => <ChartSkeleton /> }
+);
+const StatusPieChart = dynamic(
+  () => import("@/components/charts/ReportCharts").then((m) => m.StatusPieChart),
+  { ssr: false, loading: () => <ChartSkeleton /> }
+);
+const WeeklyTrendLineChart = dynamic(
+  () => import("@/components/charts/ReportCharts").then((m) => m.WeeklyTrendLineChart),
+  { ssr: false, loading: () => <ChartSkeleton /> }
+);
+
+function ChartSkeleton() {
+  return (
+    <div className="flex h-[280px] items-center justify-center text-xs text-slate-400">
+      <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+      Grafik yükleniyor…
+    </div>
+  );
+}
 
 type DateRange = "7d" | "30d" | "90d" | "all";
 
@@ -184,6 +211,46 @@ export default function RaporlarPage() {
   }, [tasks]);
   const maxWeekly = Math.max(1, ...weeklyTrend.map((w) => w.count));
 
+  // ───────────────────── Grafik veri kaynakları ─────────────────────
+  // 1) Proje bar chart — projectStats'ten ilk 10
+  const projectsBarData = useMemo(
+    () =>
+      projectStats.slice(0, 10).map((p) => ({
+        name: p.project.name || "(adsız)",
+        toplam: p.total,
+        tamamlanan: p.done,
+        gecikmis: p.overdue,
+      })),
+    [projectStats]
+  );
+
+  // 2) Durum dağılımı pie — scopedTasks'ten statusKind ile
+  const statusPieData = useMemo(() => {
+    let todo = 0;
+    let inProgress = 0;
+    let done = 0;
+    let other = 0;
+    for (const t of scopedTasks) {
+      const s = t.status;
+      if (isStatusDone(s)) done++;
+      else if (isStatusInProgress(s)) inProgress++;
+      else if (isStatusTodo(s)) todo++;
+      else other++;
+    }
+    return [
+      { name: "Yapılacak", value: todo },
+      { name: "Devam ediyor", value: inProgress },
+      { name: "Tamamlandı", value: done },
+      { name: "Diğer", value: other },
+    ];
+  }, [scopedTasks]);
+
+  // 3) Haftalık trend line — mevcut weeklyTrend (recharts şekline çevir)
+  const weeklyLineData = useMemo(
+    () => weeklyTrend.map((w) => ({ label: w.label, tamamlanan: w.count })),
+    [weeklyTrend]
+  );
+
   const handleExport = () => {
     const header = ["Bölüm", "Ad", "Toplam", "Tamamlanan", "Gecikmiş", "Tamamlanma %"];
     const rows: string[][] = [header];
@@ -308,6 +375,37 @@ export default function RaporlarPage() {
               value={stats.avgDays != null ? `${stats.avgDays.toFixed(1)} gün` : "—"}
               tone="blue"
             />
+          </div>
+
+          {/* ─────────── Grafikler — Recharts: bar + pie + line ─────────── */}
+          <div className="grid gap-3 lg:grid-cols-3">
+            <section className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800/40 lg:col-span-2">
+              <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                <BarChart3 className="h-4 w-4 text-blue-600 dark:text-blue-400" aria-hidden />
+                Proje bazında dağılım
+                <span className="ml-1 text-[11px] font-normal text-slate-400 dark:text-slate-500">
+                  · ilk 10 proje
+                </span>
+              </h2>
+              <ProjectsBarChart data={projectsBarData} />
+            </section>
+            <section className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800/40">
+              <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                <PieIcon className="h-4 w-4 text-emerald-600 dark:text-emerald-400" aria-hidden />
+                Durum dağılımı
+              </h2>
+              <StatusPieChart data={statusPieData} />
+            </section>
+            <section className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800/40 lg:col-span-3">
+              <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                <LineIcon className="h-4 w-4 text-amber-600 dark:text-amber-400" aria-hidden />
+                Tamamlanma trendi
+                <span className="ml-1 text-[11px] font-normal text-slate-400 dark:text-slate-500">
+                  · son 8 hafta
+                </span>
+              </h2>
+              <WeeklyTrendLineChart data={weeklyLineData} />
+            </section>
           </div>
 
           {/* Proje karşılaştırma */}
