@@ -58,25 +58,60 @@ export type PdfRenderOptions = {
   summaryBullets?: string[];
 };
 
-/** URL'den base64 data-uri yükle — pdfmake `image: dataUri` için. */
+/**
+ * URL'den base64 data-uri yükle — pdfmake `image: dataUri` için.
+ *
+ * Strateji:
+ *  1. URL zaten data-uri ise direkt döndür
+ *  2. Aynı origin veya CORS açık kaynaksa doğrudan fetch
+ *  3. CORS hatasında otomatik olarak `/api/image-proxy` üzerinden tekrar dene
+ *  4. İkisi de başarısız olursa null (PDF logosuz devam eder)
+ */
 async function loadImageDataUri(url: string): Promise<string | null> {
   if (typeof window === "undefined") return null;
   const trimmed = (url ?? "").trim();
   if (!trimmed) return null;
   if (trimmed.startsWith("data:image/")) return trimmed;
-  try {
-    const res = await fetch(trimmed, { credentials: "omit", mode: "cors" });
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    if (!blob.type.startsWith("image/")) return null;
-    return await new Promise<string>((resolve, reject) => {
+
+  const blobToDataUri = (blob: Blob): Promise<string> =>
+    new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));
       reader.onerror = reject;
       reader.readAsDataURL(blob);
     });
+
+  // 1) Doğrudan CORS'lu fetch
+  try {
+    const res = await fetch(trimmed, { credentials: "omit", mode: "cors" });
+    if (res.ok) {
+      const blob = await res.blob();
+      if (blob.type.startsWith("image/")) {
+        return await blobToDataUri(blob);
+      }
+    }
   } catch (err) {
-    console.warn("[liveTableExport] logo yüklenemedi:", err);
+    // CORS hatası beklenen davranış; proxy ile yeniden deneyeceğiz
+    console.info("[liveTableExport] logo doğrudan fetch başarısız, proxy denenecek:", err instanceof Error ? err.message : err);
+  }
+
+  // 2) Sunucu tarafı proxy fallback (CORS sorunu olan harici URL'ler için)
+  try {
+    const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(trimmed)}`;
+    const res = await fetch(proxyUrl, { credentials: "omit" });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      console.warn("[liveTableExport] logo proxy başarısız:", res.status, detail.slice(0, 200));
+      return null;
+    }
+    const blob = await res.blob();
+    if (!blob.type.startsWith("image/")) {
+      console.warn("[liveTableExport] proxy yanıtı resim değil:", blob.type);
+      return null;
+    }
+    return await blobToDataUri(blob);
+  } catch (err) {
+    console.warn("[liveTableExport] logo yüklenemedi (proxy de başarısız):", err);
     return null;
   }
 }

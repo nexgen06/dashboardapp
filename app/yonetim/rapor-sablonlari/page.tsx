@@ -255,6 +255,11 @@ export default function RaporSablonlariPage() {
     brandingDraft.orgName !== branding.orgName ||
     brandingDraft.pdfFooterText !== branding.pdfFooterText;
 
+  /** Kurumsal kimlik tanımlı ama hiçbir şablonda showLogo aktif değilse uyarı göster. */
+  const hasBranding = !!(branding.logoUrl || branding.orgName);
+  const anyTemplateUsesLogo = templates.some((t) => t.template_config.showLogo === true);
+  const showLogoNotUsedHint = hasBranding && templates.length > 0 && !anyTemplateUsesLogo;
+
   const selectedBuiltin = useMemo(() => REPORT_TEMPLATES[form.baseTemplateId], [form.baseTemplateId]);
 
   const applyBaseTemplate = (id: ReportTemplateId) => {
@@ -456,6 +461,14 @@ export default function RaporSablonlariPage() {
               </Button>
             </div>
           </div>
+          {showLogoNotUsedHint && (
+            <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
+              <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span>
+                Kurumsal kimliği tanımladınız ancak hiçbir şablonda &quot;Logo bandı&quot; aktif değil. PDF/e-posta çıktısında logo görünmesi için aşağıdaki herhangi bir rapor şablonunu düzenleyin ve <strong>&quot;Sunum &amp; Marka&quot;</strong> bölümündeki <strong>&quot;Kurum logosu &amp; adı bandı&quot;</strong> kutusunu işaretleyin.
+              </span>
+            </div>
+          )}
         </section>
       )}
 
