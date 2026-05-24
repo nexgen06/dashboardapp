@@ -1,4 +1,5 @@
 import type { EmailTemplateMode, PdfExportScope, ReportTemplateId } from "@/lib/liveTableExport";
+import type { FilterPresetId, PdfOrientationOption, PdfPageSizeOption } from "@/lib/reportTemplates";
 
 const STORAGE_PREFIX = "dashboardapp.reportTemplates.v1:";
 
@@ -12,8 +13,23 @@ export type SavedReportTemplate = {
   scope: PdfExportScope;
   visibleColumnIds: string[];
   unmaskSensitive: boolean;
+  showLogo: boolean;
+  coverNote: string;
+  summaryBullets: string[];
+  defaultFilterPresets: FilterPresetId[];
+  defaultSavedViewId: string | null;
+  pdfOrientation: PdfOrientationOption;
+  pdfPageSize: PdfPageSizeOption;
+  pdfShowFilterSummary: boolean;
+  pdfShowStatusSummary: boolean;
   updatedAt: string;
 };
+
+function coerceFilterPreset(value: unknown): FilterPresetId | null {
+  return value === "completed" || value === "overdue" || value === "last7days" || value === "last30days" || value === "highPriority"
+    ? value
+    : null;
+}
 
 function storageKey(userEmail?: string | null): string {
   const owner = (userEmail ?? "anonymous").trim().toLowerCase() || "anonymous";
@@ -43,6 +59,22 @@ function normalizeTemplate(raw: unknown): SavedReportTemplate | null {
     scope,
     visibleColumnIds,
     unmaskSensitive: row.unmaskSensitive === true,
+    showLogo: row.showLogo === true,
+    coverNote: typeof row.coverNote === "string" ? row.coverNote : "",
+    summaryBullets: Array.isArray(row.summaryBullets)
+      ? row.summaryBullets.map((v) => String(v).trim()).filter(Boolean).slice(0, 12)
+      : [],
+    defaultFilterPresets: Array.isArray(row.defaultFilterPresets)
+      ? row.defaultFilterPresets.map(coerceFilterPreset).filter((v): v is FilterPresetId => v !== null)
+      : [],
+    defaultSavedViewId:
+      typeof row.defaultSavedViewId === "string" && row.defaultSavedViewId.trim()
+        ? row.defaultSavedViewId.trim()
+        : null,
+    pdfOrientation: row.pdfOrientation === "portrait" ? "portrait" : "landscape",
+    pdfPageSize: row.pdfPageSize === "A3" || row.pdfPageSize === "Letter" ? row.pdfPageSize : "A4",
+    pdfShowFilterSummary: row.pdfShowFilterSummary !== false,
+    pdfShowStatusSummary: row.pdfShowStatusSummary !== false,
     updatedAt: String(row.updatedAt ?? new Date().toISOString()),
   };
 }

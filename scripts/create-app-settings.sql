@@ -1,11 +1,22 @@
 CREATE TABLE IF NOT EXISTS public.app_settings (
   key text PRIMARY KEY,
-  value text NOT NULL,
+  value jsonb NOT NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE public.app_settings
+  ALTER COLUMN value TYPE jsonb
+  USING (
+    CASE
+      WHEN pg_typeof(value)::text = 'jsonb' THEN value::jsonb
+      WHEN value IS NULL THEN 'null'::jsonb
+      WHEN value::text ~ '^\s*(\{|\[|"|true|false|null|-?[0-9])' THEN value::text::jsonb
+      ELSE to_jsonb(value::text)
+    END
+  );
+
 INSERT INTO public.app_settings (key, value)
-VALUES ('live_table_density', 'normal')
+VALUES ('live_table_density', '"normal"'::jsonb)
 ON CONFLICT (key) DO NOTHING;
 
 ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;

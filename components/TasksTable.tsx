@@ -96,7 +96,7 @@ import {
   type ReportTemplateId,
 } from "@/lib/liveTableExport";
 import { fetchOrgBranding, DEFAULT_ORG_BRANDING, type OrgBranding } from "@/lib/appSettingsSupabase";
-import { FILTER_PRESET_LABELS } from "@/lib/reportTemplates";
+import { FILTER_PRESET_LABELS, filterPresetsToConfig } from "@/lib/reportTemplates";
 import Link from "next/link";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
@@ -104,7 +104,7 @@ import { RestrictedButton } from "@/components/ui/permission-gate";
 import { TaskCardMobile } from "@/components/TaskCardMobile";
 import { TaskDetailSheet } from "@/components/TaskDetailSheet";
 import { SavedViewsControl } from "@/components/SavedViewsControl";
-import type { SavedViewConfig } from "@/lib/savedViews";
+import { listSavedViews, type SavedView, type SavedViewConfig } from "@/lib/savedViews";
 import { urgentPrioritySetFromCsv, isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
 import { canEditTaskRow } from "@/lib/taskRowPermissions";
 import { listProjectColumns, type ProjectColumn } from "@/lib/projectColumns";
@@ -2041,6 +2041,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const [reportTemplateSelection, setReportTemplateSelection] = useState<ReportTemplateSelection>(builtinReportTemplateSelection("operations"));
   const [savedReportTemplates, setSavedReportTemplates] = useState<SavedReportTemplate[]>([]);
   const [managedReportTemplates, setManagedReportTemplates] = useState<ManagedReportTemplate[]>([]);
+  const [reportSavedViews, setReportSavedViews] = useState<SavedView[]>([]);
   /** Kurumsal kimlik (logo/orgName/footerText) — app_settings.org_branding */
   const [orgBranding, setOrgBranding] = useState<OrgBranding>(DEFAULT_ORG_BRANDING);
   const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
@@ -2364,6 +2365,20 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       })
       .catch(() => {
         if (!cancelled) setManagedReportTemplates([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listSavedViews("live_table")
+      .then((views) => {
+        if (!cancelled) setReportSavedViews(views);
+      })
+      .catch(() => {
+        if (!cancelled) setReportSavedViews([]);
       });
     return () => {
       cancelled = true;
@@ -2802,7 +2817,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     setDatePreset("custom");
     setColumnFilters({});
     setAdvancedFilterRules([]);
-  }, []);
+  }, [setProjectFilter]);
 
   /**
    * SavedViews entegrasyonu:
@@ -2875,7 +2890,29 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         right: c.pinning.right ?? [],
       });
     }
-  }, []);
+  }, [setProjectFilter]);
+
+  const applyFilterConfigPatch = useCallback((filters?: SavedViewConfig["filters"]) => {
+    if (!filters) return;
+    const has = (key: keyof NonNullable<SavedViewConfig["filters"]>) =>
+      Object.prototype.hasOwnProperty.call(filters, key);
+
+    if (has("globalSearch")) setGlobalSearch(typeof filters.globalSearch === "string" ? filters.globalSearch : "");
+    if (has("projectLinkedFilter")) setProjectLinkedFilter(filters.projectLinkedFilter === "proje" ? "proje" : "tümü");
+    if (has("statusFilter")) setStatusFilter(Array.isArray(filters.statusFilter) ? filters.statusFilter : []);
+    if (has("assigneeFilter")) setAssigneeFilter(Array.isArray(filters.assigneeFilter) ? filters.assigneeFilter : []);
+    if (has("projectFilter")) setProjectFilter(Array.isArray(filters.projectFilter) ? filters.projectFilter : []);
+    if (has("dateFrom")) setDateFrom(typeof filters.dateFrom === "string" ? filters.dateFrom : "");
+    if (has("dateTo")) setDateTo(typeof filters.dateTo === "string" ? filters.dateTo : "");
+    if (has("datePreset")) setDatePreset(typeof filters.datePreset === "string" ? filters.datePreset : "custom");
+    if (has("columnFilters")) {
+      const patch = filters.columnFilters && typeof filters.columnFilters === "object" ? filters.columnFilters : {};
+      setColumnFilters((prev) => ({ ...prev, ...patch }));
+    }
+    if (has("advancedFilterRules")) {
+      setAdvancedFilterRules(Array.isArray(filters.advancedFilterRules) ? (filters.advancedFilterRules as AdvancedFilterRule[]) : []);
+    }
+  }, [setProjectFilter]);
 
   /** Komut paleti eylemlerini dinle */
   useEffect(() => {
@@ -4094,7 +4131,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
    * yalnızca org_branding (logo gerekirse) etkili olur.
    */
   const pdfRenderOptions = useMemo<PdfRenderOptions>(() => {
-    const config = selectedManagedReportTemplate?.template_config;
+    const config = selectedManagedReportTemplate?.template_config ?? selectedCustomReportTemplate;
     const includeLogo = config?.showLogo === true;
     const brandingForRender = includeLogo
       ? {
@@ -4115,7 +4152,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       coverNote: config?.coverNote || undefined,
       summaryBullets: config?.summaryBullets,
     };
-  }, [selectedManagedReportTemplate, orgBranding]);
+  }, [selectedCustomReportTemplate, selectedManagedReportTemplate, orgBranding]);
   const pdfExportMetadata = useMemo<PdfExportMetadata>(() => {
     const generatedAt = new Date().toLocaleString("tr-TR", {
       dateStyle: "medium",
@@ -4355,6 +4392,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
           exportScope: customTemplate.scope,
           visibleColumnIds: customTemplate.visibleColumnIds,
           unmaskSensitive: customTemplate.unmaskSensitive,
+          defaultSavedViewId: customTemplate.defaultSavedViewId,
+          defaultFilterPresets: customTemplate.defaultFilterPresets,
         }
       : managedConfig;
 
@@ -4376,13 +4415,37 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
           return next;
         });
       }
+
+      const savedViewId = reusableConfig.defaultSavedViewId;
+      if (savedViewId) {
+        const savedView = reportSavedViews.find((view) => view.id === savedViewId);
+        if (savedView) {
+          applyViewConfig(savedView.config);
+        } else {
+          toast.warning("Şablona bağlı kayıtlı görünüm bulunamadı.");
+        }
+      }
+      const presetFilters = filterPresetsToConfig(reusableConfig.defaultFilterPresets ?? []);
+      if (presetFilters) {
+        applyFilterConfigPatch(presetFilters);
+      }
     }
 
     if (pdfPreviewUrl) {
       URL.revokeObjectURL(pdfPreviewUrl);
       setPdfPreviewUrl(null);
     }
-  }, [availableManagedReportTemplates, canExportSensitiveUnmasked, pdfPreviewUrl, savedReportTemplates, table]);
+  }, [
+    applyFilterConfigPatch,
+    applyViewConfig,
+    availableManagedReportTemplates,
+    canExportSensitiveUnmasked,
+    pdfPreviewUrl,
+    reportSavedViews,
+    savedReportTemplates,
+    table,
+    toast,
+  ]);
 
   const saveCurrentReportTemplate = useCallback(async () => {
     const name = await promptUser({
@@ -4395,6 +4458,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     const cleanName = name?.trim();
     if (!cleanName) return;
     const id = makeSavedReportTemplateId();
+    const presentationConfig = selectedManagedReportTemplate?.template_config ?? selectedCustomReportTemplate;
     const template: SavedReportTemplate = {
       id,
       name: cleanName,
@@ -4405,6 +4469,15 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       scope: pdfDialogScope,
       visibleColumnIds,
       unmaskSensitive: effectiveUnmaskSensitive,
+      showLogo: presentationConfig?.showLogo ?? false,
+      coverNote: presentationConfig?.coverNote ?? "",
+      summaryBullets: presentationConfig?.summaryBullets ?? [],
+      defaultFilterPresets: presentationConfig?.defaultFilterPresets ?? [],
+      defaultSavedViewId: presentationConfig?.defaultSavedViewId ?? null,
+      pdfOrientation: presentationConfig?.pdfOrientation ?? "landscape",
+      pdfPageSize: presentationConfig?.pdfPageSize ?? "A4",
+      pdfShowFilterSummary: presentationConfig?.pdfShowFilterSummary ?? true,
+      pdfShowStatusSummary: presentationConfig?.pdfShowStatusSummary ?? true,
       updatedAt: new Date().toISOString(),
     };
     const next = [template, ...savedReportTemplates].slice(0, 30);
@@ -4424,6 +4497,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     selectedBaseReportTemplateId,
     selectedBuiltInReportTemplate.emailSubject,
     selectedBuiltInReportTemplate.pdfTitle,
+    selectedCustomReportTemplate,
+    selectedManagedReportTemplate,
     selectedReportTemplate.label,
     toast,
     visibleColumnIds,
