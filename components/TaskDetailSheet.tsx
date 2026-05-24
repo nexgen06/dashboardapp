@@ -498,6 +498,7 @@ export function TaskDetailSheet({
           {task && (
             <TaskCommentsSection
               taskId={task.id}
+              projectId={task.project_id ? String(task.project_id) : null}
               canComment={canComment}
               className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800/70"
             />

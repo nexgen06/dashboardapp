@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { MessageSquare, Loader2, Send, Pencil, Trash2, X, Check } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useTaskComments } from "@/hooks/useTaskComments";
@@ -17,15 +17,55 @@ import { UserAvatar } from "@/components/ui/user-avatar";
 import { useProfileLookup } from "@/contexts/profile-lookup-context";
 import { getRelativeTime } from "@/lib/relativeTime";
 import { cn } from "@/lib/utils";
+import {
+  detectMentionContext,
+  insertMention,
+  extractMentionPrefixes,
+  resolveMentionsToProfiles,
+  searchProfilesForMention,
+  type MentionContext,
+} from "@/lib/mentions";
+import { MentionAutocomplete } from "@/components/MentionAutocomplete";
+import { MentionRenderer } from "@/components/MentionRenderer";
+import { supabase } from "@/lib/supabaseClient";
+import type { UserProfile } from "@/lib/profile";
 
 type Props = {
   taskId: string;
+  /** Mention bildirimi gönderilen URL'i oluşturmak için (örn /projeler/x?openTask=y). Boşsa /canli-tablo. */
+  projectId?: string | null;
   canComment?: boolean;
   className?: string;
 };
 
-/** Görev detay panelinde "Yorumlar" bölümü — liste + ekleme + sahibi için düzenle/sil. */
-export function TaskCommentsSection({ taskId, canComment = true, className }: Props) {
+/** Mention edilen kullanıcılara bildirim gönder — API route üzerinden. */
+async function sendMentionNotifications(input: {
+  taskId: string;
+  taskContent: string;
+  projectId: string | null;
+  mentionedEmails: string[];
+}): Promise<void> {
+  if (input.mentionedEmails.length === 0) return;
+  try {
+    const { data: session } = await supabase.auth.getSession();
+    const accessToken = session?.session?.access_token;
+    if (!accessToken) return;
+    await fetch("/api/notify/mention", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(input),
+    });
+  } catch (err) {
+    // Bildirim hatası yorum oluşturmayı engellemesin
+    console.warn("[mention] notification send failed:", err);
+  }
+}
+
+/** Görev detay panelinde "Yorumlar" bölümü — liste + ekleme + sahibi için düzenle/sil + @mention. */
+export function TaskCommentsSection({ taskId, projectId = null, canComment = true, className }: Props) {
   const { user } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
@@ -37,6 +77,59 @@ export function TaskCommentsSection({ taskId, canComment = true, className }: Pr
   const [editingBody, setEditingBody] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const listEndRef = useRef<HTMLDivElement>(null);
+  const draftTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  /* ────────── @mention autocomplete state ────────── */
+  const [mentionCtx, setMentionCtx] = useState<MentionContext | null>(null);
+  const [mentionActiveIdx, setMentionActiveIdx] = useState(0);
+
+  const allProfiles = profileLookup.listAll();
+
+  const mentionSuggestions = useMemo<UserProfile[]>(() => {
+    if (!mentionCtx) return [];
+    return searchProfilesForMention(mentionCtx.query, allProfiles, 8);
+  }, [mentionCtx, allProfiles]);
+
+  // Query değişince active index'i sıfırla
+  useEffect(() => {
+    setMentionActiveIdx(0);
+  }, [mentionCtx?.query]);
+
+  /** Textarea içeriğini güncellerken caret pozisyonundaki mention context'i tespit et. */
+  const handleDraftChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    setDraft(value);
+    const caret = e.target.selectionStart ?? value.length;
+    setMentionCtx(detectMentionContext(value, caret));
+  }, []);
+
+  /** Caret hareketinde de context'i yeniden tespit et (ok ile gezildiğinde). */
+  const handleDraftSelect = useCallback((e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    const el = e.currentTarget;
+    setMentionCtx(detectMentionContext(el.value, el.selectionStart ?? el.value.length));
+  }, []);
+
+  /** Autocomplete'ten profil seçildiğinde draft'a mention token'ı yerleştir. */
+  const handleMentionSelect = useCallback(
+    (profile: UserProfile) => {
+      if (!mentionCtx) return;
+      const localPart = (profile.email ?? "").split("@")[0] ?? "";
+      // Tercih: kısa olduğu için local part; ambiguity varsa kullanıcı tam email yazsın
+      const token = localPart || profile.email || profile.id;
+      const { newText, newCaret } = insertMention(draft, mentionCtx, token);
+      setDraft(newText);
+      setMentionCtx(null);
+      // Caret'i yeni pozisyona taşı (next tick)
+      requestAnimationFrame(() => {
+        const el = draftTextareaRef.current;
+        if (el) {
+          el.focus();
+          el.setSelectionRange(newCaret, newCaret);
+        }
+      });
+    },
+    [mentionCtx, draft]
+  );
 
   // Yeni yorum eklendiğinde otomatik kaydır
   useEffect(() => {
@@ -60,7 +153,24 @@ export function TaskCommentsSection({ taskId, canComment = true, className }: Pr
         userEmail: user.email,
         userDisplayName: user.displayName ?? null,
       });
+      // @mention bildirimi gönder — yorum sahibinin kendi mention'ı hariç
+      const prefixes = extractMentionPrefixes(body);
+      if (prefixes.length > 0) {
+        const resolved = resolveMentionsToProfiles(prefixes, allProfiles);
+        const emails = resolved
+          .map((p) => (p.email ?? "").trim().toLowerCase())
+          .filter((e) => e && e !== (user.email ?? "").trim().toLowerCase());
+        if (emails.length > 0) {
+          void sendMentionNotifications({
+            taskId,
+            taskContent: body,
+            projectId: projectId ?? null,
+            mentionedEmails: emails,
+          });
+        }
+      }
       setDraft("");
+      setMentionCtx(null);
       toast.success("Yorum eklendi");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Yorum eklenemedi");
@@ -233,14 +343,14 @@ export function TaskCommentsSection({ taskId, canComment = true, className }: Pr
                       </div>
                     </div>
                   ) : (
-                    <p
+                    <div
                       className={cn(
-                        "mt-0.5 whitespace-pre-wrap break-words text-sm text-slate-700 dark:text-slate-200",
+                        "mt-0.5 text-sm text-slate-700 dark:text-slate-200",
                         isBusy && "opacity-50"
                       )}
                     >
-                      {c.body}
-                    </p>
+                      <MentionRenderer text={c.body} />
+                    </div>
                   )}
                 </div>
               </li>
@@ -252,21 +362,59 @@ export function TaskCommentsSection({ taskId, canComment = true, className }: Pr
 
       {/* Yorum ekle */}
       {user?.email && canComment ? (
-        <form onSubmit={handleSubmit} className="mt-3">
+        <form onSubmit={handleSubmit} className="relative mt-3">
           <textarea
+            ref={draftTextareaRef}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Yorum yaz… (Cmd+Enter ile gönder)"
+            onChange={handleDraftChange}
+            onSelect={handleDraftSelect}
+            placeholder="Yorum yaz… (@ ile kullanıcı etiketle, Cmd+Enter ile gönder)"
             rows={2}
             disabled={submitting}
             onKeyDown={(e) => {
+              // Mention popover açıkken klavye gezinmesi
+              if (mentionCtx && mentionSuggestions.length > 0) {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setMentionActiveIdx((i) => Math.min(i + 1, mentionSuggestions.length - 1));
+                  return;
+                }
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setMentionActiveIdx((i) => Math.max(0, i - 1));
+                  return;
+                }
+                if (e.key === "Enter" || e.key === "Tab") {
+                  e.preventDefault();
+                  handleMentionSelect(mentionSuggestions[mentionActiveIdx]);
+                  return;
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setMentionCtx(null);
+                  return;
+                }
+              }
               if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                 e.preventDefault();
                 void handleSubmit(e as unknown as React.FormEvent);
               }
             }}
+            onBlur={() => {
+              // Popover dışına tıklandığında kapat (item tıklamada onMouseDown preventDefault yapıyor)
+              setTimeout(() => setMentionCtx(null), 150);
+            }}
             className="w-full resize-y rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
           />
+          {mentionCtx && mentionSuggestions.length > 0 && (
+            <MentionAutocomplete
+              profiles={mentionSuggestions}
+              activeIndex={mentionActiveIdx}
+              onSelect={handleMentionSelect}
+              onActiveChange={setMentionActiveIdx}
+              position={{ top: 60, left: 8 }}
+            />
+          )}
           <div className="mt-1 flex items-center justify-between gap-2">
             <span className="text-[10px] text-slate-400 dark:text-slate-500">
               {draft.length > 0 && `${draft.length} / 5000`}

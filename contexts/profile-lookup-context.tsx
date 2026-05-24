@@ -25,6 +25,8 @@ type LookupResult = {
 type ProfileLookupApi = {
   byEmail: (email: string | null | undefined) => LookupResult;
   byUserId: (userId: string | null | undefined) => LookupResult;
+  /** Bellekteki tüm profilleri döner — autocomplete (@mention) gibi senaryolar için. */
+  listAll: () => UserProfile[];
   refresh: () => Promise<void>;
   isLoading: boolean;
 };
@@ -100,10 +102,11 @@ export function ProfileLookupProvider({ children }: { children: React.ReactNode 
         if (!userId) return EMPTY_RESULT;
         return toResult(byIdMap.get(userId));
       },
+      listAll: () => profiles,
       refresh,
       isLoading,
     };
-  }, [byEmailMap, byIdMap, refresh, isLoading]);
+  }, [byEmailMap, byIdMap, profiles, refresh, isLoading]);
 
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>;
 }
