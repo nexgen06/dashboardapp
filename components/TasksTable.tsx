@@ -4373,28 +4373,56 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     toast.success("Rapor şablonu silindi");
   }, [currentUserEmail, savedReportTemplates, selectedCustomReportTemplate, toast]);
 
+  const getDefaultManagedReportTemplate = useCallback(() => {
+    const selectedProjectId = projectFilter.length === 1 ? projectFilter[0] : null;
+    if (selectedProjectId) {
+      const projectDefault = managedReportTemplates.find(
+        (template) =>
+          template.is_default &&
+          template.assignment_scope === "project" &&
+          template.project_id === selectedProjectId
+      );
+      if (projectDefault) return projectDefault;
+    }
+    return managedReportTemplates.find(
+      (template) =>
+        template.is_default &&
+        template.assignment_scope === "system"
+    ) ?? null;
+  }, [managedReportTemplates, projectFilter]);
+
   const openPdfDialog = useCallback((scope: PdfExportScope) => {
     if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
     setPdfPreviewUrl(null);
-    setReportTemplateSelection(builtinReportTemplateSelection("operations"));
-    setPdfTitleInput(REPORT_TEMPLATES.operations.pdfTitle);
-    setEmailSubjectInput(REPORT_TEMPLATES.operations.emailSubject);
-    setEmailTemplateMode(REPORT_TEMPLATES.operations.emailMode);
-    setPdfDialogScope(scope);
+    const defaultTemplate = getDefaultManagedReportTemplate();
+    if (defaultTemplate) {
+      applyReportTemplate(managedReportTemplateSelection(defaultTemplate.id));
+    } else {
+      setReportTemplateSelection(builtinReportTemplateSelection("operations"));
+      setPdfTitleInput(REPORT_TEMPLATES.operations.pdfTitle);
+      setEmailSubjectInput(REPORT_TEMPLATES.operations.emailSubject);
+      setEmailTemplateMode(REPORT_TEMPLATES.operations.emailMode);
+      setPdfDialogScope(scope);
+    }
     setPdfDialogOpen(true);
-  }, [pdfPreviewUrl]);
+  }, [applyReportTemplate, getDefaultManagedReportTemplate, pdfPreviewUrl]);
 
   const openEmailDialog = useCallback((scope: PdfExportScope) => {
     const template = scope === "all" ? REPORT_TEMPLATES.fullTable : REPORT_TEMPLATES.mobileBrief;
     const templateId: ReportTemplateId = scope === "all" ? "fullTable" : "mobileBrief";
-    setPdfDialogScope(scope);
-    setReportTemplateSelection(builtinReportTemplateSelection(templateId));
-    setPdfTitleInput(template.pdfTitle);
-    setEmailSubjectInput(template.emailSubject);
-    setEmailTemplateMode(template.emailMode);
+    const defaultTemplate = getDefaultManagedReportTemplate();
+    if (defaultTemplate) {
+      applyReportTemplate(managedReportTemplateSelection(defaultTemplate.id));
+    } else {
+      setPdfDialogScope(scope);
+      setReportTemplateSelection(builtinReportTemplateSelection(templateId));
+      setPdfTitleInput(template.pdfTitle);
+      setEmailSubjectInput(template.emailSubject);
+      setEmailTemplateMode(template.emailMode);
+    }
     setEmailCopied(false);
     setEmailDialogOpen(true);
-  }, []);
+  }, [applyReportTemplate, getDefaultManagedReportTemplate]);
 
   const copyEmailTemplate = useCallback(async () => {
     if (selectedPdfRows.length === 0) {

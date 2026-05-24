@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/modals";
+import { useProjects } from "@/hooks/useProjects";
 import { REPORT_TEMPLATES, type EmailTemplateMode, type PdfExportScope, type ReportTemplateId } from "@/lib/liveTableExport";
 import {
   createManagedReportTemplate,
@@ -16,6 +17,7 @@ import {
   listManagedReportTemplates,
   updateManagedReportTemplate,
   type ManagedReportTemplate,
+  type ReportTemplateAssignmentScope,
   type ReportTemplateScope,
 } from "@/lib/reportTemplates";
 
@@ -24,6 +26,9 @@ type FormState = {
   name: string;
   description: string;
   scope: ReportTemplateScope;
+  assignmentScope: ReportTemplateAssignmentScope;
+  projectId: string;
+  isDefault: boolean;
   baseTemplateId: ReportTemplateId;
   pdfTitle: string;
   emailSubject: string;
@@ -40,6 +45,9 @@ function emptyForm(): FormState {
     name: "",
     description: "",
     scope: "shared",
+    assignmentScope: "system",
+    projectId: "",
+    isDefault: false,
     baseTemplateId: base.baseTemplateId,
     pdfTitle: base.pdfTitle,
     emailSubject: base.emailSubject,
@@ -57,6 +65,9 @@ function formFromTemplate(template: ManagedReportTemplate): FormState {
     name: template.name,
     description: template.description,
     scope: template.scope,
+    assignmentScope: template.assignment_scope,
+    projectId: template.project_id ?? "",
+    isDefault: template.is_default,
     baseTemplateId: config.baseTemplateId,
     pdfTitle: config.pdfTitle,
     emailSubject: config.emailSubject,
@@ -84,6 +95,7 @@ export default function RaporSablonlariPage() {
   const confirm = useConfirm();
   const canView = hasPermission("userManagement.view");
   const canEdit = hasPermission("userManagement.edit") || user?.roleId === "project_manager" || isAdmin;
+  const { projects } = useProjects();
   const [templates, setTemplates] = useState<ManagedReportTemplate[]>([]);
   const [form, setForm] = useState<FormState>(() => emptyForm());
   const [loading, setLoading] = useState(false);
@@ -128,10 +140,18 @@ export default function RaporSablonlariPage() {
     }
     setSaving(true);
     try {
+      if (form.assignmentScope === "project" && !form.projectId) {
+        toast.error("Proje bazlı atama için proje seçin.");
+        setSaving(false);
+        return;
+      }
       const payload = {
         name: form.name,
         description: form.description,
         scope: form.scope,
+        assignment_scope: form.assignmentScope,
+        project_id: form.assignmentScope === "project" ? form.projectId : null,
+        is_default: form.isDefault,
         template_config: {
           baseTemplateId: form.baseTemplateId,
           pdfTitle: form.pdfTitle.trim() || selectedBuiltin.pdfTitle,
@@ -241,6 +261,28 @@ export default function RaporSablonlariPage() {
                   </select>
                 </label>
               </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1 text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Atama kapsamı
+                  <select value={form.assignmentScope} onChange={(e) => setForm((p) => ({ ...p, assignmentScope: e.target.value as ReportTemplateAssignmentScope, projectId: e.target.value === "system" ? "" : p.projectId }))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100">
+                    <option value="system">Sistem geneli</option>
+                    <option value="project">Proje bazlı</option>
+                  </select>
+                </label>
+                <label className="grid gap-1 text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Proje
+                  <select value={form.projectId} disabled={form.assignmentScope !== "project"} onChange={(e) => setForm((p) => ({ ...p, projectId: e.target.value }))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-60 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100">
+                    <option value="">Proje seçin</option>
+                    {projects.map((project) => (
+                      <option key={project.id} value={project.id}>{project.name || "İsimsiz proje"}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                <input type="checkbox" checked={form.isDefault} onChange={(e) => setForm((p) => ({ ...p, isDefault: e.target.checked }))} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+                Bu kapsam için varsayılan şablon yap
+              </label>
             </div>
 
             <div className="space-y-3">
@@ -294,6 +336,7 @@ export default function RaporSablonlariPage() {
             <tr>
               <th className="px-4 py-3">Şablon</th>
               <th className="px-4 py-3">Kapsam</th>
+              <th className="px-4 py-3">Atama</th>
               <th className="px-4 py-3">Tip</th>
               <th className="px-4 py-3">Kolon</th>
               <th className="px-4 py-3 text-right">İşlem</th>
@@ -301,7 +344,7 @@ export default function RaporSablonlariPage() {
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
             {templates.length === 0 ? (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">Henüz kayıtlı rapor şablonu yok.</td></tr>
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-500">Henüz kayıtlı rapor şablonu yok.</td></tr>
             ) : templates.map((template) => (
               <tr key={template.id}>
                 <td className="px-4 py-3">
@@ -309,7 +352,15 @@ export default function RaporSablonlariPage() {
                   <div className="text-xs text-slate-500 dark:text-slate-400">{template.description || template.template_config.pdfTitle}</div>
                 </td>
                 <td className="px-4 py-3">
-                  <Badge variant="outline">{template.scope === "shared" ? "Kurumsal" : "Kişisel"}</Badge>
+                  <div className="flex flex-wrap gap-1.5">
+                    <Badge variant="outline">{template.scope === "shared" ? "Kurumsal" : "Kişisel"}</Badge>
+                    {template.is_default && <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/60 dark:bg-amber-950/30 dark:text-amber-200">Varsayılan</Badge>}
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                  {template.assignment_scope === "project"
+                    ? projects.find((project) => project.id === template.project_id)?.name ?? "Proje bazlı"
+                    : "Sistem geneli"}
                 </td>
                 <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
                   {template.template_config.emailMode === "mobile" ? "Mobil" : "Tablo"} · {template.template_config.exportScope === "all" ? "Tüm veri" : "Mevcut görünüm"}
