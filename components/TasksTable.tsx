@@ -3620,7 +3620,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         const badge = (
           <span
             className={cn(
-              "inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+              "inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold shadow-sm dark:font-bold",
               WORKFLOW_STATUS_CLASS[workflowStatus],
               workflowActions.length > 0 && "gap-1 cursor-pointer"
             )}

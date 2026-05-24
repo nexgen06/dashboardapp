@@ -12,11 +12,11 @@ export const WORKFLOW_STATUS_LABELS: Record<TaskWorkflowStatus, string> = {
 };
 
 export const WORKFLOW_STATUS_CLASS: Record<TaskWorkflowStatus, string> = {
-  draft: "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300",
-  submitted: "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/35 dark:text-blue-200",
-  revision_requested: "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/35 dark:text-amber-200",
-  approved: "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/35 dark:text-emerald-200",
-  rejected: "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/35 dark:text-red-200",
+  draft: "border-slate-200 bg-slate-50 text-slate-700 dark:!border-slate-500/70 dark:!bg-slate-800 dark:!text-slate-100 dark:shadow-[0_0_0_1px_rgba(148,163,184,0.16)]",
+  submitted: "border-blue-200 bg-blue-50 text-blue-800 dark:!border-blue-400/75 dark:!bg-blue-950 dark:!text-blue-100 dark:shadow-[0_0_0_1px_rgba(96,165,250,0.18)]",
+  revision_requested: "border-amber-200 bg-amber-50 text-amber-900 dark:!border-amber-400/80 dark:!bg-amber-950 dark:!text-amber-100 dark:shadow-[0_0_0_1px_rgba(251,191,36,0.2)]",
+  approved: "border-emerald-200 bg-emerald-50 text-emerald-800 dark:!border-emerald-400/90 dark:!bg-emerald-900 dark:!text-emerald-50 dark:shadow-[0_0_0_1px_rgba(52,211,153,0.28),0_0_16px_rgba(16,185,129,0.18)]",
+  rejected: "border-red-200 bg-red-50 text-red-800 dark:!border-red-400/80 dark:!bg-red-950 dark:!text-red-100 dark:shadow-[0_0_0_1px_rgba(248,113,113,0.2)]",
 };
 
 export type TaskWorkflowAction = "submit" | "approve" | "request_revision" | "reject" | "reset";
