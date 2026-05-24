@@ -46,7 +46,8 @@ import {
 import {
   fetchAuditLog,
   fieldLabel,
-  formatAuditValue,
+  formatAuditFieldValue,
+  shouldShowAuditField,
   type AuditLogEntry,
   type AuditFieldDiff,
 } from "@/lib/auditLog";
@@ -340,8 +341,11 @@ export function TaskDetailSheet({
 
   return (
     <Sheet open={!!task} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent widthClass="w-full max-w-md sm:max-w-lg">
-        <SheetHeader className="space-y-2">
+      <SheetContent
+        widthClass="w-full max-w-[420px]"
+        className="dark:bg-slate-900"
+      >
+        <SheetHeader className="space-y-2 px-4 py-3 dark:bg-slate-900">
           <div className="flex items-center gap-2 pr-8">
             <span
               className={cn(
@@ -362,7 +366,7 @@ export function TaskDetailSheet({
               </span>
             )}
           </div>
-          <SheetTitle className="break-words">
+          <SheetTitle className="break-words text-base leading-snug">
             {task.content?.trim() || (
               <span className="italic font-normal text-slate-400">İçerik yok</span>
             )}
@@ -380,9 +384,9 @@ export function TaskDetailSheet({
           )}
         </SheetHeader>
 
-        <SheetBody className="space-y-5">
+        <SheetBody className="space-y-3 px-4 py-3">
           {/* Meta grid */}
-          <section>
+          <section className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800/70">
             <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
               Detaylar
             </h3>
@@ -442,11 +446,11 @@ export function TaskDetailSheet({
 
           {/* Ek alanlar */}
           {nonLinkExtras.length > 0 && (
-            <section>
+            <section className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800/70">
               <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Ek alanlar ({nonLinkExtras.length})
               </h3>
-              <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1.5 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-800/60">
+              <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1.5 text-sm">
                 {nonLinkExtras.map(([key, value]) => {
                   const raw = String(value ?? "");
                   const sensitive = isSensitiveExtraColumnKey(key);
@@ -466,7 +470,7 @@ export function TaskDetailSheet({
 
           {/* Onay workflow progress bar — yalnızca workflow_status varsa göster */}
           {task.workflow_status && (
-            <section>
+            <section className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800/70">
               <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Onay Süreci
               </h3>
@@ -475,10 +479,16 @@ export function TaskDetailSheet({
           )}
 
           {/* Yorumlar — task_comments üzerinden, realtime senkron */}
-          {task && <TaskCommentsSection taskId={task.id} canComment={canComment} />}
+          {task && (
+            <TaskCommentsSection
+              taskId={task.id}
+              canComment={canComment}
+              className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800/70"
+            />
+          )}
 
           {/* Aktivite timeline — audit_log üzerinden, realtime senkron */}
-          <section>
+          <section className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800/70">
             <h3 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
               <History className="h-3 w-3" aria-hidden />
               Aktivite
@@ -508,7 +518,7 @@ export function TaskDetailSheet({
           </section>
         </SheetBody>
 
-        <SheetFooter className="flex items-center justify-between gap-2">
+        <SheetFooter className="flex items-center justify-between gap-2 px-4 py-2.5">
           <div className="flex items-center gap-1">
             <Button
               type="button"
@@ -566,6 +576,12 @@ function AuditEntryLine({ entry }: { entry: AuditLogEntry }) {
   const actorLabel = entry.actorEmail || (entry.actorId ? `Kullanıcı ${entry.actorId.slice(0, 6)}` : "Sistem");
   const relative = getRelativeTime(entry.at);
   const fullDate = entry.at.toLocaleString("tr-TR");
+  const changedEntries =
+    entry.action === "update"
+      ? Object.entries(entry.changedFields).filter(([field]) =>
+          shouldShowAuditField(field, Object.keys(entry.changedFields).length)
+        )
+      : [];
 
   const config =
     entry.action === "insert"
@@ -606,9 +622,9 @@ function AuditEntryLine({ entry }: { entry: AuditLogEntry }) {
             · {relative}
           </span>
         </p>
-        {entry.action === "update" && (
+        {entry.action === "update" && changedEntries.length > 0 && (
           <ul className="mt-1 space-y-0.5">
-            {Object.entries(entry.changedFields).map(([field, diff]) => {
+            {changedEntries.map(([field, diff]) => {
               const d = diff as AuditFieldDiff;
               return (
                 <li
@@ -619,11 +635,11 @@ function AuditEntryLine({ entry }: { entry: AuditLogEntry }) {
                     {fieldLabel(field)}:
                   </span>{" "}
                   <span className="text-slate-500 dark:text-slate-400 line-through">
-                    {formatAuditValue(d?.before)}
+                    {formatAuditFieldValue(field, d?.before)}
                   </span>
                   <span className="mx-1 text-slate-400">→</span>
                   <span className="text-slate-800 dark:text-slate-100">
-                    {formatAuditValue(d?.after)}
+                    {formatAuditFieldValue(field, d?.after)}
                   </span>
                 </li>
               );

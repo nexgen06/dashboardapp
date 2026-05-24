@@ -7,6 +7,7 @@
  */
 import { supabase } from "@/lib/supabaseClient";
 import { isSensitiveExtraColumnKey, maskSensitiveExtraValue } from "@/lib/extraColumnSensitiveDisplay";
+import { normalizeWorkflowStatus, WORKFLOW_STATUS_LABELS } from "@/lib/taskWorkflow";
 
 export type AuditAction = "insert" | "update" | "delete";
 
@@ -195,6 +196,10 @@ const FIELD_LABELS: Record<string, string> = {
   assigned_emails: "Atanan kişiler",
   strict_assignee_visibility: "Sıkı görünürlük",
   extra_column_keys: "Ek sütun şeması",
+  workflow_status: "Onay durumu",
+  workflow_submitted_at: "Kontrole gönderim",
+  workflow_reviewed_at: "İnceleme zamanı",
+  workflow_reviewed_by: "İnceleyen",
 };
 
 export function fieldLabel(key: string): string {
@@ -216,4 +221,52 @@ export function formatAuditValue(value: unknown): string {
     return entries.map(([k, v]) => `${k}: ${String(v)}`).join(", ");
   }
   return String(value);
+}
+
+function isIsoDateLike(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value);
+}
+
+function formatDateTimeValue(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("tr-TR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/** Alan bağlamını bilen daha okunur değer formatlayıcı. */
+export function formatAuditFieldValue(field: string, value: unknown): string {
+  if (field === "workflow_status") {
+    if (value == null || String(value).trim() === "") return "—";
+    return WORKFLOW_STATUS_LABELS[normalizeWorkflowStatus(String(value) as never)];
+  }
+  if (
+    field === "workflow_submitted_at" ||
+    field === "workflow_reviewed_at" ||
+    field === "due_date"
+  ) {
+    if (value == null || String(value).trim() === "") return "—";
+    return formatDateTimeValue(String(value));
+  }
+  if (typeof value === "string" && isIsoDateLike(value)) {
+    return formatDateTimeValue(value);
+  }
+  return formatAuditValue(value);
+}
+
+const LOW_SIGNAL_TASK_AUDIT_FIELDS = new Set([
+  "last_updated_by",
+  "workflow_submitted_at",
+  "workflow_reviewed_at",
+  "workflow_reviewed_by",
+]);
+
+export function shouldShowAuditField(field: string, totalChangedFields: number): boolean {
+  if (totalChangedFields <= 1) return true;
+  return !LOW_SIGNAL_TASK_AUDIT_FIELDS.has(field);
 }

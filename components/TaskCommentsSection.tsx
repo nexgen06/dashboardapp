@@ -21,10 +21,11 @@ import { cn } from "@/lib/utils";
 type Props = {
   taskId: string;
   canComment?: boolean;
+  className?: string;
 };
 
 /** Görev detay panelinde "Yorumlar" bölümü — liste + ekleme + sahibi için düzenle/sil. */
-export function TaskCommentsSection({ taskId, canComment = true }: Props) {
+export function TaskCommentsSection({ taskId, canComment = true, className }: Props) {
   const { user } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
@@ -116,7 +117,7 @@ export function TaskCommentsSection({ taskId, canComment = true }: Props) {
   };
 
   return (
-    <section>
+    <section className={className}>
       <h3 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
         <MessageSquare className="h-3 w-3" aria-hidden />
         Yorumlar
