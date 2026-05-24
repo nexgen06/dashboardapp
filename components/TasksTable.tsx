@@ -132,7 +132,7 @@ import {
   type ManagedReportTemplate,
 } from "@/lib/reportTemplates";
 import { usePrompt } from "@/components/ui/modals";
-import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, Expand, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban, Eye, Mail } from "lucide-react";
+import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, Expand, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban, Eye, Mail, MessageSquare, Printer } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
 const STATUS_FILTER_OPTIONS = ["Tümü", "Yapılacak", "Devam ediyor", "Devam", "Tamamlandı"] as const;
@@ -2079,6 +2079,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const [pdfDialogScope, setPdfDialogScope] = useState<PdfExportScope>("current");
   const [pdfTitleInput, setPdfTitleInput] = useState("");
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  /** PDF önizleme iframe'i — Yazdır butonu için contentWindow.print() çağrısında kullanılır. */
+  const pdfPreviewIframeRef = useRef<HTMLIFrameElement | null>(null);
   const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
   const [pdfDownloadLoading, setPdfDownloadLoading] = useState(false);
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
@@ -3966,6 +3968,12 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               {rowCanEdit && (
+                <DropdownMenuItem onClick={() => setDetailTask(task)}>
+                  <MessageSquare className="mr-2 h-3.5 w-3.5" aria-hidden />
+                  Detay / Yorumlar
+                </DropdownMenuItem>
+              )}
+              {rowCanEdit && (
                 <DropdownMenuItem onClick={() => setEditTask(task)}>Düzenle</DropdownMenuItem>
               )}
               {rowCanEdit && canCreateTask && canCopyRow(task) && (
@@ -4688,6 +4696,82 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     setPdfPreviewLoading(false);
     setPdfDownloadLoading(false);
   }, [pdfPreviewUrl]);
+
+  /**
+   * PDF önizleme iframe'ini yazdır.
+   * Same-origin blob URL olduğu için contentWindow.print() çalışmalı; başarısız
+   * olursa (örn. tarayıcı PDF viewer'ı izin vermezse) URL yeni sekmede açılır.
+   */
+  const printPdfPreview = useCallback(() => {
+    if (!pdfPreviewUrl) {
+      toast.error("Önce önizleme oluşturun.");
+      return;
+    }
+    const iframe = pdfPreviewIframeRef.current;
+    try {
+      if (iframe?.contentWindow) {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+        return;
+      }
+    } catch (err) {
+      console.warn("[Export] iframe.print() başarısız, yeni sekme deneniyor:", err);
+    }
+    // Fallback — yeni sekmede aç, kullanıcı oradan yazdırır
+    const opened = window.open(pdfPreviewUrl, "_blank", "noopener,noreferrer");
+    if (!opened) {
+      toast.error("Yazdırma penceresi açılamadı (pop-up engellenmiş olabilir).");
+    }
+  }, [pdfPreviewUrl, toast]);
+
+  /**
+   * E-posta şablonu HTML'ini yeni pencerede aç ve yazdırma diyaloğunu tetikle.
+   * Bu sayede kullanıcı şablonu yazıcıya gönderebilir veya "PDF olarak kaydet" seçeneğiyle PDF üretebilir.
+   */
+  const printEmailTemplate = useCallback(() => {
+    if (!emailTemplate?.html) {
+      toast.error("Yazdırılacak şablon yok.");
+      return;
+    }
+    const w = window.open("", "_blank", "width=900,height=1000");
+    if (!w) {
+      toast.error("Yazdırma penceresi açılamadı (pop-up engellenmiş olabilir).");
+      return;
+    }
+    const safeTitle = (emailTemplate.subject || "E-posta şablonu").replace(/[<>]/g, "");
+    w.document.open();
+    w.document.write(`<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${safeTitle}</title>
+  <style>
+    @page { margin: 16mm; }
+    body { margin: 0; padding: 20px; background: white; }
+    @media print {
+      body { padding: 0; }
+    }
+  </style>
+</head>
+<body>
+${emailTemplate.html}
+<script>
+  (function(){
+    function startPrint(){
+      try { window.focus(); window.print(); } catch (e) {}
+    }
+    if (document.readyState === "complete") {
+      setTimeout(startPrint, 250);
+    } else {
+      window.addEventListener("load", function(){ setTimeout(startPrint, 250); });
+    }
+  })();
+</script>
+</body>
+</html>`);
+    w.document.close();
+  }, [emailTemplate, toast]);
 
   const previewExportPDF = useCallback(async () => {
     if (selectedPdfRows.length === 0) {
@@ -6556,6 +6640,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                 <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-300 bg-slate-200 shadow-inner dark:border-slate-700 dark:bg-slate-950">
                   {pdfPreviewUrl ? (
                     <iframe
+                      ref={pdfPreviewIframeRef}
                       title="PDF önizleme"
                       src={pdfPreviewUrl}
                       className="h-full w-full bg-white"
@@ -6580,6 +6665,16 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
             <DialogFooter className="shrink-0 gap-2 border-t border-slate-200 bg-white px-5 py-3 dark:border-slate-700 dark:bg-slate-900 sm:gap-2">
               <Button type="button" variant="outline" onClick={() => handlePdfDialogOpenChange(false)} disabled={pdfDownloadLoading}>
                 İptal
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={printPdfPreview}
+                disabled={!pdfPreviewUrl || pdfPreviewLoading || pdfDownloadLoading}
+                title={pdfPreviewUrl ? "Önizlemeyi yazıcıya gönder" : "Önce önizleme oluşturun"}
+              >
+                <Printer className="mr-2 h-4 w-4" aria-hidden />
+                Yazdır
               </Button>
               <Button type="button" onClick={() => void confirmExportPDF()} disabled={pdfDownloadLoading || pdfPreviewLoading}>
                 {pdfDownloadLoading ? (
@@ -6772,6 +6867,15 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                   <Copy className="mr-2 h-4 w-4" aria-hidden />
                 )}
                 {emailCopied ? "Kopyalandı" : "Şablonu kopyala"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={printEmailTemplate}
+                title="Şablonu yazıcıya gönder veya PDF olarak kaydet"
+              >
+                <Printer className="mr-2 h-4 w-4" aria-hidden />
+                Yazdır
               </Button>
               <Button
                 type="button"
@@ -7252,7 +7356,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
               })();
               const rowClassName = cn(
                 "border-b border-slate-100 transition-colors dark:border-slate-700",
-                rowCanEdit ? "cursor-pointer" : "cursor-default select-none",
+                rowCanEdit ? "cursor-default" : "cursor-default select-none",
                 // Realtime ile az önce gelen UPDATE: 3 sn'lik amber flash
                 isRecentlyUpdated &&
                   "animate-[pulse_1.5s_ease-in-out_2] bg-amber-50/70 dark:bg-amber-950/30",
@@ -7307,26 +7411,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
               });
 
               const claimRowPresence = () => setEditingRow(row.original.id);
-              /**
-               * Satır tıklamasıyla detay panelini aç.
-               * Etkileşimli kontrollere (buton, input, checkbox, link, select,
-               * editable cell) tıklamada açılmamalı — bunlar kendi davranışlarını yapar.
-               */
-              const handleRowClick = (e: React.MouseEvent) => {
-                const target = e.target as HTMLElement | null;
-                if (!target) return;
-                if (target.closest("button,input,select,textarea,a,[role='button'],[contenteditable='true']")) {
-                  return;
-                }
-                if (!rowCanEdit) {
-                  toast.info("Bu satır sana atanmadığı için detay ve yorum kapalı.");
-                  return;
-                }
-                setDetailTask(row.original);
-              };
               const rowPointerHandlers = {
                 onPointerDown: claimRowPresence,
-                onClick: handleRowClick,
                 title: lastEditorTitle,
               };
 
