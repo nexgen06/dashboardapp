@@ -6,6 +6,7 @@ import { SidebarProvider } from "@/contexts/sidebar-context";
 import { SettingsProvider } from "@/contexts/settings-context";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { MobileBottomNav } from "@/components/layout/MobileBottomNav";
+import { MobileFAB } from "@/components/layout/MobileFAB";
 import { Header } from "@/components/layout/Header";
 import { ApplySettings } from "@/components/ApplySettings";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -51,6 +52,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <MobileBottomNav />
+          <MobileFAB />
         </NotificationProvider>
         </ProjectChatUnreadProvider>
         </ProfileLookupProvider>
