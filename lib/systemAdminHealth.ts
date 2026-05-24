@@ -42,6 +42,13 @@ const REQUIRED_SCRIPT_CHECKS: Array<Omit<SystemScriptCheck, "status" | "message"
     description: "Proje özelinde görme, düzenleme, yorum, kopya ve export yetkileri.",
   },
   {
+    id: "task-workflow",
+    title: "Görev onay workflow",
+    script: "scripts/task-workflow.sql",
+    table: "task_workflow_events",
+    description: "Kontrole gönderme, onay, revize ve ret kararlarını kayıt altına alır.",
+  },
+  {
     id: "presence-heartbeats",
     title: "Presence fallback",
     script: "scripts/presence-heartbeats.sql",

@@ -40,6 +40,17 @@ function mapRowToTask(row: Record<string, unknown>): Task {
     project_id: projectId,
     due_date: dueDate,
     extra_data: extraData,
+    workflow_status:
+      row.workflow_status === "draft" ||
+      row.workflow_status === "submitted" ||
+      row.workflow_status === "revision_requested" ||
+      row.workflow_status === "approved" ||
+      row.workflow_status === "rejected"
+        ? row.workflow_status
+        : null,
+    workflow_submitted_at: row.workflow_submitted_at != null ? String(row.workflow_submitted_at) : null,
+    workflow_reviewed_at: row.workflow_reviewed_at != null ? String(row.workflow_reviewed_at) : null,
+    workflow_reviewed_by: row.workflow_reviewed_by != null ? String(row.workflow_reviewed_by) : null,
   };
 }
 
@@ -285,7 +296,26 @@ export function useTasksWithRealtime() {
   }, []);
 
   const saveTask = useCallback(
-    async (taskId: string, patch: Partial<Pick<Task, "content" | "status" | "assignee" | "last_updated_by" | "priority" | "project_id" | "due_date" | "extra_data">>): Promise<SaveTaskResult> => {
+    async (
+      taskId: string,
+      patch: Partial<
+        Pick<
+          Task,
+          | "content"
+          | "status"
+          | "assignee"
+          | "last_updated_by"
+          | "priority"
+          | "project_id"
+          | "due_date"
+          | "extra_data"
+          | "workflow_status"
+          | "workflow_submitted_at"
+          | "workflow_reviewed_at"
+          | "workflow_reviewed_by"
+        >
+      >
+    ): Promise<SaveTaskResult> => {
       const payload: Record<string, unknown> = {
         ...(patch ?? {}),
         last_updated_by: patch?.last_updated_by ?? "anon",
@@ -294,6 +324,10 @@ export function useTasksWithRealtime() {
       if ("due_date" in (patch ?? {})) payload.due_date = patch?.due_date ?? null;
       if ("priority" in (patch ?? {})) payload.priority = patch?.priority ?? null;
       if ("extra_data" in (patch ?? {})) payload.extra_data = patch?.extra_data ?? null;
+      if ("workflow_status" in (patch ?? {})) payload.workflow_status = patch?.workflow_status ?? null;
+      if ("workflow_submitted_at" in (patch ?? {})) payload.workflow_submitted_at = patch?.workflow_submitted_at ?? null;
+      if ("workflow_reviewed_at" in (patch ?? {})) payload.workflow_reviewed_at = patch?.workflow_reviewed_at ?? null;
+      if ("workflow_reviewed_by" in (patch ?? {})) payload.workflow_reviewed_by = patch?.workflow_reviewed_by ?? null;
       const { error: updateError } = await supabase
         .from("tasks")
         .update(payload)

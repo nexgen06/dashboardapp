@@ -87,6 +87,8 @@ export type NewProjectSubmitData = {
   subtitleColumns?: string[] | null;
   /** Kanban "Devam ediyor" kolonu için yumuşak WIP limiti. null/0 → limit yok. */
   wipInProgressLimit?: number | null;
+  /** Görev satırları için onay workflow sistemi. */
+  workflowEnabled?: boolean;
   /** Yeni proje + dosya: atanan e-posta listesine round-robin (en az 2 e-posta). */
   importRoundRobin?: boolean;
   importAssignmentMode?: ImportAssignmentMode;
@@ -323,6 +325,7 @@ function ProjectFormModal({
   const [titleColumn, setTitleColumn] = useState<string>("");
   const [subtitleColumns, setSubtitleColumns] = useState<string[]>([]);
   const [wipInProgressLimit, setWipInProgressLimit] = useState<string>("");
+  const [workflowEnabled, setWorkflowEnabled] = useState(false);
   const [directoryUsers, setDirectoryUsers] = useState<DirectoryUserProfile[]>([]);
   const [memberPermissions, setMemberPermissions] = useState<Record<string, ProjectMemberPermission>>({});
   const [permissionsLoading, setPermissionsLoading] = useState(false);
@@ -403,6 +406,7 @@ function ProjectFormModal({
           ? String(project.wip_in_progress_limit)
           : ""
       );
+      setWorkflowEnabled(project.workflow_enabled === true);
       setStep(1);
     } else if (open && !project) {
       setName("");
@@ -437,6 +441,7 @@ function ProjectFormModal({
       setTitleColumn("");
       setSubtitleColumns([]);
       setWipInProgressLimit("");
+      setWorkflowEnabled(false);
       setStep(1);
     }
   }, [open, project]);
@@ -776,6 +781,7 @@ function ProjectFormModal({
           const n = Number(wipInProgressLimit);
           return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
         })(),
+        workflowEnabled,
         selectedImportColumns:
           !isEdit && importFile && importPreview
             ? importPreview.headers.filter((h) =>
@@ -820,6 +826,7 @@ function ProjectFormModal({
     setReassignExistingRowRangesText("");
     setExtraColumnKeysText("");
     setSubtitleColumns([]);
+    setWorkflowEnabled(false);
   };
 
   // ───────────────────────────────────────────────────────────────
@@ -903,6 +910,22 @@ function ProjectFormModal({
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
           Proje hedef / bitiş tarihi. Kartlarda &quot;Yaklaşan&quot; / &quot;Gecikmiş&quot; etiketi için kullanılır.
         </p>
+      </div>
+      <div className="rounded-lg border border-violet-200 bg-violet-50/70 p-3 dark:border-violet-800 dark:bg-violet-950/25">
+        <label className="flex cursor-pointer items-start gap-2">
+          <input
+            type="checkbox"
+            className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+            checked={workflowEnabled}
+            onChange={(e) => setWorkflowEnabled(e.target.checked)}
+          />
+          <span className="text-sm text-slate-800 dark:text-slate-200">
+            <span className="font-medium">Onay workflow sistemi</span>
+            <span className="mt-1 block text-xs font-normal text-slate-600 dark:text-slate-400">
+              Üye satırı kontrole gönderir; proje yetkilisi/admin onaylar, reddeder veya revize ister.
+            </span>
+          </span>
+        </label>
       </div>
     </div>
   );
@@ -2288,6 +2311,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
           title_column: data.titleColumn ?? null,
           subtitle_columns: data.subtitleColumns ?? null,
           wip_in_progress_limit: data.wipInProgressLimit ?? null,
+          workflow_enabled: data.workflowEnabled ?? false,
           ...(isAdmin
             ? { strict_assignee_visibility: data.strictAssigneeVisibility ?? false }
             : {}),
@@ -2371,6 +2395,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
         title_column: data.titleColumn ?? null,
         subtitle_columns: data.subtitleColumns ?? null,
         wip_in_progress_limit: data.wipInProgressLimit ?? null,
+        workflow_enabled: data.workflowEnabled ?? false,
       });
       if (data.importFile && projectId) {
         const text = await data.importFile.text();

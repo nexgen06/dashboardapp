@@ -4,12 +4,14 @@ import * as XLSX from "xlsx";
 import type { DateFormat } from "@/contexts/settings-context";
 import { isSensitiveExtraColumnKey, maskSensitiveExtraValue } from "@/lib/extraColumnSensitiveDisplay";
 import { formatDate } from "@/lib/formatDate";
+import { normalizeWorkflowStatus, WORKFLOW_STATUS_LABELS } from "@/lib/taskWorkflow";
 import type { Project } from "@/types/project";
 import type { Task } from "@/types/tasks";
 
 const EXPORT_COLUMN_LABELS: Record<string, string> = {
   content: "Açıklama",
   status: "Durum",
+  workflow: "Onay",
   assignee: "Atanan",
   priority: "Öncelik",
   project: "Proje",
@@ -86,6 +88,8 @@ function getExportValue(
       return String(t.content ?? task.content ?? "");
     case "status":
       return String(t.status ?? task.status ?? "");
+    case "workflow":
+      return WORKFLOW_STATUS_LABELS[normalizeWorkflowStatus(task.workflow_status)];
     case "assignee":
       return String(t.assignee ?? task.assignee ?? "");
     case "priority":

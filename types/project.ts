@@ -31,4 +31,6 @@ export type Project = {
   subtitle_columns?: string[] | null;
   /** Kanban "Devam ediyor" kolonu için yumuşak WIP limiti. NULL → limit yok. */
   wip_in_progress_limit?: number | null;
+  /** Açıksa görev satırları tamamlanmadan önce proje yetkilisi/admin onay akışından geçer. */
+  workflow_enabled?: boolean;
 };

@@ -49,6 +49,8 @@ function mapRowToProject(row: Record<string, unknown>): Project {
     row.strict_assignee_visibility === true || String(row.strict_assignee_visibility).toLowerCase() === "true";
   const team_edit_all_tasks =
     row.team_edit_all_tasks === true || String(row.team_edit_all_tasks).toLowerCase() === "true";
+  const workflow_enabled =
+    row.workflow_enabled === true || String(row.workflow_enabled).toLowerCase() === "true";
 
   let extra_column_keys: string[] | null = null;
   const rawKeys = row.extra_column_keys;
@@ -94,6 +96,7 @@ function mapRowToProject(row: Record<string, unknown>): Project {
     title_column: titleColumn,
     subtitle_columns,
     wip_in_progress_limit: wipLimit,
+    workflow_enabled,
   };
 }
 
@@ -235,6 +238,7 @@ export function useProjects() {
       title_column?: string | null;
       subtitle_columns?: string[] | null;
       wip_in_progress_limit?: number | null;
+      workflow_enabled?: boolean;
     }): Promise<string | null> => {
       const baseRow: Record<string, unknown> = {
         name: payload.name.trim() || "İsimsiz proje",
@@ -273,6 +277,9 @@ export function useProjects() {
       if (payload.wip_in_progress_limit != null && payload.wip_in_progress_limit > 0) {
         baseRow.wip_in_progress_limit = Math.floor(payload.wip_in_progress_limit);
       }
+      if (payload.workflow_enabled === true) {
+        baseRow.workflow_enabled = true;
+      }
       let { data, error: insertError } = await supabase
         .from("projects")
         .insert(baseRow)
@@ -282,7 +289,8 @@ export function useProjects() {
         insertError &&
         (
           (hasAssigned && (insertError.message?.includes("assigned_emails") || insertError.code === "42703")) ||
-          (payload.team_edit_all_tasks === true && (insertError.message?.includes("team_edit_all_tasks") || insertError.code === "42703"))
+          (payload.team_edit_all_tasks === true && (insertError.message?.includes("team_edit_all_tasks") || insertError.code === "42703")) ||
+          (payload.workflow_enabled === true && (insertError.message?.includes("workflow_enabled") || insertError.code === "42703"))
         )
       ) {
         const retryPayload: Record<string, unknown> = {
@@ -311,7 +319,7 @@ export function useProjects() {
   );
 
   const updateProject = useCallback(
-    async (id: string, payload: Partial<Pick<Project, "name" | "description" | "status" | "assigned_emails" | "due_date" | "priority" | "strict_assignee_visibility" | "team_edit_all_tasks" | "extra_column_keys" | "title_column" | "subtitle_columns" | "wip_in_progress_limit">>) => {
+    async (id: string, payload: Partial<Pick<Project, "name" | "description" | "status" | "assigned_emails" | "due_date" | "priority" | "strict_assignee_visibility" | "team_edit_all_tasks" | "extra_column_keys" | "title_column" | "subtitle_columns" | "wip_in_progress_limit" | "workflow_enabled">>) => {
       const updateRow: Record<string, unknown> = { ...payload, updated_at: new Date().toISOString() };
       if (payload.assigned_emails !== undefined) {
         updateRow.assigned_emails =
@@ -353,14 +361,21 @@ export function useProjects() {
         updateRow.wip_in_progress_limit =
           n == null || !Number.isFinite(n) || n <= 0 ? null : Math.floor(n);
       }
+      if (payload.workflow_enabled !== undefined) {
+        updateRow.workflow_enabled = payload.workflow_enabled;
+      }
       const { error: updateError } = await supabase.from("projects").update(updateRow).eq("id", id);
       if (updateError) {
         const missingTeamEditColumn =
           payload.team_edit_all_tasks !== undefined &&
           (updateError.code === "42703" || String(updateError.message ?? "").includes("team_edit_all_tasks"));
-        if (!missingTeamEditColumn) throw updateError;
+        const missingWorkflowColumn =
+          payload.workflow_enabled !== undefined &&
+          (updateError.code === "42703" || String(updateError.message ?? "").includes("workflow_enabled"));
+        if (!missingTeamEditColumn && !missingWorkflowColumn) throw updateError;
         const retryRow = { ...updateRow };
-        delete retryRow.team_edit_all_tasks;
+        if (missingTeamEditColumn) delete retryRow.team_edit_all_tasks;
+        if (missingWorkflowColumn) delete retryRow.workflow_enabled;
         const { error: retryError } = await supabase.from("projects").update(retryRow).eq("id", id);
         if (retryError) throw retryError;
       }

@@ -18,5 +18,10 @@ export type Task = {
   due_date?: string | null;
   /** CSV'den veya dış kaynaktan gelen tüm sütunlar — olduğu gibi saklanır (JSON). */
   extra_data?: Record<string, string> | null;
+  /** Onay akışı durumu. Projede workflow kapalıysa null kalabilir. */
+  workflow_status?: "draft" | "submitted" | "revision_requested" | "approved" | "rejected" | null;
+  workflow_submitted_at?: string | null;
+  workflow_reviewed_at?: string | null;
+  workflow_reviewed_by?: string | null;
   [key: string]: unknown;
 };

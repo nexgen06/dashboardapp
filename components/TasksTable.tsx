@@ -109,6 +109,15 @@ import {
   listMyProjectMemberPermissions,
   type ProjectMemberPermission,
 } from "@/lib/projectMemberPermissions";
+import {
+  logTaskWorkflowEvent,
+  nextWorkflowStatus,
+  normalizeWorkflowStatus,
+  WORKFLOW_ACTION_LABELS,
+  WORKFLOW_STATUS_CLASS,
+  WORKFLOW_STATUS_LABELS,
+  type TaskWorkflowAction,
+} from "@/lib/taskWorkflow";
 import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, Expand, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban, Eye, Mail } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
@@ -121,6 +130,7 @@ const INTERNAL_EXTRA_DATA_KEYS = new Set([REFERENCE_WARNINGS_KEY]);
 const COLUMN_LABELS: Record<string, string> = {
   content: "Açıklama",
   status: "Durum",
+  workflow: "Onay",
   assignee: "Atanan",
   priority: "Öncelik",
   project: "Proje",
@@ -131,6 +141,7 @@ const COLUMN_LABELS: Record<string, string> = {
 const COLUMN_VISIBILITY_LABELS: Record<string, string> = {
   select: "Seçim",
   status: "Durum",
+  workflow: "Onay",
   content: "Açıklama",
   project: "Proje",
   actions: "İşlemler",
@@ -138,7 +149,7 @@ const COLUMN_VISIBILITY_LABELS: Record<string, string> = {
 
 const CANLI_TABLO_COLUMN_ORDER: ColumnOrderState = ["select", "status", "assignee", "priority", "updated", "project", "detay", "actions", "presence"];
 /** Sabit sütun sırası (dinamik sütun yokken); component dışında referans sabit kalsın diye */
-const BASE_COLUMN_ORDER_STABLE: ColumnOrderState = ["select", "status", "content", "project", "actions"];
+const BASE_COLUMN_ORDER_STABLE: ColumnOrderState = ["select", "status", "workflow", "content", "project", "actions"];
 
 /** İlk açılışta İşlemler sütunu gizli; «Kolonları göster» ile açılabilir. Daha önce kaydedilmiş tercih varsa o kullanılır. */
 const DEFAULT_LIVE_TABLE_COLUMN_VISIBILITY: VisibilityState = { actions: false };
@@ -2222,6 +2233,87 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     [canExportSensitiveUnmasked, getProjectPermissionForTask, isAdmin]
   );
 
+  const isProjectWorkflowEnabled = useCallback(
+    (task: Task) => {
+      const project = task.project_id ? projectById.get(String(task.project_id)) ?? null : null;
+      return project?.workflow_enabled === true;
+    },
+    [projectById]
+  );
+
+  const canReviewWorkflowRow = useCallback(
+    (task: Task) => {
+      if (!isProjectWorkflowEnabled(task)) return false;
+      if (isAdmin || user?.roleId === "project_manager") return true;
+      const projectPermission = getProjectPermissionForTask(task);
+      return projectPermission ? projectPermission.project_role === "project_owner" || projectPermission.project_role === "project_manager" : false;
+    },
+    [getProjectPermissionForTask, isAdmin, isProjectWorkflowEnabled, user?.roleId]
+  );
+
+  const getWorkflowActionsForTask = useCallback(
+    (task: Task): TaskWorkflowAction[] => {
+      if (!isProjectWorkflowEnabled(task)) return [];
+      const workflowStatus = normalizeWorkflowStatus(task.workflow_status);
+      const rowCanEdit = canEditRow(task);
+      const canReview = canReviewWorkflowRow(task);
+      const actions: TaskWorkflowAction[] = [];
+      if (rowCanEdit && (workflowStatus === "draft" || workflowStatus === "revision_requested" || workflowStatus === "rejected")) {
+        actions.push("submit");
+      }
+      if (canReview && workflowStatus === "submitted") {
+        actions.push("approve", "request_revision", "reject");
+      }
+      if ((rowCanEdit || canReview) && workflowStatus !== "draft") {
+        actions.push("reset");
+      }
+      return actions;
+    },
+    [canEditRow, canReviewWorkflowRow, isProjectWorkflowEnabled]
+  );
+
+  const handleWorkflowAction = useCallback(
+    async (task: Task, action: TaskWorkflowAction) => {
+      if (!isProjectWorkflowEnabled(task)) return;
+      const fromStatus = normalizeWorkflowStatus(task.workflow_status);
+      const toStatus = nextWorkflowStatus(action);
+      const nowIso = new Date().toISOString();
+      const patch: Partial<Task> = {
+        workflow_status: toStatus,
+        last_updated_by: user?.email ?? "anon",
+      };
+      if (action === "submit") {
+        patch.workflow_submitted_at = nowIso;
+        patch.workflow_reviewed_at = null;
+        patch.workflow_reviewed_by = null;
+      } else if (action === "approve" || action === "request_revision" || action === "reject") {
+        patch.workflow_reviewed_at = nowIso;
+        patch.workflow_reviewed_by = user?.email ?? null;
+      } else if (action === "reset") {
+        patch.workflow_submitted_at = null;
+        patch.workflow_reviewed_at = null;
+        patch.workflow_reviewed_by = null;
+      }
+      updateTaskOptimistic(task.id, patch);
+      const result = await saveTask(task.id, patch);
+      if (!result.ok) {
+        toast.error(result.message);
+        await fetchTasks();
+        return;
+      }
+      void logTaskWorkflowEvent({
+        taskId: task.id,
+        projectId: task.project_id ?? null,
+        fromStatus,
+        toStatus,
+        action,
+        actorEmail: user?.email ?? null,
+      });
+      toast.success(WORKFLOW_ACTION_LABELS[action]);
+    },
+    [fetchTasks, isProjectWorkflowEnabled, saveTask, toast, updateTaskOptimistic, user?.email]
+  );
+
   useEffect(() => {
     if (!canExportSensitiveUnmasked && exportUnmaskSensitive) {
       setExportUnmaskSensitive(false);
@@ -2337,6 +2429,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     const opts: { id: string; label: string }[] = [
       { id: "content", label: COLUMN_VISIBILITY_LABELS.content ?? "Açıklama" },
       { id: "status", label: COLUMN_VISIBILITY_LABELS.status ?? "Durum" },
+      { id: "workflow", label: COLUMN_VISIBILITY_LABELS.workflow ?? "Onay" },
       { id: "assignee", label: "Atanan" },
       { id: "priority", label: "Öncelik" },
       { id: "due_date", label: "Son tarih" },
@@ -3335,6 +3428,72 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       enableResizing: true,
     }),
     columnHelper.display({
+      id: "workflow",
+      header: "Onay",
+      cell: ({ row }) => {
+        const task = row.original;
+        if (!isProjectWorkflowEnabled(task)) {
+          return <span className="text-xs text-slate-400 dark:text-slate-500">—</span>;
+        }
+        const workflowStatus = normalizeWorkflowStatus(task.workflow_status);
+        const workflowActions = getWorkflowActionsForTask(task);
+        const badge = (
+          <span
+            className={cn(
+              "inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+              WORKFLOW_STATUS_CLASS[workflowStatus],
+              workflowActions.length > 0 && "gap-1 cursor-pointer"
+            )}
+            title={
+              task.workflow_reviewed_by
+                ? `Son karar: ${task.workflow_reviewed_by}`
+                : task.workflow_submitted_at
+                  ? `Kontrole gönderildi: ${new Date(task.workflow_submitted_at).toLocaleString("tr-TR")}`
+                  : undefined
+            }
+          >
+            {WORKFLOW_STATUS_LABELS[workflowStatus]}
+            {workflowActions.length > 0 && <ChevronDown className="h-3 w-3" aria-hidden />}
+          </span>
+        );
+        if (workflowActions.length === 0) return badge;
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button type="button" className="max-w-full text-left">
+                {badge}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {workflowActions.map((action) => (
+                <DropdownMenuItem
+                  key={action}
+                  onClick={() => void handleWorkflowAction(task, action)}
+                  className={cn(
+                    action === "approve" && "text-emerald-700 focus:text-emerald-700 dark:text-emerald-300 dark:focus:text-emerald-300",
+                    action === "reject" && "text-red-700 focus:text-red-700 dark:text-red-300 dark:focus:text-red-300"
+                  )}
+                >
+                  {WORKFLOW_ACTION_LABELS[action]}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      },
+      size: 150,
+      minSize: 120,
+      maxSize: 220,
+      enableResizing: true,
+      enableSorting: true,
+      sortingFn: (a, b) =>
+        WORKFLOW_STATUS_LABELS[normalizeWorkflowStatus(a.original.workflow_status)].localeCompare(
+          WORKFLOW_STATUS_LABELS[normalizeWorkflowStatus(b.original.workflow_status)],
+          "tr",
+          { sensitivity: "base" }
+        ),
+    }),
+    columnHelper.display({
       id: "content",
       header: "Açıklama",
       sortingFn: (a, b) =>
@@ -3614,6 +3773,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         const task = row.original;
         const isDeleting = deletingIds.has(task.id);
         const rowCanEdit = canEditRow(task);
+        const workflowActions = getWorkflowActionsForTask(task);
         return (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -3627,6 +3787,23 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
               )}
               {rowCanEdit && canCreateTask && canCopyRow(task) && (
                 <DropdownMenuItem onClick={() => handleCopyTask(task)}>Kopyala</DropdownMenuItem>
+              )}
+              {workflowActions.length > 0 && (
+                <>
+                  <DropdownMenuSeparator />
+                  {workflowActions.map((action) => (
+                    <DropdownMenuItem
+                      key={action}
+                      onClick={() => void handleWorkflowAction(task, action)}
+                      className={cn(
+                        action === "approve" && "text-emerald-700 focus:text-emerald-700 dark:text-emerald-300 dark:focus:text-emerald-300",
+                        action === "reject" && "text-red-700 focus:text-red-700 dark:text-red-300 dark:focus:text-red-300"
+                      )}
+                    >
+                      {WORKFLOW_ACTION_LABELS[action]}
+                    </DropdownMenuItem>
+                  ))}
+                </>
               )}
               {rowCanEdit && (canCreateTask || canEditTask) && canDeleteTask && <DropdownMenuSeparator />}
               {rowCanEdit && canDeleteTask && (
@@ -3659,6 +3836,9 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       deletingIds,
       editorsByRowId,
       canEditRow,
+      getWorkflowActionsForTask,
+      handleWorkflowAction,
+      isProjectWorkflowEnabled,
       canCopyRow,
       canCreateTask,
       canDeleteTask,
