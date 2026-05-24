@@ -35,6 +35,52 @@ export type PdfExportMetadata = {
 export type EmailTemplateMode = "mobile" | "table";
 export type ReportTemplateId = "operations" | "executive" | "mobileBrief" | "fullTable";
 
+/**
+ * PDF/e-posta üretiminde isteğe bağlı sunum seçenekleri.
+ * Boş bırakılırsa eski varsayılan davranışlar korunur (geri uyumlu).
+ */
+export type PdfRenderOptions = {
+  orientation?: "landscape" | "portrait";
+  pageSize?: "A4" | "A3" | "Letter";
+  /** "Filtre özeti" bloğunu PDF'te göster (varsayılan: true) */
+  showFilterSummary?: boolean;
+  /** "Durum özeti" satırını PDF/e-posta meta bloğunda göster (varsayılan: true) */
+  showStatusSummary?: boolean;
+  /** Kurumsal kimlik — logo + ad + footer metni */
+  branding?: {
+    logoUrl?: string;
+    orgName?: string;
+    footerText?: string;
+  };
+  /** Başlık altında italik tek paragraf (max ~400 karakter) */
+  coverNote?: string;
+  /** Yönetici özeti madde madde (max 6 öğe gösterilir) */
+  summaryBullets?: string[];
+};
+
+/** URL'den base64 data-uri yükle — pdfmake `image: dataUri` için. */
+async function loadImageDataUri(url: string): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  const trimmed = (url ?? "").trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("data:image/")) return trimmed;
+  try {
+    const res = await fetch(trimmed, { credentials: "omit", mode: "cors" });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    if (!blob.type.startsWith("image/")) return null;
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch (err) {
+    console.warn("[liveTableExport] logo yüklenemedi:", err);
+    return null;
+  }
+}
+
 export const REPORT_TEMPLATES: Record<
   ReportTemplateId,
   {
@@ -226,7 +272,8 @@ async function createTaskPDF(
   projectById?: Map<string, Project>,
   unmaskSensitive: boolean = false,
   documentTitle?: string | null,
-  metadata?: PdfExportMetadata
+  metadata?: PdfExportMetadata,
+  options?: PdfRenderOptions
 ) {
   const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive);
   const [{ default: pdfMake }, vfsMod] = await Promise.all([
@@ -235,6 +282,22 @@ async function createTaskPDF(
   ]);
   const vfs = vfsMod.default ?? (vfsMod as unknown as Record<string, string>);
   pdfMake.addVirtualFileSystem(vfs);
+
+  const orientation = options?.orientation === "portrait" ? "portrait" : "landscape";
+  const pageSize = options?.pageSize === "A3" || options?.pageSize === "Letter" ? options.pageSize : "A4";
+  const showFilterSummary = options?.showFilterSummary !== false;
+  const showStatusSummary = options?.showStatusSummary !== false;
+  const branding = options?.branding;
+  const footerText = (branding?.footerText ?? "").trim() || "DashboardApp";
+  const orgName = (branding?.orgName ?? "").trim();
+  const coverNote = (options?.coverNote ?? "").trim();
+  const summaryBullets = (options?.summaryBullets ?? [])
+    .map((s) => String(s ?? "").trim())
+    .filter(Boolean)
+    .slice(0, 6);
+
+  // Logo verisi (paralel olarak data-uri'ye dönüştür)
+  const logoDataUri = branding?.logoUrl ? await loadImageDataUri(branding.logoUrl) : null;
 
   const body: unknown[][] = [
     headers.map((h) => ({ text: String(h), style: "th" })),
@@ -257,70 +320,123 @@ async function createTaskPDF(
         `Dışa aktaran: ${metadata.exportedBy}`,
         `Rapor şablonu: ${metadata.reportTemplateLabel}`,
         `Hassas veri: ${metadata.sensitivityLabel}`,
-        `Durum özeti: ${metadata.statusSummary}`,
+        ...(showStatusSummary ? [`Durum özeti: ${metadata.statusSummary}`] : []),
       ]
     : [];
-  const filterLines = metadata?.filterSummary?.length
+  const filterLines = showFilterSummary && metadata?.filterSummary?.length
     ? metadata.filterSummary.map((line) => `• ${line}`)
     : [];
 
+  // Üst marj — kurumsal başlık varsa biraz daha geniş
+  const hasBrandingBand = !!(logoDataUri || orgName);
+  const topMargin = hasBrandingBand ? 86 : 44;
+
+  type Content = Record<string, unknown>;
+  const content: Content[] = [];
+
+  // Kurumsal kimlik bandı (logo solda + ad sağda)
+  if (hasBrandingBand) {
+    content.push({
+      columns: [
+        logoDataUri
+          ? { image: logoDataUri, fit: [120, 42], alignment: "left" as const, width: 130 }
+          : { text: "", width: 130 },
+        {
+          text: orgName,
+          alignment: "right" as const,
+          style: "brand",
+        },
+      ],
+      margin: [0, 0, 0, 12] as [number, number, number, number],
+    });
+  }
+
+  // Başlık + temel metrikler
+  content.push(
+    { text: titleText, style: "h1", margin: [0, 0, 0, 6] as [number, number, number, number] }
+  );
+
+  // Cover note — italik tek paragraf
+  if (coverNote) {
+    content.push({
+      text: coverNote,
+      style: "coverNote",
+      margin: [0, 0, 0, 8] as [number, number, number, number],
+    });
+  }
+
+  content.push(
+    { text: rowCountText, style: "subheader", margin: [0, 0, 0, 4] as [number, number, number, number] },
+    { text: assigneesText, style: "subheader", margin: [0, 0, 0, 8] as [number, number, number, number] }
+  );
+
+  // Yönetici özeti — bullet liste
+  if (summaryBullets.length > 0) {
+    content.push(
+      { text: "Yönetici Özeti", style: "metaTitle", margin: [0, 2, 0, 3] as [number, number, number, number] },
+      {
+        ul: summaryBullets,
+        style: "summaryBullet",
+        margin: [0, 0, 0, 12] as [number, number, number, number],
+      }
+    );
+  }
+
+  if (metadataLines.length > 0) {
+    content.push({
+      text: metadataLines.join("\n"),
+      style: "meta",
+      margin: [0, 0, 0, filterLines.length > 0 ? 6 : 14] as [number, number, number, number],
+    });
+  }
+  if (filterLines.length > 0) {
+    content.push(
+      { text: "Filtre özeti", style: "metaTitle", margin: [0, 0, 0, 3] as [number, number, number, number] },
+      {
+        text: filterLines.join("\n"),
+        style: "meta",
+        margin: [0, 0, 0, 14] as [number, number, number, number],
+      }
+    );
+  }
+  content.push({
+    table: {
+      headerRows: 1,
+      widths: Array(headers.length).fill("*"),
+      dontBreakRows: false,
+      body,
+    },
+    layout: {
+      hLineWidth: () => 0.5,
+      vLineWidth: () => 0.5,
+      hLineColor: () => "#cccccc",
+      vLineColor: () => "#cccccc",
+      fillColor: (rowIndex: number) => {
+        if (rowIndex === 0) return "#e8eef4";
+        return rowIndex % 2 === 0 ? "#f9fafb" : null;
+      },
+    },
+  });
+
   const docDefinition = {
-    pageSize: "A4" as const,
-    pageOrientation: "landscape" as const,
-    pageMargins: [36, 44, 36, 44] as [number, number, number, number],
+    pageSize,
+    pageOrientation: orientation,
+    pageMargins: [36, topMargin, 36, 44] as [number, number, number, number],
     footer: (currentPage: number, pageCount: number) => ({
       columns: [
-        { text: "DashboardApp", alignment: "left" },
-        { text: `Sayfa ${currentPage} / ${pageCount}`, alignment: "right" },
+        { text: footerText, alignment: "left" as const },
+        { text: `Sayfa ${currentPage} / ${pageCount}`, alignment: "right" as const },
       ],
       margin: [36, 0, 36, 18] as [number, number, number, number],
       fontSize: 8,
       color: "#777777",
     }),
-    content: [
-      { text: titleText, style: "h1", margin: [0, 0, 0, 8] as [number, number, number, number] },
-      { text: rowCountText, style: "subheader", margin: [0, 0, 0, 4] as [number, number, number, number] },
-      { text: assigneesText, style: "subheader", margin: [0, 0, 0, 8] as [number, number, number, number] },
-      ...(metadataLines.length > 0
-        ? [
-            {
-              text: metadataLines.join("\n"),
-              style: "meta",
-              margin: [0, 0, 0, filterLines.length > 0 ? 6 : 14] as [number, number, number, number],
-            },
-          ]
-        : []),
-      ...(filterLines.length > 0
-        ? [
-            { text: "Filtre özeti", style: "metaTitle", margin: [0, 0, 0, 3] as [number, number, number, number] },
-            {
-              text: filterLines.join("\n"),
-              style: "meta",
-              margin: [0, 0, 0, 14] as [number, number, number, number],
-            },
-          ]
-        : []),
-      {
-        table: {
-          headerRows: 1,
-          widths: Array(headers.length).fill("*"),
-          dontBreakRows: false,
-          body,
-        },
-        layout: {
-          hLineWidth: () => 0.5,
-          vLineWidth: () => 0.5,
-          hLineColor: () => "#cccccc",
-          vLineColor: () => "#cccccc",
-          fillColor: (rowIndex: number) => {
-            if (rowIndex === 0) return "#e8eef4";
-            return rowIndex % 2 === 0 ? "#f9fafb" : null;
-          },
-        },
-      },
-    ],
+    content,
     styles: {
       h1: { fontSize: 14, bold: true },
+      brand: { fontSize: 11, bold: true, color: "#334155" },
+      coverNote: { fontSize: 10, italics: true, color: "#475569" },
+      summaryBullet: { fontSize: 9, color: "#1f2937", lineHeight: 1.25 },
       subheader: { fontSize: 10, color: "#555555" },
       metaTitle: { fontSize: 9, bold: true, color: "#333333" },
       meta: { fontSize: 8, color: "#555555" },
@@ -343,9 +459,10 @@ export async function downloadPDF(
   projectById?: Map<string, Project>,
   unmaskSensitive: boolean = false,
   documentTitle?: string | null,
-  metadata?: PdfExportMetadata
+  metadata?: PdfExportMetadata,
+  options?: PdfRenderOptions
 ) {
-  const pdf = await createTaskPDF(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive, documentTitle, metadata);
+  const pdf = await createTaskPDF(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive, documentTitle, metadata, options);
   const baseName = filename.replace(/\.pdf$/i, "");
   await pdf.download(`${baseName}.pdf`);
 }
@@ -357,9 +474,10 @@ export async function createPDFPreviewUrl(
   projectById?: Map<string, Project>,
   unmaskSensitive: boolean = false,
   documentTitle?: string | null,
-  metadata?: PdfExportMetadata
+  metadata?: PdfExportMetadata,
+  options?: PdfRenderOptions
 ) {
-  const pdf = await createTaskPDF(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive, documentTitle, metadata);
+  const pdf = await createTaskPDF(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive, documentTitle, metadata, options);
   const blob = await pdf.getBlob();
   return URL.createObjectURL(blob);
 }
@@ -381,10 +499,22 @@ export function createEmailTemplate(
   unmaskSensitive: boolean,
   subject: string,
   metadata: PdfExportMetadata,
-  mode: EmailTemplateMode
+  mode: EmailTemplateMode,
+  options?: PdfRenderOptions
 ) {
   const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive);
   const title = subject.trim() || "Canlı Tablo Görev Raporu";
+  const showStatusSummary = options?.showStatusSummary !== false;
+  const showFilterSummary = options?.showFilterSummary !== false;
+  const branding = options?.branding;
+  const footerText = (branding?.footerText ?? "").trim() || "DashboardApp";
+  const orgName = (branding?.orgName ?? "").trim();
+  const logoUrl = (branding?.logoUrl ?? "").trim();
+  const coverNote = (options?.coverNote ?? "").trim();
+  const summaryBullets = (options?.summaryBullets ?? [])
+    .map((s) => String(s ?? "").trim())
+    .filter(Boolean)
+    .slice(0, 6);
   const summaryRows = [
     ["Kapsam", metadata.scopeLabel],
     ["Oluşturulma", metadata.generatedAt],
@@ -392,9 +522,13 @@ export function createEmailTemplate(
     ["Rapor şablonu", metadata.reportTemplateLabel],
     ["Hassas veri", metadata.sensitivityLabel],
     ["Toplam görev", String(rows.length)],
-    ["Durum özeti", metadata.statusSummary],
+    ...(showStatusSummary ? ([["Durum özeti", metadata.statusSummary]] as Array<[string, string]>) : []),
   ];
-  const filterItems = metadata.filterSummary.length > 0 ? metadata.filterSummary : ["Ek filtre uygulanmadı."];
+  const filterItems = showFilterSummary
+    ? metadata.filterSummary.length > 0
+      ? metadata.filterSummary
+      : ["Ek filtre uygulanmadı."]
+    : [];
   const maxMobileRows = 30;
   const mobileRows = rowArrays.slice(0, maxMobileRows);
   const hiddenMobileRowCount = Math.max(0, rowArrays.length - mobileRows.length);
@@ -454,11 +588,53 @@ export function createEmailTemplate(
     <thead><tr>${tableHead}</tr></thead>
     <tbody>${tableRows}</tbody>
   </table>`;
+  const brandingBand =
+    logoUrl || orgName
+      ? `
+  <table role="presentation" style="border-collapse:collapse;width:100%;max-width:680px;margin:0 0 14px;border-bottom:1px solid #e2e8f0;padding-bottom:10px;">
+    <tbody>
+      <tr>
+        <td style="vertical-align:middle;padding:0 0 10px;">
+          ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(orgName || "Kurum logosu")}" style="max-height:42px;max-width:200px;display:block;" />` : ""}
+        </td>
+        <td style="vertical-align:middle;text-align:right;padding:0 0 10px;font-size:13px;font-weight:600;color:#334155;">
+          ${escapeHtml(orgName)}
+        </td>
+      </tr>
+    </tbody>
+  </table>`
+      : "";
+
+  const coverNoteBlock = coverNote
+    ? `<p style="font-style:italic;color:#475569;font-size:13px;margin:0 0 14px;">${escapeHtml(coverNote)}</p>`
+    : "";
+
+  const summaryBulletsBlock =
+    summaryBullets.length > 0
+      ? `
+  <h3 style="font-size:14px;margin:14px 0 6px;color:#1f2937;">Yönetici Özeti</h3>
+  <ul style="margin:0 0 16px;padding-left:20px;color:#0f172a;font-size:13px;line-height:1.5;">
+    ${summaryBullets.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+  </ul>`
+      : "";
+
+  const filterBlock =
+    filterItems.length > 0
+      ? `
+  <h3 style="font-size:14px;margin:16px 0 8px;">Filtre özeti</h3>
+  <ul style="margin:0 0 16px;padding-left:20px;">
+    ${filterItems.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+  </ul>`
+      : "";
+
   const html = `
 <div style="font-family:Arial,Helvetica,sans-serif;color:#0f172a;line-height:1.45;max-width:680px;">
+  ${brandingBand}
   <p>Merhaba,</p>
   <p>${escapeHtml(title)} aşağıdadır.</p>
   <h2 style="font-size:18px;margin:18px 0 10px;">${escapeHtml(title)}</h2>
+  ${coverNoteBlock}
+  ${summaryBulletsBlock}
   <table style="border-collapse:collapse;margin:0 0 14px;width:100%;max-width:760px;">
     <tbody>
       ${summaryRows
@@ -469,27 +645,29 @@ export function createEmailTemplate(
         .join("")}
     </tbody>
   </table>
-  <h3 style="font-size:14px;margin:16px 0 8px;">Filtre özeti</h3>
-  <ul style="margin:0 0 16px;padding-left:20px;">
-    ${filterItems.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
-  </ul>
+  ${filterBlock}
   ${bodyContent}
-  <p style="margin-top:16px;color:#64748b;font-size:12px;">DashboardApp üzerinden oluşturuldu.</p>
+  <p style="margin-top:16px;color:#64748b;font-size:12px;">${escapeHtml(footerText)} üzerinden oluşturuldu.</p>
 </div>`.trim();
   const text = [
+    ...(orgName ? [orgName, ""] : []),
     "Merhaba,",
     "",
     `${title} aşağıdadır.`,
+    ...(coverNote ? ["", coverNote] : []),
+    ...(summaryBullets.length > 0
+      ? ["", "Yönetici Özeti:", ...summaryBullets.map((b) => `- ${b}`)]
+      : []),
     "",
     ...summaryRows.map(([label, value]) => `${label}: ${value}`),
-    "",
-    "Filtre özeti:",
-    ...filterItems.map((item) => `- ${item}`),
+    ...(filterItems.length > 0 ? ["", "Filtre özeti:", ...filterItems.map((item) => `- ${item}`)] : []),
     "",
     mode === "mobile" && hiddenMobileRowCount > 0
       ? `Görevler: İlk ${maxMobileRows} kayıt gösteriliyor, ${hiddenMobileRowCount} kayıt e-posta gövdesinde gizlendi.`
       : "Görevler:",
     [headers.join("\t"), ...(mode === "mobile" ? mobileRows : rowArrays).map((row) => row.join("\t"))].join("\n"),
+    "",
+    `— ${footerText}`,
   ].join("\n");
   return { subject: title, html, text };
 }

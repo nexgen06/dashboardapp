@@ -2,10 +2,38 @@
 
 import { supabase } from "@/lib/supabaseClient";
 import type { EmailTemplateMode, PdfExportScope, ReportTemplateId } from "@/lib/liveTableExport";
+import type { SavedViewConfig } from "@/lib/savedViews";
 
 export type ReportTemplateScope = "private" | "shared";
 export type ReportTemplateAssignmentScope = "system" | "project";
 export type ReportTemplateAccessMode = "all" | "admin_pm" | "project_team" | "email_list";
+
+/** Hızlı senaryo presetleri — savedView filters'a dönüştürülür. */
+export type FilterPresetId =
+  | "completed"
+  | "overdue"
+  | "last7days"
+  | "last30days"
+  | "highPriority";
+
+export const FILTER_PRESET_LABELS: Record<FilterPresetId, string> = {
+  completed: "Sadece tamamlananlar",
+  overdue: "Sadece gecikmiş görevler",
+  last7days: "Son 7 gün",
+  last30days: "Son 30 gün",
+  highPriority: "Yüksek öncelik",
+};
+
+export const FILTER_PRESET_ORDER: FilterPresetId[] = [
+  "completed",
+  "overdue",
+  "last7days",
+  "last30days",
+  "highPriority",
+];
+
+export type PdfOrientationOption = "landscape" | "portrait";
+export type PdfPageSizeOption = "A4" | "A3" | "Letter";
 
 export type ReportTemplateConfig = {
   baseTemplateId: ReportTemplateId;
@@ -15,6 +43,20 @@ export type ReportTemplateConfig = {
   exportScope: PdfExportScope;
   visibleColumnIds: string[];
   unmaskSensitive: boolean;
+  /** Logo bandını PDF/e-posta üstüne yerleştir (org_branding'ten okunur). */
+  showLogo: boolean;
+  /** Başlık altına italik tek paragraf (max ~400 karakter, opsiyonel). */
+  coverNote: string;
+  /** Yönetici özeti için bullet listesi (max 6 satır kullanılır). */
+  summaryBullets: string[];
+  /** Hızlı senaryo presetleri (örn ["completed", "last30days"]). */
+  defaultFilterPresets: FilterPresetId[];
+  /** Bağlı kayıtlı görünüm — varsa filtreleri buradan alınır. */
+  defaultSavedViewId: string | null;
+  pdfOrientation: PdfOrientationOption;
+  pdfPageSize: PdfPageSizeOption;
+  pdfShowFilterSummary: boolean;
+  pdfShowStatusSummary: boolean;
 };
 
 export type ManagedReportTemplate = {
@@ -54,7 +96,30 @@ export function defaultReportTemplateConfig(): ReportTemplateConfig {
     exportScope: "current",
     visibleColumnIds: [],
     unmaskSensitive: false,
+    showLogo: false,
+    coverNote: "",
+    summaryBullets: [],
+    defaultFilterPresets: [],
+    defaultSavedViewId: null,
+    pdfOrientation: "landscape",
+    pdfPageSize: "A4",
+    pdfShowFilterSummary: true,
+    pdfShowStatusSummary: true,
   };
+}
+
+function coerceFilterPreset(v: unknown): FilterPresetId | null {
+  return v === "completed" || v === "overdue" || v === "last7days" || v === "last30days" || v === "highPriority"
+    ? v
+    : null;
+}
+
+function coercePdfOrientation(v: unknown): PdfOrientationOption {
+  return v === "portrait" ? "portrait" : "landscape";
+}
+
+function coercePdfPageSize(v: unknown): PdfPageSizeOption {
+  return v === "A3" || v === "Letter" ? v : "A4";
 }
 
 function normalizeConfig(raw: unknown): ReportTemplateConfig {
@@ -71,6 +136,24 @@ function normalizeConfig(raw: unknown): ReportTemplateConfig {
       ? row.visibleColumnIds.map((v) => String(v).trim()).filter(Boolean)
       : [],
     unmaskSensitive: row.unmaskSensitive === true,
+    showLogo: row.showLogo === true,
+    coverNote: typeof row.coverNote === "string" ? row.coverNote : "",
+    summaryBullets: Array.isArray(row.summaryBullets)
+      ? row.summaryBullets.map((v) => String(v).trim()).filter(Boolean).slice(0, 12)
+      : [],
+    defaultFilterPresets: Array.isArray(row.defaultFilterPresets)
+      ? (row.defaultFilterPresets
+          .map(coerceFilterPreset)
+          .filter((v): v is FilterPresetId => v !== null))
+      : [],
+    defaultSavedViewId:
+      typeof row.defaultSavedViewId === "string" && row.defaultSavedViewId.trim()
+        ? row.defaultSavedViewId.trim()
+        : null,
+    pdfOrientation: coercePdfOrientation(row.pdfOrientation),
+    pdfPageSize: coercePdfPageSize(row.pdfPageSize),
+    pdfShowFilterSummary: row.pdfShowFilterSummary !== false, // default true
+    pdfShowStatusSummary: row.pdfShowStatusSummary !== false, // default true
   };
 }
 
@@ -190,4 +273,75 @@ export async function clearManagedReportTemplateDefault(
   if (exceptId) query = query.neq("id", exceptId);
   const { error } = await query;
   if (error) throw friendlyReportTemplateError(error);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Filtre presetleri → SavedViewConfig.filters dönüşümü                        */
+/* -------------------------------------------------------------------------- */
+
+/** "Sadece tamamlananlar"da varsayılan olarak kabul edilen durum etiketleri. */
+const DEFAULT_COMPLETED_STATUSES = ["Tamamlandı", "Done", "Bitti", "Closed"];
+/** "Yüksek öncelik"te varsayılan olarak kabul edilen öncelik etiketleri. */
+const DEFAULT_HIGH_PRIORITIES = ["High", "Yüksek", "Kritik", "Urgent"];
+
+/** Bir preset listesini canlı tabloda uygulanabilir filtre objesine çevirir. */
+export function filterPresetsToConfig(
+  presets: FilterPresetId[]
+): SavedViewConfig["filters"] {
+  if (!presets || presets.length === 0) return undefined;
+  const filters: NonNullable<SavedViewConfig["filters"]> = {};
+  const today = new Date();
+  const toISODate = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
+  for (const preset of presets) {
+    switch (preset) {
+      case "completed":
+        filters.statusFilter = Array.from(
+          new Set([...(filters.statusFilter ?? []), ...DEFAULT_COMPLETED_STATUSES])
+        );
+        break;
+      case "overdue":
+        // Yarın 00:00'dan önce (yani bugün ve geçmiş) bitenler, henüz tamamlanmamış
+        filters.dateTo = toISODate(today);
+        filters.datePreset = "overdue";
+        break;
+      case "last7days": {
+        const start = new Date(today);
+        start.setDate(start.getDate() - 6);
+        filters.dateFrom = toISODate(start);
+        filters.dateTo = toISODate(today);
+        filters.datePreset = "last7days";
+        break;
+      }
+      case "last30days": {
+        const start = new Date(today);
+        start.setDate(start.getDate() - 29);
+        filters.dateFrom = toISODate(start);
+        filters.dateTo = toISODate(today);
+        filters.datePreset = "last30days";
+        break;
+      }
+      case "highPriority": {
+        const key = "priority";
+        const existing = filters.columnFilters?.[key] ?? [];
+        filters.columnFilters = {
+          ...(filters.columnFilters ?? {}),
+          [key]: Array.from(new Set([...existing, ...DEFAULT_HIGH_PRIORITIES])),
+        };
+        break;
+      }
+    }
+  }
+
+  return filters;
+}
+
+/** Kullanıcıya gösterilecek özet (chip etiketleri). */
+export function describeFilterPresets(presets: FilterPresetId[]): string[] {
+  return (presets ?? []).map((id) => FILTER_PRESET_LABELS[id]).filter(Boolean);
 }

@@ -47,3 +47,75 @@ export async function persistLiveTableDensityToServer(density: ServerLiveTableDe
 }
 
 export const LIVE_TABLE_DENSITY_APP_SETTINGS_KEY = LIVE_TABLE_DENSITY_KEY;
+
+/* -------------------------------------------------------------------------- */
+/* Kurumsal kimlik (org_branding) — rapor şablonlarında kullanılan logo/ad     */
+/* -------------------------------------------------------------------------- */
+
+const ORG_BRANDING_KEY = "org_branding";
+
+export type OrgBranding = {
+  /** Tam URL — https başlamalı. Boş ise logo gösterilmez. */
+  logoUrl: string;
+  /** Görünür kurum adı (rapor başlığı yanında). */
+  orgName: string;
+  /** PDF footer'da görünecek metin (varsayılan: "DashboardApp"). */
+  pdfFooterText: string;
+};
+
+export const DEFAULT_ORG_BRANDING: OrgBranding = {
+  logoUrl: "",
+  orgName: "",
+  pdfFooterText: "DashboardApp",
+};
+
+function coerceOrgBranding(v: unknown): OrgBranding {
+  if (!v || typeof v !== "object") return { ...DEFAULT_ORG_BRANDING };
+  const row = v as Record<string, unknown>;
+  return {
+    logoUrl: typeof row.logoUrl === "string" ? row.logoUrl.trim() : "",
+    orgName: typeof row.orgName === "string" ? row.orgName.trim() : "",
+    pdfFooterText:
+      typeof row.pdfFooterText === "string" && row.pdfFooterText.trim()
+        ? row.pdfFooterText.trim()
+        : DEFAULT_ORG_BRANDING.pdfFooterText,
+  };
+}
+
+/** Kurumsal kimlik bilgilerini al (tüm üyeler ortak okur). */
+export async function fetchOrgBranding(): Promise<OrgBranding> {
+  if (!isSupabaseConfigured()) return { ...DEFAULT_ORG_BRANDING };
+  const { data, error } = await supabase
+    .from("app_settings")
+    .select("value")
+    .eq("key", ORG_BRANDING_KEY)
+    .maybeSingle();
+  if (error) {
+    if (error.code !== "42P01") console.warn("[app_settings] fetch org_branding:", error.message);
+    return { ...DEFAULT_ORG_BRANDING };
+  }
+  return coerceOrgBranding(data?.value);
+}
+
+/** Kurumsal kimlik bilgilerini kaydet (RLS: admin/PM). */
+export async function persistOrgBranding(value: OrgBranding): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  const { data: auth } = await supabase.auth.getSession();
+  if (!auth?.session) return false;
+  const normalized = coerceOrgBranding(value);
+  const { error } = await supabase.from("app_settings").upsert(
+    {
+      key: ORG_BRANDING_KEY,
+      value: normalized,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "key" }
+  );
+  if (error) {
+    console.warn("[app_settings] upsert org_branding:", error.message);
+    return false;
+  }
+  return true;
+}
+
+export const ORG_BRANDING_APP_SETTINGS_KEY = ORG_BRANDING_KEY;

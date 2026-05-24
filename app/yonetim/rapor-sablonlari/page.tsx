@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { FileText, Loader2, Pencil, RefreshCw, Shield, Trash2 } from "lucide-react";
+import { FileText, Image as ImageIcon, Layout, Loader2, Pencil, RefreshCw, Save, Shield, Sparkles, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,11 +16,24 @@ import {
   deleteManagedReportTemplate,
   listManagedReportTemplates,
   updateManagedReportTemplate,
+  FILTER_PRESET_LABELS,
+  FILTER_PRESET_ORDER,
+  type FilterPresetId,
   type ManagedReportTemplate,
+  type PdfOrientationOption,
+  type PdfPageSizeOption,
   type ReportTemplateAccessMode,
   type ReportTemplateAssignmentScope,
   type ReportTemplateScope,
 } from "@/lib/reportTemplates";
+import {
+  DEFAULT_ORG_BRANDING,
+  fetchOrgBranding,
+  persistOrgBranding,
+  type OrgBranding,
+} from "@/lib/appSettingsSupabase";
+import { listSavedViews, type SavedView } from "@/lib/savedViews";
+import { cn } from "@/lib/utils";
 
 type FormState = {
   id: string | null;
@@ -39,6 +52,18 @@ type FormState = {
   exportScope: PdfExportScope;
   visibleColumnIdsText: string;
   unmaskSensitive: boolean;
+  /* Yeni: Sunum & marka */
+  showLogo: boolean;
+  coverNote: string;
+  summaryBulletsText: string;
+  /* Yeni: Hazır rapor senaryosu */
+  defaultFilterPresets: FilterPresetId[];
+  defaultSavedViewId: string;
+  /* Yeni: PDF görünümü */
+  pdfOrientation: PdfOrientationOption;
+  pdfPageSize: PdfPageSizeOption;
+  pdfShowFilterSummary: boolean;
+  pdfShowStatusSummary: boolean;
 };
 
 function emptyForm(): FormState {
@@ -60,6 +85,15 @@ function emptyForm(): FormState {
     exportScope: base.exportScope,
     visibleColumnIdsText: "",
     unmaskSensitive: false,
+    showLogo: base.showLogo,
+    coverNote: base.coverNote,
+    summaryBulletsText: base.summaryBullets.join("\n"),
+    defaultFilterPresets: [...base.defaultFilterPresets],
+    defaultSavedViewId: base.defaultSavedViewId ?? "",
+    pdfOrientation: base.pdfOrientation,
+    pdfPageSize: base.pdfPageSize,
+    pdfShowFilterSummary: base.pdfShowFilterSummary,
+    pdfShowStatusSummary: base.pdfShowStatusSummary,
   };
 }
 
@@ -82,7 +116,24 @@ function formFromTemplate(template: ManagedReportTemplate): FormState {
     exportScope: config.exportScope,
     visibleColumnIdsText: config.visibleColumnIds.join(", "),
     unmaskSensitive: config.unmaskSensitive,
+    showLogo: config.showLogo,
+    coverNote: config.coverNote,
+    summaryBulletsText: config.summaryBullets.join("\n"),
+    defaultFilterPresets: [...config.defaultFilterPresets],
+    defaultSavedViewId: config.defaultSavedViewId ?? "",
+    pdfOrientation: config.pdfOrientation,
+    pdfPageSize: config.pdfPageSize,
+    pdfShowFilterSummary: config.pdfShowFilterSummary,
+    pdfShowStatusSummary: config.pdfShowStatusSummary,
   };
+}
+
+function parseBullets(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^[\s•\-*]+/, "").trim())
+    .filter(Boolean)
+    .slice(0, 12);
 }
 
 function parseColumnIds(text: string): string[] {
@@ -127,6 +178,18 @@ export default function RaporSablonlariPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Kurumsal kimlik (app_settings.org_branding)
+  const [branding, setBranding] = useState<OrgBranding>(DEFAULT_ORG_BRANDING);
+  const [brandingDraft, setBrandingDraft] = useState<OrgBranding>(DEFAULT_ORG_BRANDING);
+  const [brandingSaving, setBrandingSaving] = useState(false);
+
+  // Kayıtlı görünümler (paylaşımlı)
+  const [savedViews, setSavedViews] = useState<SavedView[]>([]);
+  const sharedSavedViews = useMemo(
+    () => savedViews.filter((v) => v.scope === "shared"),
+    [savedViews]
+  );
+
   const refresh = useCallback(async () => {
     if (!canView) return;
     setLoading(true);
@@ -143,6 +206,54 @@ export default function RaporSablonlariPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Kurumsal kimliği yükle
+  useEffect(() => {
+    if (!canView) return;
+    let active = true;
+    void fetchOrgBranding().then((value) => {
+      if (!active) return;
+      setBranding(value);
+      setBrandingDraft(value);
+    });
+    return () => {
+      active = false;
+    };
+  }, [canView]);
+
+  // Kayıtlı görünümleri yükle
+  useEffect(() => {
+    if (!canView) return;
+    let active = true;
+    void listSavedViews().then((views) => {
+      if (active) setSavedViews(views);
+    });
+    return () => {
+      active = false;
+    };
+  }, [canView]);
+
+  const handleBrandingSave = async () => {
+    setBrandingSaving(true);
+    try {
+      const ok = await persistOrgBranding(brandingDraft);
+      if (ok) {
+        setBranding(brandingDraft);
+        toast.success("Kurumsal kimlik kaydedildi");
+      } else {
+        toast.error("Kurumsal kimlik kaydedilemedi (yetki veya bağlantı hatası).");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Kurumsal kimlik kaydedilemedi.");
+    } finally {
+      setBrandingSaving(false);
+    }
+  };
+
+  const brandingDirty =
+    brandingDraft.logoUrl !== branding.logoUrl ||
+    brandingDraft.orgName !== branding.orgName ||
+    brandingDraft.pdfFooterText !== branding.pdfFooterText;
 
   const selectedBuiltin = useMemo(() => REPORT_TEMPLATES[form.baseTemplateId], [form.baseTemplateId]);
 
@@ -197,6 +308,15 @@ export default function RaporSablonlariPage() {
           exportScope: form.exportScope,
           visibleColumnIds: parseColumnIds(form.visibleColumnIdsText),
           unmaskSensitive: form.unmaskSensitive,
+          showLogo: form.showLogo,
+          coverNote: form.coverNote.trim().slice(0, 600),
+          summaryBullets: parseBullets(form.summaryBulletsText),
+          defaultFilterPresets: form.defaultFilterPresets,
+          defaultSavedViewId: form.defaultSavedViewId.trim() || null,
+          pdfOrientation: form.pdfOrientation,
+          pdfPageSize: form.pdfPageSize,
+          pdfShowFilterSummary: form.pdfShowFilterSummary,
+          pdfShowStatusSummary: form.pdfShowStatusSummary,
         },
       };
       if (form.id) await updateManagedReportTemplate(form.id, payload);
@@ -269,6 +389,74 @@ export default function RaporSablonlariPage() {
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
           {error}
         </div>
+      )}
+
+      {/* Kurumsal kimlik (org_branding) — tüm şablonlar için ortak */}
+      {canEdit && (
+        <section className="rounded-lg border border-slate-200 bg-gradient-to-br from-slate-50/80 to-white p-4 dark:border-slate-700 dark:from-slate-800/70 dark:to-slate-800">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                <ImageIcon className="h-4 w-4 text-blue-600" aria-hidden />
+                Kurumsal Kimlik
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                Logo ve kurum adı, &quot;Logoyu göster&quot; seçili tüm rapor şablonlarında kullanılır. PDF footer metnini de buradan değiştirebilirsiniz.
+              </p>
+            </div>
+            {branding.logoUrl && (
+              <div className="hidden h-12 w-32 shrink-0 items-center justify-center rounded border border-slate-200 bg-white p-1 dark:border-slate-600 dark:bg-slate-900 sm:flex">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={branding.logoUrl} alt="Önizleme" className="max-h-full max-w-full object-contain" />
+              </div>
+            )}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="grid gap-1 text-sm font-medium text-slate-700 dark:text-slate-300 sm:col-span-2">
+              Logo URL
+              <input
+                type="url"
+                value={brandingDraft.logoUrl}
+                onChange={(e) => setBrandingDraft((p) => ({ ...p, logoUrl: e.target.value }))}
+                placeholder="https://example.com/logo.png"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+              />
+              <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                Public erişimli URL. PNG/SVG önerilir, max 200x60px ideal.
+              </span>
+            </label>
+            <label className="grid gap-1 text-sm font-medium text-slate-700 dark:text-slate-300">
+              Kurum adı
+              <input
+                value={brandingDraft.orgName}
+                onChange={(e) => setBrandingDraft((p) => ({ ...p, orgName: e.target.value }))}
+                placeholder="Örn: ACME A.Ş."
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+              />
+            </label>
+            <label className="grid gap-1 text-sm font-medium text-slate-700 dark:text-slate-300 sm:col-span-2">
+              PDF footer metni
+              <input
+                value={brandingDraft.pdfFooterText}
+                onChange={(e) => setBrandingDraft((p) => ({ ...p, pdfFooterText: e.target.value }))}
+                placeholder="DashboardApp"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+              />
+            </label>
+            <div className="flex items-end justify-end">
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => void handleBrandingSave()}
+                disabled={brandingSaving || !brandingDirty}
+                className="w-full sm:w-auto"
+              >
+                {brandingSaving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
+                Kimliği kaydet
+              </Button>
+            </div>
+          </div>
+        </section>
       )}
 
       {canEdit && (
@@ -378,7 +566,218 @@ export default function RaporSablonlariPage() {
               </label>
             </div>
           </div>
-          <div className="mt-4 flex justify-end gap-2">
+
+          {/* ─────────────────────────────────────────────────────────────── */}
+          {/* SUNUM & MARKA — logo + cover note + bullets                     */}
+          {/* ─────────────────────────────────────────────────────────────── */}
+          <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50/60 p-4 dark:border-slate-700 dark:bg-slate-900/30">
+            <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+              <Layout className="h-4 w-4 text-violet-600" aria-hidden />
+              Sunum &amp; Marka
+              <span className="text-xs font-normal text-slate-500 dark:text-slate-400">— PDF/e-postanın kurumsal görünümü</span>
+            </h3>
+            <div className="grid gap-3 lg:grid-cols-2">
+              <div className="space-y-3">
+                <label
+                  className={cn(
+                    "flex items-start gap-2 rounded-md border px-3 py-2 text-sm text-slate-700 transition-colors dark:text-slate-300",
+                    form.showLogo
+                      ? "border-blue-300 bg-blue-50/60 dark:border-blue-700 dark:bg-blue-950/30"
+                      : "border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-800"
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={form.showLogo}
+                    onChange={(e) => setForm((p) => ({ ...p, showLogo: e.target.checked }))}
+                    className="mt-0.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="flex flex-col">
+                    <span className="font-medium">Kurum logosu &amp; adı bandı</span>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      {branding.logoUrl || branding.orgName
+                        ? "Kurumsal kimlik tanımlı — başlık üstüne yerleştirilecek."
+                        : "Kurumsal kimlik boş — üst kart üzerinden logo/ad girin."}
+                    </span>
+                  </span>
+                </label>
+                <label className="grid gap-1 text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Kapak notu (raporun amacını anlatan tek paragraf)
+                  <textarea
+                    value={form.coverNote}
+                    onChange={(e) => setForm((p) => ({ ...p, coverNote: e.target.value.slice(0, 600) }))}
+                    rows={3}
+                    maxLength={600}
+                    placeholder="Bu rapor, haftalık operasyon toplantısı için hazırlanmıştır…"
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                  />
+                  <span className="text-right text-[11px] font-normal text-slate-400">
+                    {form.coverNote.length}/600
+                  </span>
+                </label>
+              </div>
+              <label className="grid gap-1 text-sm font-medium text-slate-700 dark:text-slate-300">
+                Yönetici özeti madde madde (her satır bir bullet, max 12)
+                <textarea
+                  value={form.summaryBulletsText}
+                  onChange={(e) => setForm((p) => ({ ...p, summaryBulletsText: e.target.value }))}
+                  rows={7}
+                  placeholder={"Bu hafta 14 görev tamamlandı\n3 görev geç teslim edildi\nA Projesi planlanan sürede ilerliyor"}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-mono dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                />
+                <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                  PDF/e-postada bullet listesi olarak render edilir. Boş satırlar yok sayılır.
+                </span>
+              </label>
+            </div>
+          </div>
+
+          {/* ─────────────────────────────────────────────────────────────── */}
+          {/* HAZIR RAPOR SENARYOSU — preset filters + saved view             */}
+          {/* ─────────────────────────────────────────────────────────────── */}
+          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/60 p-4 dark:border-slate-700 dark:bg-slate-900/30">
+            <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+              <Sparkles className="h-4 w-4 text-amber-600" aria-hidden />
+              Hazır Rapor Senaryosu
+              <span className="text-xs font-normal text-slate-500 dark:text-slate-400">— şablon çağrıldığında otomatik uygulanır</span>
+            </h3>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Hızlı filtre presetleri
+                </p>
+                <div className="grid gap-1.5 sm:grid-cols-2">
+                  {FILTER_PRESET_ORDER.map((presetId) => {
+                    const checked = form.defaultFilterPresets.includes(presetId);
+                    return (
+                      <label
+                        key={presetId}
+                        className={cn(
+                          "flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-xs transition-colors",
+                          checked
+                            ? "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200"
+                            : "border-slate-200 bg-white text-slate-700 hover:border-amber-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) =>
+                            setForm((p) => ({
+                              ...p,
+                              defaultFilterPresets: e.target.checked
+                                ? [...p.defaultFilterPresets, presetId]
+                                : p.defaultFilterPresets.filter((id) => id !== presetId),
+                            }))
+                          }
+                          className="h-3.5 w-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                        />
+                        {FILTER_PRESET_LABELS[presetId]}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="grid gap-1 text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Kayıtlı görünüm bağla (opsiyonel)
+                  <select
+                    value={form.defaultSavedViewId}
+                    onChange={(e) => setForm((p) => ({ ...p, defaultSavedViewId: e.target.value }))}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                  >
+                    <option value="">Bağlı görünüm yok</option>
+                    {sharedSavedViews.map((view) => (
+                      <option key={view.id} value={view.id}>
+                        {view.name}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                    Sadece paylaşımlı (kurumsal) kayıtlı görünümler listelenir. Preset + görünüm aynı anda kullanılabilir; export sırasında ikisi de uygulanır.
+                  </span>
+                </label>
+                {sharedSavedViews.length === 0 && (
+                  <p className="rounded-md border border-dashed border-slate-300 px-3 py-2 text-[11px] text-slate-500 dark:border-slate-600 dark:text-slate-400">
+                    Henüz paylaşımlı kayıtlı görünüm yok. Canlı tablodan bir görünüm kaydedip &quot;Kurumsal&quot; olarak işaretleyin.
+                  </p>
+                )}
+                {(form.defaultFilterPresets.length > 0 || form.defaultSavedViewId) && (
+                  <div className="flex flex-wrap items-center gap-1 rounded-md bg-amber-50/60 px-3 py-2 dark:bg-amber-950/20">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                      Uygulanacak:
+                    </span>
+                    {form.defaultFilterPresets.map((id) => (
+                      <Badge key={id} variant="outline" className="border-amber-300 bg-white text-[10px] text-amber-900 dark:border-amber-700 dark:bg-slate-900 dark:text-amber-200">
+                        {FILTER_PRESET_LABELS[id]}
+                      </Badge>
+                    ))}
+                    {form.defaultSavedViewId && (
+                      <Badge variant="outline" className="border-blue-300 bg-white text-[10px] text-blue-900 dark:border-blue-700 dark:bg-slate-900 dark:text-blue-200">
+                        Görünüm: {sharedSavedViews.find((v) => v.id === form.defaultSavedViewId)?.name ?? form.defaultSavedViewId.slice(0, 8)}
+                      </Badge>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* ─────────────────────────────────────────────────────────────── */}
+          {/* PDF GÖRÜNÜMÜ — orientation / page size / show toggles           */}
+          {/* ─────────────────────────────────────────────────────────────── */}
+          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/60 p-4 dark:border-slate-700 dark:bg-slate-900/30">
+            <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+              <SlidersHorizontal className="h-4 w-4 text-emerald-600" aria-hidden />
+              PDF Görünümü
+              <span className="text-xs font-normal text-slate-500 dark:text-slate-400">— sayfa yönü ve içerik bölümleri</span>
+            </h3>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="grid gap-1 text-sm font-medium text-slate-700 dark:text-slate-300">
+                Sayfa yönü
+                <select
+                  value={form.pdfOrientation}
+                  onChange={(e) => setForm((p) => ({ ...p, pdfOrientation: e.target.value as PdfOrientationOption }))}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                >
+                  <option value="landscape">Yatay (geniş)</option>
+                  <option value="portrait">Dikey (uzun)</option>
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm font-medium text-slate-700 dark:text-slate-300">
+                Sayfa boyutu
+                <select
+                  value={form.pdfPageSize}
+                  onChange={(e) => setForm((p) => ({ ...p, pdfPageSize: e.target.value as PdfPageSizeOption }))}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                >
+                  <option value="A4">A4</option>
+                  <option value="A3">A3 (büyük)</option>
+                  <option value="Letter">Letter (US)</option>
+                </select>
+              </label>
+              <label className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={form.pdfShowFilterSummary}
+                  onChange={(e) => setForm((p) => ({ ...p, pdfShowFilterSummary: e.target.checked }))}
+                  className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                Filtre özetini göster
+              </label>
+              <label className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={form.pdfShowStatusSummary}
+                  onChange={(e) => setForm((p) => ({ ...p, pdfShowStatusSummary: e.target.checked }))}
+                  className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                Durum özetini göster
+              </label>
+            </div>
+          </div>
+
+          <div className="mt-5 flex justify-end gap-2">
             {form.id && <Button type="button" variant="outline" onClick={() => setForm(emptyForm())}>Yeni kayıt</Button>}
             <Button type="submit" disabled={saving}>
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

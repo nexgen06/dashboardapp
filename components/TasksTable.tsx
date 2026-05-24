@@ -92,8 +92,11 @@ import {
   type EmailTemplateMode,
   type PdfExportMetadata,
   type PdfExportScope,
+  type PdfRenderOptions,
   type ReportTemplateId,
 } from "@/lib/liveTableExport";
+import { fetchOrgBranding, DEFAULT_ORG_BRANDING, type OrgBranding } from "@/lib/appSettingsSupabase";
+import { FILTER_PRESET_LABELS } from "@/lib/reportTemplates";
 import Link from "next/link";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/components/ui/toast";
@@ -2038,6 +2041,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const [reportTemplateSelection, setReportTemplateSelection] = useState<ReportTemplateSelection>(builtinReportTemplateSelection("operations"));
   const [savedReportTemplates, setSavedReportTemplates] = useState<SavedReportTemplate[]>([]);
   const [managedReportTemplates, setManagedReportTemplates] = useState<ManagedReportTemplate[]>([]);
+  /** Kurumsal kimlik (logo/orgName/footerText) — app_settings.org_branding */
+  const [orgBranding, setOrgBranding] = useState<OrgBranding>(DEFAULT_ORG_BRANDING);
   const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
   const [pdfDialogScope, setPdfDialogScope] = useState<PdfExportScope>("current");
   const [pdfTitleInput, setPdfTitleInput] = useState("");
@@ -2360,6 +2365,17 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       .catch(() => {
         if (!cancelled) setManagedReportTemplates([]);
       });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Kurumsal kimlik (logo / kurum adı / footer) — şablonlarda kullanılır
+  useEffect(() => {
+    let cancelled = false;
+    void fetchOrgBranding().then((value) => {
+      if (!cancelled) setOrgBranding(value);
+    });
     return () => {
       cancelled = true;
     };
@@ -4071,6 +4087,35 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       }
     : selectedBuiltInReportTemplate;
   const selectedPdfTitle = pdfTitleInput.trim() || null;
+
+  /**
+   * Yönetilen şablonun sunum/marka/PDF görünüm ayarlarını ve org_branding'i
+   * tek bir PdfRenderOptions objesine birleştirir. Builtin/custom şablonlarda
+   * yalnızca org_branding (logo gerekirse) etkili olur.
+   */
+  const pdfRenderOptions = useMemo<PdfRenderOptions>(() => {
+    const config = selectedManagedReportTemplate?.template_config;
+    const includeLogo = config?.showLogo === true;
+    const brandingForRender = includeLogo
+      ? {
+          logoUrl: orgBranding.logoUrl || undefined,
+          orgName: orgBranding.orgName || undefined,
+          footerText: orgBranding.pdfFooterText || undefined,
+        }
+      : {
+          // Logo gösterilmese de footer metni kurumsal olarak kalır
+          footerText: orgBranding.pdfFooterText || undefined,
+        };
+    return {
+      orientation: config?.pdfOrientation,
+      pageSize: config?.pdfPageSize,
+      showFilterSummary: config?.pdfShowFilterSummary,
+      showStatusSummary: config?.pdfShowStatusSummary,
+      branding: brandingForRender,
+      coverNote: config?.coverNote || undefined,
+      summaryBullets: config?.summaryBullets,
+    };
+  }, [selectedManagedReportTemplate, orgBranding]);
   const pdfExportMetadata = useMemo<PdfExportMetadata>(() => {
     const generatedAt = new Date().toLocaleString("tr-TR", {
       dateStyle: "medium",
@@ -4188,7 +4233,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         effectiveUnmaskSensitive,
         emailSubjectInput,
         pdfExportMetadata,
-        emailTemplateMode
+        emailTemplateMode,
+        pdfRenderOptions
       ),
     [
       selectedPdfRows,
@@ -4199,6 +4245,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       emailSubjectInput,
       pdfExportMetadata,
       emailTemplateMode,
+      pdfRenderOptions,
     ]
   );
 
@@ -4489,7 +4536,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         projectById,
         effectiveUnmaskSensitive,
         selectedPdfTitle,
-        pdfExportMetadata
+        pdfExportMetadata,
+        pdfRenderOptions
       );
       setPdfPreviewUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
@@ -4501,7 +4549,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     } finally {
       setPdfPreviewLoading(false);
     }
-  }, [selectedPdfRows, visibleColumnIds, settings.dateFormat, projectById, effectiveUnmaskSensitive, selectedPdfTitle, pdfExportMetadata, toast]);
+  }, [selectedPdfRows, visibleColumnIds, settings.dateFormat, projectById, effectiveUnmaskSensitive, selectedPdfTitle, pdfExportMetadata, pdfRenderOptions, toast]);
 
   const confirmExportPDF = useCallback(
     async () => {
@@ -4519,7 +4567,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
           projectById,
           effectiveUnmaskSensitive,
           selectedPdfTitle,
-          pdfExportMetadata
+          pdfExportMetadata,
+          pdfRenderOptions
         );
         if (effectiveUnmaskSensitive) {
           toast.success("Hassas veriler AÇIK olarak indirildi (yetkili onay)");
@@ -4533,7 +4582,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         handlePdfDialogOpenChange(false);
       }
     },
-    [selectedPdfRows, visibleColumnIds, settings.dateFormat, pdfDialogScope, effectiveUnmaskSensitive, projectById, selectedPdfTitle, pdfExportMetadata, toast, logSensitiveExport, handlePdfDialogOpenChange]
+    [selectedPdfRows, visibleColumnIds, settings.dateFormat, pdfDialogScope, effectiveUnmaskSensitive, projectById, selectedPdfTitle, pdfExportMetadata, pdfRenderOptions, toast, logSensitiveExport, handlePdfDialogOpenChange]
   );
 
   const openColumnPicker = useCallback(() => {
@@ -6188,6 +6237,43 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                   <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                     {selectedReportTemplate.description}
                   </p>
+                  {selectedManagedReportTemplate &&
+                    (selectedManagedReportTemplate.template_config.defaultFilterPresets.length > 0 ||
+                      selectedManagedReportTemplate.template_config.defaultSavedViewId ||
+                      selectedManagedReportTemplate.template_config.showLogo ||
+                      selectedManagedReportTemplate.template_config.coverNote ||
+                      selectedManagedReportTemplate.template_config.summaryBullets.length > 0) && (
+                      <div className="mt-2 flex flex-wrap items-center gap-1 rounded-md border border-blue-200 bg-blue-50/60 px-2 py-1.5 dark:border-blue-800 dark:bg-blue-950/30">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
+                          Şablon ayarları:
+                        </span>
+                        {selectedManagedReportTemplate.template_config.showLogo && (
+                          <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-blue-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-blue-700">
+                            🏷 Logo bandı
+                          </span>
+                        )}
+                        {selectedManagedReportTemplate.template_config.coverNote && (
+                          <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-blue-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-blue-700">
+                            📝 Kapak notu
+                          </span>
+                        )}
+                        {selectedManagedReportTemplate.template_config.summaryBullets.length > 0 && (
+                          <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-blue-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-blue-700">
+                            ✦ Özet ({selectedManagedReportTemplate.template_config.summaryBullets.length})
+                          </span>
+                        )}
+                        {selectedManagedReportTemplate.template_config.defaultFilterPresets.map((id) => (
+                          <span key={id} className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-700">
+                            ⚡ {FILTER_PRESET_LABELS[id]}
+                          </span>
+                        ))}
+                        {selectedManagedReportTemplate.template_config.defaultSavedViewId && (
+                          <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-700">
+                            📌 Kayıtlı görünüm
+                          </span>
+                        )}
+                      </div>
+                    )}
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <Button type="button" variant="outline" size="sm" onClick={() => void saveCurrentReportTemplate()}>
                       <PlusCircle className="mr-1.5 h-3.5 w-3.5" aria-hidden />
@@ -6335,6 +6421,43 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                   <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                     {selectedReportTemplate.description}
                   </p>
+                  {selectedManagedReportTemplate &&
+                    (selectedManagedReportTemplate.template_config.defaultFilterPresets.length > 0 ||
+                      selectedManagedReportTemplate.template_config.defaultSavedViewId ||
+                      selectedManagedReportTemplate.template_config.showLogo ||
+                      selectedManagedReportTemplate.template_config.coverNote ||
+                      selectedManagedReportTemplate.template_config.summaryBullets.length > 0) && (
+                      <div className="mt-2 flex flex-wrap items-center gap-1 rounded-md border border-blue-200 bg-blue-50/60 px-2 py-1.5 dark:border-blue-800 dark:bg-blue-950/30">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
+                          Şablon ayarları:
+                        </span>
+                        {selectedManagedReportTemplate.template_config.showLogo && (
+                          <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-blue-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-blue-700">
+                            🏷 Logo bandı
+                          </span>
+                        )}
+                        {selectedManagedReportTemplate.template_config.coverNote && (
+                          <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-blue-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-blue-700">
+                            📝 Kapak notu
+                          </span>
+                        )}
+                        {selectedManagedReportTemplate.template_config.summaryBullets.length > 0 && (
+                          <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-blue-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-blue-700">
+                            ✦ Özet ({selectedManagedReportTemplate.template_config.summaryBullets.length})
+                          </span>
+                        )}
+                        {selectedManagedReportTemplate.template_config.defaultFilterPresets.map((id) => (
+                          <span key={id} className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-700">
+                            ⚡ {FILTER_PRESET_LABELS[id]}
+                          </span>
+                        ))}
+                        {selectedManagedReportTemplate.template_config.defaultSavedViewId && (
+                          <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-700">
+                            📌 Kayıtlı görünüm
+                          </span>
+                        )}
+                      </div>
+                    )}
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <Button type="button" variant="outline" size="sm" onClick={() => void saveCurrentReportTemplate()}>
                       <PlusCircle className="mr-1.5 h-3.5 w-3.5" aria-hidden />
