@@ -591,6 +591,7 @@ type EditableCellProps = {
   displayValue?: string;
   taskId: string;
   field: string;
+  navigationColumnId?: string;
   onSave: (taskId: string, patch: Record<string, unknown>) => void;
   onFocus: () => void;
   onBlur: () => void;
@@ -599,24 +600,34 @@ type EditableCellProps = {
   autoEdit?: boolean;
   /** Enter ile kaydedildikten sonra çağrılır — hızlı zincir ekleme için bir sonraki satırı doğurur. */
   onChainEnter?: () => void;
+  /** Enter ile kayıttan sonra aynı satırdaki bir sonraki düzenlenebilir hücreye geçer. */
+  onNavigateNext?: (taskId: string, columnId: string) => void;
   disabled?: boolean;
 };
+
+function cssAttrValue(value: string) {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(value);
+  return value.replace(/["\\]/g, "\\$&");
+}
 
 function EditableCell({
   value,
   displayValue,
   taskId,
   field,
+  navigationColumnId,
   onSave,
   onFocus,
   onBlur,
   density = "normal",
   autoEdit = false,
   onChainEnter,
+  onNavigateNext,
   disabled = false,
 }: EditableCellProps) {
   const [isEditing, setIsEditing] = useState(autoEdit);
   const [localValue, setLocalValue] = useState(value);
+  const editableColumnId = navigationColumnId ?? field;
   // autoEdit yalnızca ilk mount'ta etkin olur; sonraki render'larda parent state'i resetler
   useEffect(() => {
     if (autoEdit && !disabled) {
@@ -636,8 +647,8 @@ function EditableCell({
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setLocalValue(value);
-  }, [value]);
+    if (!isEditing) setLocalValue(value);
+  }, [isEditing, value]);
 
   useEffect(() => {
     if (isEditing) inputRef.current?.focus();
@@ -656,7 +667,11 @@ function EditableCell({
     if (e.key === "Enter") {
       e.preventDefault();
       handleSave();
-      if (onChainEnter) onChainEnter();
+      if (onChainEnter) {
+        onChainEnter();
+        return;
+      }
+      onNavigateNext?.(taskId, editableColumnId);
     }
     if (e.key === "Escape") {
       setLocalValue(value);
@@ -694,6 +709,10 @@ function EditableCell({
           onChange={(e) => setLocalValue(e.target.value)}
           onBlur={handleSave}
           onKeyDown={handleKeyDown}
+          data-live-editable-cell="true"
+          data-row-id={taskId}
+          data-col-id={editableColumnId}
+          data-disabled={disabled ? "true" : undefined}
           className={cn(
             "w-full min-w-0 rounded border border-blue-300 bg-blue-50/50 text-slate-900 outline-none ring-2 ring-blue-500 focus:border-blue-500 focus:bg-blue-50 dark:border-blue-600 dark:bg-blue-900/20 dark:text-slate-100 dark:focus:bg-blue-900/30",
             cellText,
@@ -712,6 +731,10 @@ function EditableCell({
         onFocus();
         setIsEditing(true);
       }}
+      data-live-editable-cell="true"
+      data-row-id={taskId}
+      data-col-id={editableColumnId}
+      data-disabled={disabled ? "true" : undefined}
       className={cn(
         "flex w-full min-w-0 items-center gap-1.5 rounded text-left text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700",
         cellText,
@@ -3253,6 +3276,29 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     }
   }, [canCreateTask, createTask, projectFilter, toast]);
 
+  const focusNextEditableCell = useCallback((taskId: string, columnId: string) => {
+    requestAnimationFrame(() => {
+      const rowSelector = cssAttrValue(taskId);
+      const columnSelector = cssAttrValue(columnId);
+      const current = document.querySelector<HTMLElement>(
+        `[data-live-editable-cell="true"][data-row-id="${rowSelector}"][data-col-id="${columnSelector}"]`
+      );
+      const row = current?.closest("tr");
+      if (!row) return;
+
+      const editableCells = Array.from(
+        row.querySelectorAll<HTMLElement>('[data-live-editable-cell="true"]:not([data-disabled="true"])')
+      );
+      const currentIndex = editableCells.findIndex((el) => el.dataset.colId === columnId);
+      const next = editableCells.slice(currentIndex + 1).find((el) => el.offsetParent !== null);
+      if (!next) return;
+
+      next.focus();
+      if (next instanceof HTMLButtonElement) next.click();
+      if (next instanceof HTMLInputElement) next.select();
+    });
+  }, []);
+
   const handleCSVImport = useCallback(
     async (
       imported: Array<{ content: string; status: string; assignee: string | null; priority?: string | null; extra_data?: Record<string, string> | null }>,
@@ -3612,6 +3658,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                 value={value}
                 taskId={task.id}
                 field="content"
+                navigationColumnId="content"
                 onSave={(id, patch) => {
                   if ("content" in patch) handleSave(id, patch);
                 }}
@@ -3625,6 +3672,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                 onChainEnter={
                   quickAddFocusId === task.id ? handleQuickAddRow : undefined
                 }
+                onNavigateNext={focusNextEditableCell}
                 disabled={!rowCanEdit}
               />
             </span>
@@ -3834,6 +3882,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                   displayValue={sensitive ? masked : undefined}
                   taskId={taskId}
                   field={key}
+                  navigationColumnId={`extra:${key}`}
                   onSave={(id, patch) => {
                     if (key in patch) {
                       handleDynamicCellSave(id, key, String(patch[key] ?? ""));
@@ -3842,6 +3891,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                   onFocus={() => rowCanEdit && setEditingRow(taskId)}
                   onBlur={() => setEditingRow(null)}
                   density={tableDensity}
+                  onNavigateNext={focusNextEditableCell}
                   disabled={!rowCanEdit}
                 />
               </div>
@@ -3931,6 +3981,9 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       extraDataKeys,
       handleDynamicCellSave,
       handleReferenceCellSave,
+      focusNextEditableCell,
+      handleQuickAddRow,
+      quickAddFocusId,
       deletingIds,
       editorsByRowId,
       canEditRow,
@@ -3939,6 +3992,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       isProjectWorkflowEnabled,
       canCopyRow,
       canCreateTask,
+      canEditTask,
       canDeleteTask,
       handleCopyTask,
       handleDeleteTask,
