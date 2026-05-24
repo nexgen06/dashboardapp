@@ -33,4 +33,6 @@ export type Project = {
   wip_in_progress_limit?: number | null;
   /** Açıksa görev satırları tamamlanmadan önce proje yetkilisi/admin onay akışından geçer. */
   workflow_enabled?: boolean;
+  /** Soft-archive timestamp. NULL = aktif. Dolu = arşivli (UI listelerde gizlenir, silinmez). */
+  archived_at?: string | null;
 };

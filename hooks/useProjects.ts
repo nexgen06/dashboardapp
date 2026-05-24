@@ -97,10 +97,17 @@ function mapRowToProject(row: Record<string, unknown>): Project {
     subtitle_columns,
     wip_in_progress_limit: wipLimit,
     workflow_enabled,
+    archived_at: row.archived_at != null ? String(row.archived_at) : null,
   };
 }
 
-export function useProjects() {
+export type UseProjectsOptions = {
+  /** true → arşivli projeler dahil; false (varsayılan) → yalnızca aktifler. */
+  includeArchived?: boolean;
+};
+
+export function useProjects(options?: UseProjectsOptions) {
+  const includeArchived = options?.includeArchived === true;
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -108,12 +115,30 @@ export function useProjects() {
 
   const fetchProjects = useCallback(async () => {
     try {
-      const { data, error: fetchError } = await supabase
+      let query = supabase
         .from("projects")
         .select("*")
         .order("updated_at", { ascending: false });
+      if (!includeArchived) {
+        query = query.is("archived_at", null);
+      }
+      const { data, error: fetchError } = await query;
 
-      if (fetchError) throw fetchError;
+      if (fetchError) {
+        // archived_at kolonu henüz uygulanmamış olabilir (SQL script çalıştırılmadıysa)
+        // — 42703 (column does not exist) için fallback'e dön
+        if (String(fetchError.code) === "42703" && !includeArchived) {
+          const fallback = await supabase
+            .from("projects")
+            .select("*")
+            .order("updated_at", { ascending: false });
+          if (fallback.error) throw fallback.error;
+          setProjects((fallback.data ?? []).map(mapRowToProject));
+          setError(null);
+          return;
+        }
+        throw fetchError;
+      }
       setProjects((data ?? []).map(mapRowToProject));
       setError(null);
     } catch (e) {
@@ -122,7 +147,7 @@ export function useProjects() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [includeArchived]);
 
   useEffect(() => {
     fetchProjects();
@@ -155,14 +180,28 @@ export function useProjects() {
             const oldId = oldRecord?.id != null ? String(oldRecord.id) : null;
 
             setProjects((prev) => {
+              const isArchivedRecord = (rec: Record<string, unknown>) =>
+                rec?.archived_at != null && String(rec.archived_at).trim() !== "";
               switch (eventType) {
                 case "INSERT":
                   if (newRecord && typeof newRecord === "object" && newId && !prev.some((p) => String(p.id) === newId)) {
+                    // Arşivli kayıt geldi ama biz arşivlileri istemiyoruz → atla
+                    if (!includeArchived && isArchivedRecord(newRecord)) return prev;
                     return [mapRowToProject(newRecord), ...prev];
                   }
                   return prev;
                 case "UPDATE":
                   if (newRecord && typeof newRecord === "object" && newId) {
+                    const becameArchived = !includeArchived && isArchivedRecord(newRecord);
+                    if (becameArchived) {
+                      // Başka kullanıcı arşivledi → listeden çıkar
+                      return prev.filter((p) => String(p.id) !== newId);
+                    }
+                    // Daha önce listede yoktu (arşivdeydi) ama şimdi aktif → ekle
+                    const existed = prev.some((p) => String(p.id) === newId);
+                    if (!existed && !isArchivedRecord(newRecord)) {
+                      return [mapRowToProject(newRecord), ...prev];
+                    }
                     return prev.map((p) => (String(p.id) === newId ? mapRowToProject(newRecord) : p));
                   }
                   return prev;
@@ -419,12 +458,50 @@ export function useProjects() {
     setProjects((prev) => prev.filter((p) => p.id !== id));
   }, []);
 
+  /**
+   * Projeyi gerçek anlamda arşivler — `archived_at = now()`. Status değişmez;
+   * arşivli proje aktif listelerden çıkar ancak silinmez, geri getirilebilir.
+   */
   const archiveProject = useCallback(
     async (id: string) => {
-      await updateProject(id, { status: "Beklemede" });
-      await fetchProjects();
+      const now = new Date().toISOString();
+      const { error: archiveError } = await supabase
+        .from("projects")
+        .update({ archived_at: now, updated_at: now })
+        .eq("id", id);
+      if (archiveError) {
+        // archived_at kolonu yoksa eski davranışa düş (status: Beklemede)
+        if (String(archiveError.code) === "42703") {
+          await updateProject(id, { status: "Beklemede" });
+          await fetchProjects();
+          return;
+        }
+        throw archiveError;
+      }
+      // Local state'i güncelle — includeArchived false ise listeden çıkar, değilse alanı güncelle
+      setProjects((prev) =>
+        includeArchived
+          ? prev.map((p) => (p.id === id ? { ...p, archived_at: now, updated_at: now } : p))
+          : prev.filter((p) => p.id !== id)
+      );
     },
-    [updateProject, fetchProjects]
+    [includeArchived, updateProject, fetchProjects]
+  );
+
+  /** Arşivden çıkar — `archived_at = NULL`. */
+  const unarchiveProject = useCallback(
+    async (id: string) => {
+      const now = new Date().toISOString();
+      const { error: unarchiveError } = await supabase
+        .from("projects")
+        .update({ archived_at: null, updated_at: now })
+        .eq("id", id);
+      if (unarchiveError) throw unarchiveError;
+      setProjects((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, archived_at: null, updated_at: now } : p))
+      );
+    },
+    []
   );
 
   return {
@@ -436,5 +513,6 @@ export function useProjects() {
     updateProject,
     deleteProject,
     archiveProject,
+    unarchiveProject,
   };
 }

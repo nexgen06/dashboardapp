@@ -135,7 +135,8 @@ export default function ProjeDetayPage() {
   const canRemoveTask = hasPermission("projectDetail.removeTask");
   const canDeleteTask = hasPermission("projectDetail.deleteTask");
   const canImportCsv = hasPermission("projectDetail.importCsv");
-  const { projects, isLoading: projectsLoading, error: projectsError } = useProjects();
+  // Arşivli projelere de detay sayfasından erişilebilsin
+  const { projects, isLoading: projectsLoading, error: projectsError } = useProjects({ includeArchived: true });
   const {
     tasks,
     createTask,

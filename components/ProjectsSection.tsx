@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useProjects } from "@/hooks/useProjects";
 import { useTaskCountByProject } from "@/hooks/useTaskCountByProject";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
-import { usePrompt } from "@/components/ui/modals";
+import { useConfirm, usePrompt } from "@/components/ui/modals";
 import { useToast } from "@/components/ui/toast";
 import { useSettings } from "@/contexts/settings-context";
 import { useAuth } from "@/contexts/auth-context";
@@ -2218,6 +2218,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
   const canManageTeamTaskEditing = isAdmin || user?.roleId === "project_manager";
   const canDeleteProject = hasPermission("projects.delete");
   const canArchiveProject = hasPermission("projects.archive");
+  const [showArchived, setShowArchived] = useState(false);
   const {
     projects,
     isLoading,
@@ -2227,9 +2228,43 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
     updateProject,
     deleteProject,
     archiveProject,
-  } = useProjects();
+    unarchiveProject,
+  } = useProjects({ includeArchived: showArchived });
   const { createTasksBulk, tasks, saveTask, updateTaskOptimistic } = useTasksWithRealtime();
   const promptUser = usePrompt();
+  const confirmDialog = useConfirm();
+  const toast = useToast();
+
+  const handleArchiveProject = useCallback(
+    async (project: Project) => {
+      const ok = await confirmDialog({
+        title: "Projeyi arşivle",
+        message: `"${project.name}" projesi arşivlenecek. Liste ve dashboard'da gizlenir ancak silinmez; istediğinizde geri getirebilirsiniz.`,
+        confirmLabel: "Arşivle",
+        variant: "default",
+      });
+      if (!ok) return;
+      try {
+        await archiveProject(project.id);
+        toast.success(`"${project.name}" arşivlendi`);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Proje arşivlenemedi");
+      }
+    },
+    [archiveProject, confirmDialog, toast]
+  );
+
+  const handleUnarchiveProject = useCallback(
+    async (project: Project) => {
+      try {
+        await unarchiveProject(project.id);
+        toast.success(`"${project.name}" arşivden çıkarıldı`);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Arşivden çıkarılamadı");
+      }
+    },
+    [unarchiveProject, toast]
+  );
   const taskCountByProject = useTaskCountByProject();
   const { unreadByProjectId } = useProjectChatUnread();
 
@@ -2727,6 +2762,24 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
               Bana atananlar
             </label>
           )}
+          <label
+            className={cn(
+              "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer transition-colors",
+              showArchived
+                ? "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-600 dark:bg-amber-950/30 dark:text-amber-200"
+                : "border-slate-200 bg-white text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+            )}
+            title="Arşivlenmiş projeleri de listele"
+          >
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(e) => setShowArchived(e.target.checked)}
+              className="rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+            />
+            <Archive className="h-4 w-4" />
+            Arşivlenenleri göster
+          </label>
           <input
             type="date"
             value={dateFrom}
@@ -2827,20 +2880,32 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
                 ? `${taskDone} / ${taskCount} görev onaylandı (${taskProgressPct}%)`
                 : `${taskDone} / ${taskCount} görev tamamlandı (${taskProgressPct}%)`;
               const chatUnread = unreadByProjectId[project.id] ?? 0;
+              const isArchived = !!project.archived_at;
               return (
                 <article
                   key={project.id}
                   className={cn(
                     "group relative flex flex-col rounded-lg border p-4 transition-all",
-                    isProjectCompleted
-                      ? "border-amber-300 bg-amber-50/70 shadow-sm dark:border-amber-500/60 dark:bg-amber-950/20"
-                      : isPageVariant
-                        ? "border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/60 hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5 dark:hover:border-blue-600"
-                        : "border-slate-200 bg-slate-50/50 dark:border-slate-600 dark:bg-slate-800/50 hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5 dark:hover:border-blue-600",
-                    isProjectCompleted && "hover:border-amber-400 hover:shadow-md hover:-translate-y-0.5 dark:hover:border-amber-400",
-                    project.status === "Beklemede" && "opacity-80"
+                    isArchived
+                      ? "border-slate-300 bg-slate-100/70 opacity-75 grayscale-[40%] dark:border-slate-600 dark:bg-slate-800/40"
+                      : isProjectCompleted
+                        ? "border-amber-300 bg-amber-50/70 shadow-sm dark:border-amber-500/60 dark:bg-amber-950/20"
+                        : isPageVariant
+                          ? "border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/60 hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5 dark:hover:border-blue-600"
+                          : "border-slate-200 bg-slate-50/50 dark:border-slate-600 dark:bg-slate-800/50 hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5 dark:hover:border-blue-600",
+                    !isArchived && isProjectCompleted && "hover:border-amber-400 hover:shadow-md hover:-translate-y-0.5 dark:hover:border-amber-400",
+                    !isArchived && project.status === "Beklemede" && "opacity-80"
                   )}
                 >
+                  {isArchived && (
+                    <span
+                      className="absolute right-2 top-2 z-10 inline-flex items-center gap-1 rounded-full border border-slate-400 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600 shadow-sm dark:border-slate-500 dark:bg-slate-900 dark:text-slate-300"
+                      title={`Arşivlendi: ${project.archived_at ? new Date(project.archived_at).toLocaleDateString("tr-TR") : ""}`}
+                    >
+                      <Archive className="h-3 w-3" aria-hidden />
+                      Arşivli
+                    </span>
+                  )}
                   {/* Stretched link: tüm kart tıklanabilir; içeride z-10'lu elementler kendi davranışlarını korur. */}
                   <Link
                     href={`/projeler/${project.id}`}
@@ -2934,11 +2999,19 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
                             Şablon olarak kaydet
                           </DropdownMenuItem>
                         )}
-                        {canArchiveProject && (
-                          <DropdownMenuItem onClick={() => archiveProject(project.id)} disabled={project.status === "Beklemede"}>
-                            <Archive className="mr-2 h-3.5 w-3.5" />
-                            Arşivle
-                          </DropdownMenuItem>
+                        {canArchiveProject && (project.archived_at
+                          ? (
+                            <DropdownMenuItem onClick={() => void handleUnarchiveProject(project)}>
+                              <RotateCw className="mr-2 h-3.5 w-3.5" />
+                              Arşivden çıkar
+                            </DropdownMenuItem>
+                          )
+                          : (
+                            <DropdownMenuItem onClick={() => void handleArchiveProject(project)}>
+                              <Archive className="mr-2 h-3.5 w-3.5" />
+                              Arşivle
+                            </DropdownMenuItem>
+                          )
                         )}
                         {(canEditProject || canArchiveProject) && canDeleteProject && <DropdownMenuSeparator />}
                         {canDeleteProject && (
