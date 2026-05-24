@@ -36,6 +36,8 @@ import {
 } from "@/lib/projectMemberPermissions";
 import { SaveTemplateDialog, TemplateListDialog } from "@/components/ProjectTemplateDialogs";
 import { isSensitiveExtraColumnKey } from "@/lib/extraColumnSensitiveDisplay";
+import { isStatusDone } from "@/lib/statusKind";
+import { normalizeWorkflowStatus } from "@/lib/taskWorkflow";
 import type { Project, ProjectStatus, ProjectPriority } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -59,7 +61,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Search, PlusCircle, MoreVertical, Pencil, Archive, Trash2, RotateCw, Upload, FileText, UserPlus, X, Calendar, Flag, FolderKanban, Check, Bookmark, ShieldCheck, Loader2 } from "lucide-react";
+import { Search, PlusCircle, MoreVertical, Pencil, Archive, Trash2, RotateCw, Upload, FileText, UserPlus, X, Calendar, Flag, FolderKanban, Check, Bookmark, ShieldCheck, Loader2, Crown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProjectColumnManager } from "@/components/ProjectColumnManager";
 
@@ -2287,6 +2289,21 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
     return result;
   }, [projects, search, statusFilter, assignedToMeOnly, currentUserEmail, dateFrom, dateTo]);
 
+  const taskCompletionByProject = useMemo(() => {
+    const map: Record<string, { total: number; done: number; approved: number }> = {};
+    for (const task of tasks) {
+      const projectId = String(task.project_id ?? "").trim();
+      if (!projectId) continue;
+      if (!map[projectId]) map[projectId] = { total: 0, done: 0, approved: 0 };
+      map[projectId].total += 1;
+      if (isStatusDone(task.status)) map[projectId].done += 1;
+      if (normalizeWorkflowStatus(task.workflow_status) === "approved") {
+        map[projectId].approved += 1;
+      }
+    }
+    return map;
+  }, [tasks]);
+
   const handleFormSubmit = async (data: NewProjectSubmitData) => {
     setIsSubmitting(true);
     setFormError(null);
@@ -2796,18 +2813,31 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {filteredProjects.map((project) => {
               const taskStats = taskCountByProject[project.id] ?? { total: 0, done: 0 };
-              const taskCount = taskStats.total;
-              const taskDone = taskStats.done;
+              const completionStats = taskCompletionByProject[project.id] ?? {
+                total: taskStats.total,
+                done: taskStats.done,
+                approved: 0,
+              };
+              const taskCount = completionStats.total;
+              const taskDone = project.workflow_enabled ? completionStats.approved : completionStats.done;
               const taskProgressPct = taskCount > 0 ? Math.round((taskDone / taskCount) * 100) : 0;
+              const isProjectCompleted = taskCount > 0 && taskDone === taskCount;
+              const completionLabel = project.workflow_enabled ? "Tüm görevler onaylandı" : "Proje tamamlandı";
+              const progressTitle = project.workflow_enabled
+                ? `${taskDone} / ${taskCount} görev onaylandı (${taskProgressPct}%)`
+                : `${taskDone} / ${taskCount} görev tamamlandı (${taskProgressPct}%)`;
               const chatUnread = unreadByProjectId[project.id] ?? 0;
               return (
                 <article
                   key={project.id}
                   className={cn(
                     "group relative flex flex-col rounded-lg border p-4 transition-all",
-                    isPageVariant
-                      ? "border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/60 hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5 dark:hover:border-blue-600"
-                      : "border-slate-200 bg-slate-50/50 dark:border-slate-600 dark:bg-slate-800/50 hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5 dark:hover:border-blue-600",
+                    isProjectCompleted
+                      ? "border-amber-300 bg-amber-50/70 shadow-sm dark:border-amber-500/60 dark:bg-amber-950/20"
+                      : isPageVariant
+                        ? "border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/60 hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5 dark:hover:border-blue-600"
+                        : "border-slate-200 bg-slate-50/50 dark:border-slate-600 dark:bg-slate-800/50 hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5 dark:hover:border-blue-600",
+                    isProjectCompleted && "hover:border-amber-400 hover:shadow-md hover:-translate-y-0.5 dark:hover:border-amber-400",
                     project.status === "Beklemede" && "opacity-80"
                   )}
                 >
@@ -2828,6 +2858,14 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
                         )}
                       >
                         <span className="truncate">{project.name || "İsimsiz proje"}</span>
+                        {isProjectCompleted && (
+                          <span
+                            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-amber-300 bg-amber-100 text-amber-700 shadow-sm dark:border-amber-400/60 dark:bg-amber-500/15 dark:text-amber-200"
+                            title={completionLabel}
+                          >
+                            <Crown className="h-3.5 w-3.5" aria-hidden />
+                          </span>
+                        )}
                         {chatUnread > 0 && (
                           <span
                             className="inline-flex h-5 shrink-0 min-w-[20px] items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-bold leading-none text-white"
@@ -2940,6 +2978,15 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
                         Yaklaşan
                       </Badge>
                     )}
+                    {isProjectCompleted && (
+                      <Badge
+                        variant="outline"
+                        className="gap-1 border-amber-300 bg-amber-100 text-xs font-medium text-amber-800 dark:border-amber-400/60 dark:bg-amber-500/15 dark:text-amber-200"
+                      >
+                        <Crown className="h-3 w-3" aria-hidden />
+                        {completionLabel}
+                      </Badge>
+                    )}
                     <span
                       className={cn(
                         "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium",
@@ -2947,11 +2994,11 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
                           ? "border-slate-300 bg-white text-slate-700 dark:border-slate-500 dark:bg-slate-700 dark:text-slate-200"
                           : "border-slate-200 bg-white text-slate-600 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300"
                       )}
-                      title={taskCount > 0 ? `${taskDone} / ${taskCount} görev tamamlandı (${taskProgressPct}%)` : "Görev yok"}
+                      title={taskCount > 0 ? progressTitle : "Görev yok"}
                     >
                       {taskCount === 0
                         ? "0 görev"
-                        : <>{taskDone}<span className="opacity-60">/{taskCount}</span> görev</>}
+                        : <>{taskDone}<span className="opacity-60">/{taskCount}</span> {project.workflow_enabled ? "onay" : "görev"}</>}
                     </span>
                     {(project.assigned_emails?.length ?? 0) > 0 && (
                       <AvatarStack
@@ -2972,7 +3019,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
                   {taskCount > 0 && (
                     <div className="relative z-10 mt-3 pointer-events-none">
                       <div className="flex items-center justify-between text-ui-caption text-slate-500 dark:text-slate-400">
-                        <span>İlerleme</span>
+                        <span>{project.workflow_enabled ? "Onay ilerlemesi" : "İlerleme"}</span>
                         <span className={cn(
                           "font-medium",
                           taskProgressPct === 100 && "text-emerald-700 dark:text-emerald-300",
