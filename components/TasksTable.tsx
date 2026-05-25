@@ -5081,6 +5081,19 @@ ${emailTemplate.html}
     [selectedTasks, canBulkUpdate, canBulkUpdateRow, saveTask, updateTaskOptimistic, toast]
   );
 
+  /* ─── TopStrip useMemo'ları — KRİTİK: hooks rules için early return'lerden ÖNCE ─── */
+  const topStripMetrics = useMemo(() => {
+    const total = filteredData.length;
+    const done = filteredData.filter((t) => isStatusDone(t.status)).length;
+    const inProgress = filteredData.filter((t) => isStatusInProgress(t.status)).length;
+    return { total, done, inProgress };
+  }, [filteredData]);
+
+  const topStripActiveProject = useMemo(() => {
+    if (projectFilter.length !== 1) return null;
+    return projects.find((p) => p.id === projectFilter[0]) ?? null;
+  }, [projectFilter, projects]);
+
   if (isLoading) {
     const skeletonRows = 5;
     return (
@@ -7622,22 +7635,7 @@ ${emailTemplate.html}
     </>
   );
 
-  /* ─── TopStrip — Claude Design "Canlı Tablo" sayfa header'ı ───
-     Solda: başlık + realtime durum chip + 3 metric chip + aktif proje rozeti
-     Sağda: (gelecek: dark/notif şuan AppLayout.Header'da)
-     Görünür yer: tablo görünümünün hemen üstünde, sticky değil. */
-  const topStripMetrics = useMemo(() => {
-    const total = filteredData.length;
-    const done = filteredData.filter((t) => isStatusDone(t.status)).length;
-    const inProgress = filteredData.filter((t) => isStatusInProgress(t.status)).length;
-    return { total, done, inProgress };
-  }, [filteredData]);
-
-  const topStripActiveProject = useMemo(() => {
-    if (projectFilter.length !== 1) return null;
-    return projects.find((p) => p.id === projectFilter[0]) ?? null;
-  }, [projectFilter, projects]);
-
+  /* ─── TopStrip JSX ─── (useMemo'lar yukarıda, early return'lerden önce tanımlandı) */
   const realtimeChipMeta =
     realtimeConnection === "live"
       ? { dot: "bg-emerald-500", ring: "ring-emerald-400/30", label: "Canlı", textColor: "text-emerald-700 dark:text-emerald-300", bg: "bg-emerald-50 dark:bg-emerald-950/40", border: "border-emerald-200 dark:border-emerald-800", pulse: true }
