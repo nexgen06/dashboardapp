@@ -348,3 +348,54 @@ export function templateForRowChip(row: RowChipValue, templates: ChipTemplate[])
   return templates.find((template) => template.id === row.templateId) ?? null;
 }
 
+/**
+ * Resolver — bir görev + extra_data kolon anahtarı verildiğinde, eğer o kolon
+ * bu projede bir chip template'e bağlıysa görevin aktif chip option label'ını döner.
+ * Bağlı değilse veya henüz değer atanmamışsa null döner.
+ *
+ * Kullanım yerleri:
+ *  - Global arama: ham extra_data yerine chip label aranır (örn "Mail Gönderildi")
+ *  - Dışa aktarım (CSV/Excel/PDF/email): chip-bound hücreler boş değil, option label gösterir
+ *  - Sütun filtresi: chip-bound sütunda filter listesine label'lar düşer
+ *
+ * Performans: tüm lookup'lar Map ile O(1). 10k görev × 5 chip kolon için sorunsuz.
+ */
+export type ChipValueResolver = (
+  task: { id: string; project_id?: string | null },
+  columnKey: string
+) => string | null;
+
+export function buildChipValueResolver(
+  rowChipValues: RowChipValue[],
+  catalog: ChipCatalog
+): ChipValueResolver {
+  // taskId:templateId → optionId
+  const valueIndex = new Map<string, string>();
+  for (const v of rowChipValues) {
+    valueIndex.set(`${v.taskId}:${v.templateId}`, v.optionId);
+  }
+  // optionId → label
+  const optionLabelById = new Map<string, string>();
+  for (const o of catalog.options) {
+    optionLabelById.set(o.id, o.label);
+  }
+  // projectId:normalizedKey → templateId
+  const bindingsByProjectColumn = new Map<string, string>();
+  for (const b of catalog.bindings) {
+    const key = `${b.projectId}:${b.columnKey.trim().toLocaleLowerCase("tr")}`;
+    bindingsByProjectColumn.set(key, b.templateId);
+  }
+
+  return (task, columnKey) => {
+    const projectId = task.project_id != null ? String(task.project_id).trim() : "";
+    if (!projectId) return null;
+    const normalizedKey = (columnKey ?? "").trim().toLocaleLowerCase("tr");
+    if (!normalizedKey) return null;
+    const templateId = bindingsByProjectColumn.get(`${projectId}:${normalizedKey}`);
+    if (!templateId) return null;
+    const optionId = valueIndex.get(`${task.id}:${templateId}`);
+    if (!optionId) return null;
+    return optionLabelById.get(optionId) ?? null;
+  };
+}
+

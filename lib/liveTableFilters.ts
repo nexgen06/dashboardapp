@@ -6,6 +6,7 @@ import {
 import { isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
 import type { Project } from "@/types/project";
 import type { Task } from "@/types/tasks";
+import type { ChipValueResolver } from "@/lib/chipSystem";
 
 export type LiveTableFilterInput = {
   tasks: Task[];
@@ -18,6 +19,9 @@ export type LiveTableFilterInput = {
   dateTo: string;
   columnFilters: Record<string, string[]>;
   advancedFilterRules: AdvancedFilterRule[];
+  /** Çip-bound kolonların değerlerini globally search ederken kullanılır.
+   *  Verilmezse arama sadece extra_data ham değerlerinde gezinir. */
+  chipResolver?: ChipValueResolver;
 };
 
 export type SmartFilterCountsInput = {
@@ -81,8 +85,16 @@ export function filterLiveTableTasks(input: LiveTableFilterInput): Task[] {
     result = result.filter((t) => {
       if ((t.content ?? "").toLowerCase().includes(q) || (t.assignee ?? "").toLowerCase().includes(q)) return true;
       if (t.extra_data) {
-        for (const v of Object.values(t.extra_data)) {
+        for (const [key, v] of Object.entries(t.extra_data)) {
+          // 1) Ham extra_data değeri eşleşiyor mu?
           if (String(v ?? "").toLowerCase().includes(q)) return true;
+          // 2) Bu kolon chip-bound ise resolved label'ı da kontrol et
+          //    Örnek: extra_data["Eposta Durumu"] boş veya stale olabilir ama
+          //    row_chip_values'taki güncel "Mail Gönderildi" eşleşmeli
+          if (input.chipResolver) {
+            const chipLabel = input.chipResolver(t, key);
+            if (chipLabel && chipLabel.toLowerCase().includes(q)) return true;
+          }
         }
       }
       return false;

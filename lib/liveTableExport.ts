@@ -5,6 +5,7 @@ import type { DateFormat } from "@/contexts/settings-context";
 import { isSensitiveExtraColumnKey, maskSensitiveExtraValue } from "@/lib/extraColumnSensitiveDisplay";
 import { formatDate } from "@/lib/formatDate";
 import { normalizeWorkflowStatus, WORKFLOW_STATUS_LABELS } from "@/lib/taskWorkflow";
+import type { ChipValueResolver } from "@/lib/chipSystem";
 import type { Project } from "@/types/project";
 import type { Task } from "@/types/tasks";
 
@@ -161,7 +162,8 @@ function getExportValue(
   task: Task,
   dateFormat: DateFormat,
   projectById?: Map<string, Project>,
-  unmaskSensitive: boolean = false
+  unmaskSensitive: boolean = false,
+  chipResolver?: ChipValueResolver
 ): string {
   const t = task as Record<string, unknown>;
   switch (columnId) {
@@ -191,6 +193,17 @@ function getExportValue(
     default:
       if (columnId.startsWith("extra:")) {
         const key = columnId.replace(/^extra:/, "");
+        // 1) Önce chip-bound kontrolü: o kolon chip template'e bağlıysa
+        //    row_chip_values'taki güncel option label'ı kullan (extra_data'dan değil)
+        if (chipResolver) {
+          const chipLabel = chipResolver(task, key);
+          if (chipLabel != null) {
+            // Hassas chip kolonu yok (chip system zaten managerOnly ile yönetir),
+            // ama tutarlılık için aynı maskeleme kuralını uygula
+            return isSensitiveExtraColumnKey(key) && !unmaskSensitive ? maskSensitiveExtraValue(chipLabel) : chipLabel;
+          }
+        }
+        // 2) Chip-bound değilse veya değer atanmamışsa ham extra_data'ya düş
         const raw = String(task.extra_data?.[key] ?? (t.extra_data as Record<string, string>)?.[key] ?? "");
         return isSensitiveExtraColumnKey(key) && !unmaskSensitive ? maskSensitiveExtraValue(raw) : raw;
       }
@@ -199,7 +212,9 @@ function getExportValue(
         const safe: Record<string, string> = {};
         for (const [k, v] of Object.entries(task.extra_data)) {
           if (INTERNAL_EXTRA_DATA_KEYS.has(k)) continue;
-          const raw = String(v ?? "");
+          // Chip-bound key ise raw v yerine resolved label kullan
+          const chipLabel = chipResolver ? chipResolver(task, k) : null;
+          const raw = chipLabel != null ? chipLabel : String(v ?? "");
           safe[k] = isSensitiveExtraColumnKey(k) && !unmaskSensitive ? maskSensitiveExtraValue(raw) : raw;
         }
         return JSON.stringify(safe);
@@ -213,7 +228,8 @@ export function getExportData(
   visibleColumnIds: string[],
   dateFormat: DateFormat,
   projectById?: Map<string, Project>,
-  unmaskSensitive: boolean = false
+  unmaskSensitive: boolean = false,
+  chipResolver?: ChipValueResolver
 ) {
   let dataColumns = visibleColumnIds.filter(
     (id) =>
@@ -248,7 +264,7 @@ export function getExportData(
             : id)
   );
   const rowArrays = rows.map((task) =>
-    dataColumns.map((id) => getExportValue(id, task, dateFormat, projectById, unmaskSensitive))
+    dataColumns.map((id) => getExportValue(id, task, dateFormat, projectById, unmaskSensitive, chipResolver))
   );
   return { headers, rowArrays };
 }
@@ -259,9 +275,10 @@ export function downloadCSV(
   dateFormat: DateFormat,
   filename: string,
   projectById?: Map<string, Project>,
-  unmaskSensitive: boolean = false
+  unmaskSensitive: boolean = false,
+  chipResolver?: ChipValueResolver
 ) {
-  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive);
+  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive, chipResolver);
   const lines = [headers.map((h) => `"${String(h).replace(/"/g, '""')}"`).join(",")];
   for (const values of rowArrays) {
     lines.push(values.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
@@ -281,9 +298,10 @@ export function downloadExcel(
   dateFormat: DateFormat,
   filename: string,
   projectById?: Map<string, Project>,
-  unmaskSensitive: boolean = false
+  unmaskSensitive: boolean = false,
+  chipResolver?: ChipValueResolver
 ) {
-  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive);
+  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive, chipResolver);
   const sheetData: string[][] = [headers, ...rowArrays];
   const ws = XLSX.utils.aoa_to_sheet(sheetData);
   const wb = XLSX.utils.book_new();
@@ -308,9 +326,10 @@ async function createTaskPDF(
   unmaskSensitive: boolean = false,
   documentTitle?: string | null,
   metadata?: PdfExportMetadata,
-  options?: PdfRenderOptions
+  options?: PdfRenderOptions,
+  chipResolver?: ChipValueResolver
 ) {
-  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive);
+  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive, chipResolver);
   const [{ default: pdfMake }, vfsMod] = await Promise.all([
     import("pdfmake/build/pdfmake"),
     import("pdfmake/build/vfs_fonts"),
@@ -494,9 +513,10 @@ export async function downloadPDF(
   unmaskSensitive: boolean = false,
   documentTitle?: string | null,
   metadata?: PdfExportMetadata,
-  options?: PdfRenderOptions
+  options?: PdfRenderOptions,
+  chipResolver?: ChipValueResolver
 ) {
-  const pdf = await createTaskPDF(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive, documentTitle, metadata, options);
+  const pdf = await createTaskPDF(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive, documentTitle, metadata, options, chipResolver);
   const baseName = filename.replace(/\.pdf$/i, "");
   await pdf.download(`${baseName}.pdf`);
 }
@@ -509,9 +529,10 @@ export async function createPDFPreviewUrl(
   unmaskSensitive: boolean = false,
   documentTitle?: string | null,
   metadata?: PdfExportMetadata,
-  options?: PdfRenderOptions
+  options?: PdfRenderOptions,
+  chipResolver?: ChipValueResolver
 ) {
-  const pdf = await createTaskPDF(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive, documentTitle, metadata, options);
+  const pdf = await createTaskPDF(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive, documentTitle, metadata, options, chipResolver);
   const blob = await pdf.getBlob();
   return URL.createObjectURL(blob);
 }
@@ -534,9 +555,10 @@ export function createEmailTemplate(
   subject: string,
   metadata: PdfExportMetadata,
   mode: EmailTemplateMode,
-  options?: PdfRenderOptions
+  options?: PdfRenderOptions,
+  chipResolver?: ChipValueResolver
 ) {
-  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive);
+  const { headers, rowArrays } = getExportData(rows, visibleColumnIds, dateFormat, projectById, unmaskSensitive, chipResolver);
   const title = subject.trim() || "Canlı Tablo Görev Raporu";
   const showStatusSummary = options?.showStatusSummary !== false;
   const showFilterSummary = options?.showFilterSummary !== false;

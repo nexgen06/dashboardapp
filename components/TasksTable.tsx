@@ -110,6 +110,7 @@ import { urgentPrioritySetFromCsv, isUrgentPriorityValue } from "@/lib/urgentTas
 import { canEditTaskRow } from "@/lib/taskRowPermissions";
 import { listProjectColumns, type ProjectColumn } from "@/lib/projectColumns";
 import {
+  buildChipValueResolver,
   listChipCatalog,
   listRowChipValues,
   setRowChipValue,
@@ -2216,6 +2217,16 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const [projectPermissionsAvailable, setProjectPermissionsAvailable] = useState(false);
   const [chipCatalog, setChipCatalog] = useState<ChipCatalog>(EMPTY_CHIP_CATALOG);
   const [rowChipValues, setRowChipValues] = useState<RowChipValue[]>([]);
+  /**
+   * Çip değer çözücü — global arama + dışa aktarımda chip-bound kolonların
+   * gerçek option label'ını döner. Hem extra_data'nın boş kaldığı satırlar
+   * için export çıktısı doğru gelir, hem de "Mail Gönderildi" gibi label
+   * aramada bulunur. rowChipValues veya catalog değişince yeniden inşa olur.
+   */
+  const chipResolver = useMemo(
+    () => buildChipValueResolver(rowChipValues, chipCatalog),
+    [rowChipValues, chipCatalog]
+  );
   const [automationRules, setAutomationRules] = useState<AutomationRule[]>([]);
   const automationApplyingRef = useRef(false);
   const automationRunKeyRef = useRef("");
@@ -2987,6 +2998,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         dateTo,
         columnFilters,
         advancedFilterRules,
+        chipResolver,
       }),
     [
       tasks,
@@ -2997,6 +3009,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       assigneeFilter,
       dateFrom,
       dateTo,
+      chipResolver,
       columnFilters,
       advancedFilterRules,
     ]
@@ -4662,7 +4675,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         emailSubjectInput,
         pdfExportMetadata,
         emailTemplateMode,
-        pdfRenderOptions
+        pdfRenderOptions,
+        chipResolver
       ),
     [
       selectedPdfRows,
@@ -4674,6 +4688,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       pdfExportMetadata,
       emailTemplateMode,
       pdfRenderOptions,
+      chipResolver,
     ]
   );
 
@@ -4726,14 +4741,15 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         settings.dateFormat,
         `gorevler-${scope === "all" ? "tum" : "gorunum"}${unmaskSensitive ? "-ham" : ""}-${Date.now()}.csv`,
         projectById,
-        unmaskSensitive
+        unmaskSensitive,
+        chipResolver
       );
       if (unmaskSensitive) {
         toast.success("Hassas veriler AÇIK olarak indirildi (yetkili onay)");
         logSensitiveExport(rows, unmaskSensitive);
       }
     },
-    [getExportRows, canUnmaskExportRows, visibleColumnIds, settings.dateFormat, projectById, toast, logSensitiveExport]
+    [getExportRows, canUnmaskExportRows, visibleColumnIds, settings.dateFormat, projectById, chipResolver, toast, logSensitiveExport]
   );
   const handleExportExcel = useCallback(
     (scope: "current" | "all") => {
@@ -4749,14 +4765,15 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         settings.dateFormat,
         `gorevler-${scope === "all" ? "tum" : "gorunum"}${unmaskSensitive ? "-ham" : ""}-${Date.now()}.xlsx`,
         projectById,
-        unmaskSensitive
+        unmaskSensitive,
+        chipResolver
       );
       if (unmaskSensitive) {
         toast.success("Hassas veriler AÇIK olarak indirildi (yetkili onay)");
         logSensitiveExport(rows, unmaskSensitive);
       }
     },
-    [getExportRows, canUnmaskExportRows, visibleColumnIds, settings.dateFormat, projectById, toast, logSensitiveExport]
+    [getExportRows, canUnmaskExportRows, visibleColumnIds, settings.dateFormat, projectById, chipResolver, toast, logSensitiveExport]
   );
   const applyReportTemplate = useCallback((selection: ReportTemplateSelection) => {
     const isCustom = selection.startsWith("custom:");
@@ -5079,7 +5096,8 @@ ${emailTemplate.html}
         effectiveUnmaskSensitive,
         selectedPdfTitle,
         pdfExportMetadata,
-        pdfRenderOptions
+        pdfRenderOptions,
+        chipResolver
       );
       setPdfPreviewUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
@@ -5091,7 +5109,7 @@ ${emailTemplate.html}
     } finally {
       setPdfPreviewLoading(false);
     }
-  }, [selectedPdfRows, visibleColumnIds, settings.dateFormat, projectById, effectiveUnmaskSensitive, selectedPdfTitle, pdfExportMetadata, pdfRenderOptions, toast]);
+  }, [selectedPdfRows, visibleColumnIds, settings.dateFormat, projectById, effectiveUnmaskSensitive, selectedPdfTitle, pdfExportMetadata, pdfRenderOptions, chipResolver, toast]);
 
   const confirmExportPDF = useCallback(
     async () => {
@@ -5110,7 +5128,8 @@ ${emailTemplate.html}
           effectiveUnmaskSensitive,
           selectedPdfTitle,
           pdfExportMetadata,
-          pdfRenderOptions
+          pdfRenderOptions,
+          chipResolver
         );
         if (effectiveUnmaskSensitive) {
           toast.success("Hassas veriler AÇIK olarak indirildi (yetkili onay)");
@@ -5124,7 +5143,7 @@ ${emailTemplate.html}
         handlePdfDialogOpenChange(false);
       }
     },
-    [selectedPdfRows, visibleColumnIds, settings.dateFormat, pdfDialogScope, effectiveUnmaskSensitive, projectById, selectedPdfTitle, pdfExportMetadata, pdfRenderOptions, toast, logSensitiveExport, handlePdfDialogOpenChange]
+    [selectedPdfRows, visibleColumnIds, settings.dateFormat, pdfDialogScope, effectiveUnmaskSensitive, projectById, selectedPdfTitle, pdfExportMetadata, pdfRenderOptions, chipResolver, toast, logSensitiveExport, handlePdfDialogOpenChange]
   );
 
   const openColumnPicker = useCallback(() => {
