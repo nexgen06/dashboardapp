@@ -29,7 +29,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import type { Task } from "@/types/tasks";
 import { cn } from "@/lib/utils";
-import { getStatusKind, type StatusKind } from "@/lib/statusKind";
+import { getStatusKind, isStatusDone, type StatusKind } from "@/lib/statusKind";
 import {
   getDueUrgency,
   URGENCY_ROW_CLASS,
@@ -41,6 +41,7 @@ import { urgentPrioritySetFromCsv } from "@/lib/urgentTaskPriority";
 import { getTaskDisplayLabel, getTaskDisplayCard } from "@/lib/taskDisplayLabel";
 import { parseListOptionString } from "@/contexts/settings-context";
 import { AssigneeBadge } from "@/components/ui/assignee-badge";
+import { UserAvatar } from "@/components/ui/user-avatar";
 
 type Column = {
   kind: StatusKind;
@@ -303,49 +304,50 @@ export function TasksKanban({ projectFilter = [] }: Props) {
                       : "border-slate-200 dark:border-slate-700"
               )}
             >
+              {/* Column header — Claude Design "KanbanColumn" tarzı:
+                  Renkli üst gradient band + uppercase tracking-wider başlık +
+                  yuvarlak count rozeti (WIP varsa "{n}/{limit}" formatı). */}
               <header
                 className={cn(
-                  "flex shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-800",
-                  wipState === "over" && "bg-red-50 dark:bg-red-950/30",
-                  wipState === "near" && "bg-amber-50 dark:bg-amber-950/30"
+                  "flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-gradient-to-b to-transparent px-3 py-2.5 dark:border-slate-700",
+                  col.kind === "todo"        && "from-slate-50/70 dark:from-slate-800/40",
+                  col.kind === "in_progress" && "from-amber-50/60 dark:from-amber-950/20",
+                  col.kind === "done"        && "from-emerald-50/60 dark:from-emerald-950/20",
+                  wipState === "over"  && "from-red-50/80 dark:from-red-950/30",
+                  wipState === "near"  && "from-amber-100/70 dark:from-amber-950/30"
                 )}
               >
-                <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", col.toneBar)} aria-hidden />
-                <span
-                  className={cn(
-                    "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium",
-                    col.badgeBg,
-                    col.badgeText
-                  )}
-                >
-                  {col.icon}
-                  {col.label}
-                </span>
-                {wipLimit != null ? (
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className={cn("h-2 w-2 shrink-0 rounded-full", col.toneBar)} aria-hidden />
+                  <span className="truncate text-[11px] font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-200">
+                    {col.label}
+                  </span>
                   <span
                     className={cn(
-                      "ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums",
+                      "inline-flex h-5 min-w-[22px] items-center justify-center rounded-full px-1.5 text-[10px] font-bold tabular-nums ring-1 ring-inset",
                       wipState === "over"
-                        ? "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200"
+                        ? "bg-rose-100 text-rose-700 ring-rose-200 dark:bg-rose-900/40 dark:text-rose-200 dark:ring-rose-800"
                         : wipState === "near"
-                          ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
-                          : "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                          ? "bg-amber-100 text-amber-800 ring-amber-200 dark:bg-amber-900/40 dark:text-amber-200 dark:ring-amber-800"
+                          : "bg-white text-slate-700 ring-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-700"
                     )}
                     title={
-                      wipState === "over"
-                        ? `WIP limiti aşıldı! Limit: ${wipLimit}, mevcut: ${list.length}`
-                        : `WIP limiti: ${wipLimit}`
+                      wipLimit != null
+                        ? wipState === "over"
+                          ? `WIP limiti aşıldı! Limit: ${wipLimit}, mevcut: ${list.length}`
+                          : `WIP limiti: ${wipLimit}`
+                        : `${list.length} kart`
                     }
                   >
-                    {list.length} / {wipLimit}
-                    {wipState === "over" && " ⚠"}
+                    {wipLimit != null ? `${list.length}/${wipLimit}` : list.length}
                   </span>
-                ) : (
-                  <span className="ml-auto rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-                    {list.length}
-                  </span>
-                )}
+                </div>
               </header>
+              {wipState === "over" && wipLimit != null && (
+                <div className="border-b border-rose-100 bg-rose-50/60 px-3 py-1 text-[10px] font-medium text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
+                  <AlertTriangle className="mr-1 inline h-2.5 w-2.5" aria-hidden /> WIP limiti aşıldı (öneri: {wipLimit})
+                </div>
+              )}
               <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
                 {list.length === 0 ? (
                   <p className="px-2 py-4 text-center text-xs text-slate-400 dark:text-slate-500">
@@ -448,7 +450,9 @@ function KanbanCard({
   onClick,
 }: {
   task: Task;
+  /** Görev başlığı — title_column varsa extra_data'dan, yoksa task.content */
   label: string;
+  /** Alt başlık satırı (subtitle_columns değerleri " · " ile birleşik) */
   subtitle?: string;
   projectName: string | null;
   dateFormat: ReturnType<typeof useSettings>["settings"]["dateFormat"];
@@ -458,6 +462,11 @@ function KanbanCard({
   onDragEnd: () => void;
   onClick: () => void;
 }) {
+  // Claude Design "Sorun Tanımı" vurgu kutusu: extra_data'dan başlık üretiliyorsa
+  // (label !== task.content) ham içerik vurgulu kutuda gösterilir.
+  // İki aynıysa kutu render edilmez (başlık zaten içerik).
+  const rawContent = (task.content ?? "").trim();
+  const hasHighlightBox = rawContent && rawContent !== label && label !== "İçerik yok";
   const dueDate = task.due_date ? new Date(task.due_date) : null;
   const isOverdue = (() => {
     if (!dueDate) return false;
@@ -469,20 +478,25 @@ function KanbanCard({
   const showUrgency = urgency !== "none";
   // CSV içe aktarımda content boş kalabilir; extra_data'dan başlık seçilir
   const content = label && label !== "—" ? label : (task.content?.trim() || "İçerik yok");
-
-  // Claude Design "KanbanCard" sol urgency şerit rengi (3px absolute bar)
-  const stripColor: Record<typeof urgency, string> = {
-    overdue: "bg-rose-500",
-    today: "bg-amber-500",
-    soon: "bg-yellow-400",
-    upcoming: "bg-slate-300 dark:bg-slate-600",
-    none: "",
-  };
+  const isDone = isStatusDone(task.status);
 
   const workflowStatus = task.workflow_status ? normalizeWorkflowStatus(task.workflow_status) : null;
   // Draft kart üstünde gösterilmez — fazla gürültü; submitted/review/approved gibi anlamlı durumlar gösterilir
   const showWorkflowChip = workflowStatus && workflowStatus !== "draft";
+  const isApproved = workflowStatus === "approved";
   const isHighPriority = task.priority === "High" || (task.priority ? urgentPrioritySet.has(task.priority.toLowerCase()) : false);
+
+  // Claude Design "KanbanCard" sol urgency şerit rengi (3px absolute bar)
+  // Öncelik: done/approved → yeşil (tamamlandı kolonu için), sonra urgency rengi
+  const stripColor = isDone || isApproved
+    ? "bg-emerald-500"
+    : ({
+        overdue: "bg-rose-500",
+        today: "bg-amber-500",
+        soon: "bg-yellow-400",
+        upcoming: "bg-slate-300 dark:bg-slate-600",
+        none: "",
+      } as Record<typeof urgency, string>)[urgency];
 
   return (
     <article
@@ -501,10 +515,11 @@ function KanbanCard({
         !isDragging && showUrgency && URGENCY_ROW_CLASS[urgency]
       )}
     >
-      {/* Sol urgency şerit — Design "3px absolute strip" */}
-      {showUrgency && stripColor[urgency] && (
+      {/* Sol urgency/done şerit — Design "3px absolute strip"
+          Öncelik: done/approved → yeşil, sonra urgency rengi */}
+      {stripColor && (
         <span
-          className={cn("absolute inset-y-0 left-0 w-[3px]", stripColor[urgency])}
+          className={cn("absolute inset-y-0 left-0 w-[3px]", stripColor)}
           aria-hidden
         />
       )}
@@ -542,7 +557,7 @@ function KanbanCard({
       {/* Başlık + alt başlık (subtitle) — Design "title + meta line" */}
       <div className="flex flex-col gap-0.5">
         <span
-          className="line-clamp-2 text-sm font-medium uppercase tracking-wide text-slate-900 group-hover/card:text-slate-950 dark:text-slate-50 dark:group-hover/card:text-white"
+          className="line-clamp-2 text-[13px] font-semibold uppercase tracking-wide text-slate-900 group-hover/card:text-slate-950 dark:text-slate-50 dark:group-hover/card:text-white"
           title={content}
         >
           {content}
@@ -554,45 +569,65 @@ function KanbanCard({
         )}
       </div>
 
-      {/* Footer — proje + atanan + son tarih + öncelik */}
-      <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-        {/* Urgency badge — yalnızca overdue/today */}
-        {showUrgency && (urgency === "overdue" || urgency === "today") && (
-          <span
-            className={cn(
-              "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-              URGENCY_BADGE_CLASS[urgency]
-            )}
-            title={URGENCY_LABEL[urgency]}
-          >
-            {URGENCY_LABEL[urgency]}
-          </span>
-        )}
-        {task.priority && !isHighPriority && (
-          <PriorityBadge priority={task.priority} urgentSet={urgentPrioritySet} />
-        )}
-        {projectName && (
-          <span className="inline-flex max-w-[120px] items-center gap-0.5 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-            <FolderKanban className="h-2.5 w-2.5 shrink-0 opacity-70" aria-hidden />
-            <span className="truncate">{projectName}</span>
-          </span>
-        )}
-        {task.assignee && <AssigneeBadge assignee={task.assignee} />}
-        {dueDate && (
-          <span
-            className={cn(
-              "ml-auto inline-flex items-center gap-0.5",
-              isOverdue && "font-semibold text-red-600 dark:text-red-400"
-            )}
-          >
-            {isOverdue ? (
-              <AlertTriangle className="h-2.5 w-2.5" aria-hidden />
-            ) : (
-              <Calendar className="h-2.5 w-2.5 opacity-70" aria-hidden />
-            )}
-            {formatDate(dueDate, dateFormat)}
-          </span>
-        )}
+      {/* Sorun Tanımı vurgu kutusu — Design "ASKERLİK SAYFASI BOŞ" tarzı
+          Yalnızca title extra_data'dan geliyorsa ve content farklıysa gösterilir */}
+      {hasHighlightBox && (
+        <div className="flex items-start gap-1.5 rounded-md bg-slate-50/80 px-2 py-1 text-[11px] text-slate-600 dark:bg-slate-900/50 dark:text-slate-300">
+          <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500 dark:bg-blue-400" aria-hidden />
+          <span className="line-clamp-2 font-medium uppercase tracking-wide">{rawContent}</span>
+        </div>
+      )}
+
+      {/* Footer — atanan avatar + proje + son tarih */}
+      <div className="flex items-center justify-between gap-2 pt-0.5">
+        <div className="flex items-center gap-1.5">
+          {task.assignee ? (
+            <UserAvatar
+              email={task.assignee}
+              className="h-6 w-6 text-[10px] ring-2 ring-white dark:ring-slate-800"
+            />
+          ) : (
+            <span className="text-[10px] italic text-slate-400 dark:text-slate-500">Atanmamış</span>
+          )}
+          {/* Urgency badge — yalnızca overdue/today, küçük */}
+          {showUrgency && (urgency === "overdue" || urgency === "today") && (
+            <span
+              className={cn(
+                "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                URGENCY_BADGE_CLASS[urgency]
+              )}
+              title={URGENCY_LABEL[urgency]}
+            >
+              {URGENCY_LABEL[urgency]}
+            </span>
+          )}
+          {task.priority && !isHighPriority && (
+            <PriorityBadge priority={task.priority} urgentSet={urgentPrioritySet} />
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400">
+          {projectName && (
+            <span className="inline-flex max-w-[110px] items-center gap-0.5 rounded-md bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+              <FolderKanban className="h-2.5 w-2.5 shrink-0 opacity-70" aria-hidden />
+              <span className="truncate">{projectName}</span>
+            </span>
+          )}
+          {dueDate && (
+            <span
+              className={cn(
+                "inline-flex items-center gap-0.5 tabular-nums",
+                isOverdue && "font-semibold text-red-600 dark:text-red-400"
+              )}
+            >
+              {isOverdue ? (
+                <AlertTriangle className="h-2.5 w-2.5" aria-hidden />
+              ) : (
+                <Calendar className="h-2.5 w-2.5 opacity-70" aria-hidden />
+              )}
+              {formatDate(dueDate, dateFormat)}
+            </span>
+          )}
+        </div>
       </div>
     </article>
   );
