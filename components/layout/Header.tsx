@@ -85,7 +85,7 @@ export function Header() {
   const isDemoUser = user?.id === "demo";
 
   return (
-    <header className="sticky top-0 z-10 flex h-14 items-center justify-between gap-4 border-b border-slate-200 bg-white px-4 shadow-sm dark:border-slate-700 dark:bg-slate-800 sm:px-6">
+    <header className="sticky top-0 z-10 flex h-14 items-center justify-between gap-4 border-b border-slate-200 bg-white px-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:px-6">
       <div className="flex min-w-0 items-center gap-2">
         <h1 className="truncate text-lg font-semibold text-slate-800 dark:text-slate-100">{pageTitle}</h1>
         {isDemoUser && (
@@ -102,7 +102,7 @@ export function Header() {
             variant="ghost"
             size="sm"
             onClick={openCommandPalette}
-            className="hidden h-9 gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-700/40 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200 sm:inline-flex"
+            className="hidden h-9 gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200 sm:inline-flex"
             aria-label="Komut paletini aç"
             title="Komut paleti (⌘K / Ctrl+K)"
           >
@@ -147,12 +147,12 @@ export function Header() {
                     className="absolute inset-0 rounded-full border border-emerald-300/70 shadow-[0_0_14px_rgba(16,185,129,0.32)] transition-all group-hover:scale-105 group-hover:border-cyan-300 group-hover:shadow-[0_0_20px_rgba(34,211,238,0.38)] dark:border-emerald-500/60 dark:shadow-[0_0_16px_rgba(52,211,153,0.22)]"
                     aria-hidden
                   />
-                  <Avatar className="relative h-9 w-9 shrink-0 border-2 border-white shadow-sm ring-1 ring-emerald-200 dark:border-slate-800 dark:ring-emerald-700/70">
+                  <Avatar className="relative h-9 w-9 shrink-0 border-2 border-white shadow-sm ring-1 ring-emerald-200 dark:border-slate-900 dark:ring-emerald-700/70">
                     {myAvatarUrl && <AvatarImage src={myAvatarUrl} alt={displayName} />}
                     <AvatarFallback className={cn("text-xs font-semibold", accentClass)}>{userInitials}</AvatarFallback>
                   </Avatar>
                   <span
-                    className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.18)] dark:border-slate-800"
+                    className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.18)] dark:border-slate-900"
                     aria-hidden
                   />
                 </span>

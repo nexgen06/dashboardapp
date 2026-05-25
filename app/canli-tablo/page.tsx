@@ -8,13 +8,14 @@ import { TasksKanban } from "@/components/TasksKanban";
 import { TasksGantt } from "@/components/TasksGantt";
 import { TasksCalendar } from "@/components/TasksCalendar";
 import { GorevOzeti } from "@/components/GorevOzeti";
-import { Shield, Loader2, Table2, Columns3, GanttChart, CalendarDays } from "lucide-react";
+import { Shield, Loader2, Table2, Columns3, GanttChart, CalendarDays, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Section } from "@/components/ui/section";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
+import { cn } from "@/lib/utils";
 
 /** Proje filtresinin tutulduğu localStorage anahtarı (kullanıcı id bazlı). */
 const projectFilterStorageKey = (userId: string) =>
@@ -54,6 +55,8 @@ export default function CanliTabloPage() {
    *   Böylece kullanıcı seçim yapıp hemen sayfa değiştirir/yenilerse kayıt korunur.
    */
   const [projectFilter, setProjectFilterState] = useState<string[]>([]);
+  const [summaryCollapsed, setSummaryCollapsed] = useState(true);
+  const [activeView, setActiveView] = useState("table");
 
   // Hydrate from localStorage after mount (user.id known).
   useEffect(() => {
@@ -67,6 +70,32 @@ export default function CanliTabloPage() {
       writeProjectFilter(userId, next);
     },
     [userId]
+  );
+
+  const renderViewTabs = () => (
+    <div className="flex min-w-0 items-center gap-2">
+      <span className="hidden text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-500 sm:inline">
+        Görünüm
+      </span>
+      <TabsList className="h-8 shrink-0 rounded-lg border border-slate-200 bg-slate-100/80 p-0.5 dark:border-slate-800 dark:bg-slate-900/80">
+        <TabsTrigger value="table" className="h-7 gap-1.5 rounded-md px-2.5 text-xs data-[state=active]:bg-white data-[state=active]:text-slate-950 dark:data-[state=active]:bg-slate-950 dark:data-[state=active]:text-slate-100">
+          <Table2 className="h-3.5 w-3.5" aria-hidden />
+          Tablo
+        </TabsTrigger>
+        <TabsTrigger value="kanban" className="h-7 gap-1.5 rounded-md px-2.5 text-xs data-[state=active]:bg-white data-[state=active]:text-slate-950 dark:data-[state=active]:bg-slate-950 dark:data-[state=active]:text-slate-100">
+          <Columns3 className="h-3.5 w-3.5" aria-hidden />
+          Kanban
+        </TabsTrigger>
+        <TabsTrigger value="gantt" className="h-7 gap-1.5 rounded-md px-2.5 text-xs data-[state=active]:bg-white data-[state=active]:text-slate-950 dark:data-[state=active]:bg-slate-950 dark:data-[state=active]:text-slate-100">
+          <GanttChart className="h-3.5 w-3.5" aria-hidden />
+          Gantt
+        </TabsTrigger>
+        <TabsTrigger value="calendar" className="h-7 gap-1.5 rounded-md px-2.5 text-xs data-[state=active]:bg-white data-[state=active]:text-slate-950 dark:data-[state=active]:bg-slate-950 dark:data-[state=active]:text-slate-100">
+          <CalendarDays className="h-3.5 w-3.5" aria-hidden />
+          Takvim
+        </TabsTrigger>
+      </TabsList>
+    </div>
   );
 
   /**
@@ -111,9 +140,9 @@ export default function CanliTabloPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-0 w-full max-w-[1920px] flex-1 flex-col overflow-hidden px-3 pb-4 sm:px-4 lg:px-6 lg:pb-6">
+    <div className="mx-auto flex min-h-0 w-full max-w-none flex-1 flex-col overflow-hidden px-0 pb-0">
       {/* Kompakt başlık şeridi — breadcrumb + h1 + Dashboard butonu tek satır */}
-      <header className="mb-2 flex shrink-0 flex-wrap items-baseline justify-between gap-2 border-b border-slate-200/80 pb-2 dark:border-slate-700/80">
+      <header className="sr-only">
         <div className="flex min-w-0 flex-1 items-baseline gap-3">
           <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-50">
             Canlı Tablo
@@ -123,88 +152,125 @@ export default function CanliTabloPage() {
             items={[{ label: "Canlı Tablo" }]}
           />
         </div>
-        <Button variant="ghost" size="sm" asChild>
-          <Link href="/">{`← Dashboard`}</Link>
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/">{`← Dashboard`}</Link>
+          </Button>
+        </div>
       </header>
 
       {/* Mobilde tablo önce (üstte), özet altta; xl'de sol özet + sağ tablo */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 [grid-template-rows:minmax(0,1fr)_auto] sm:[grid-template-rows:minmax(0,1fr)_auto] xl:grid-cols-[minmax(260px,300px)_minmax(0,1fr)] xl:[grid-template-rows:minmax(0,1fr)] xl:gap-4">
+      <div
+        className={cn(
+          "grid min-h-0 flex-1 grid-cols-1 gap-3 [grid-template-rows:minmax(0,1fr)_auto] sm:[grid-template-rows:minmax(0,1fr)_auto] xl:[grid-template-rows:minmax(0,1fr)]",
+          summaryCollapsed
+            ? "xl:grid-cols-1"
+            : "xl:grid-cols-[minmax(220px,280px)_minmax(0,1fr)] xl:gap-3"
+        )}
+      >
         <Section
           variant="flush"
-          className="flex h-full min-h-0 max-h-full flex-col overflow-hidden shadow-md xl:col-start-2 xl:row-start-1"
+          className={cn(
+            "flex h-full min-h-0 max-h-full flex-col overflow-hidden shadow-md xl:row-start-1",
+            summaryCollapsed ? "xl:col-start-1" : "xl:col-start-2"
+          )}
         >
-          <Tabs defaultValue="table" className="flex min-h-0 flex-1 flex-col">
-            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
-              <SectionHeader
-                level="section"
-                title="Tüm görevler"
-                subtitle="Gerçek zamanlı senkron · Satırda mor = başka kullanıcı odakta"
-                spacing="none"
-              />
-              <TabsList className="shrink-0">
-                <TabsTrigger value="table" className="gap-1.5">
-                  <Table2 className="h-3.5 w-3.5" aria-hidden />
-                  Tablo
-                </TabsTrigger>
-                <TabsTrigger value="kanban" className="gap-1.5">
-                  <Columns3 className="h-3.5 w-3.5" aria-hidden />
-                  Kanban
-                </TabsTrigger>
-                <TabsTrigger value="gantt" className="gap-1.5">
-                  <GanttChart className="h-3.5 w-3.5" aria-hidden />
-                  Gantt
-                </TabsTrigger>
-                <TabsTrigger value="calendar" className="gap-1.5">
-                  <CalendarDays className="h-3.5 w-3.5" aria-hidden />
-                  Takvim
-                </TabsTrigger>
-              </TabsList>
+          <Tabs value={activeView} onValueChange={setActiveView} className="flex min-h-0 flex-1 flex-col">
+            {activeView !== "table" && (
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-950">
+              <div className="sr-only">
+                <SectionHeader
+                  level="section"
+                  title="Tüm görevler"
+                  subtitle="Gerçek zamanlı senkron · Satırda mor = başka kullanıcı odakta"
+                  spacing="none"
+                />
+              </div>
+              {renderViewTabs()}
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSummaryCollapsed((value) => !value)}
+                  className="h-8 gap-1.5 text-xs"
+                  aria-pressed={!summaryCollapsed}
+                  title={summaryCollapsed ? "Sol görev özetini göster" : "Sol görev özetini gizle"}
+                >
+                  {summaryCollapsed ? (
+                    <PanelLeftOpen className="h-3.5 w-3.5" aria-hidden />
+                  ) : (
+                    <PanelLeftClose className="h-3.5 w-3.5" aria-hidden />
+                  )}
+                  <span className="hidden sm:inline">{summaryCollapsed ? "Özeti göster" : "Özeti gizle"}</span>
+                </Button>
+                <Button variant="ghost" size="sm" asChild className="h-8 text-xs">
+                  <Link href="/">{`Dashboard`}</Link>
+                </Button>
+              </div>
             </div>
+            )}
             <TabsContent
               value="table"
-              className="flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
+              className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
             >
-              <TasksTable projectFilter={projectFilter} onProjectFilterChange={setProjectFilter} />
+              <TasksTable
+                projectFilter={projectFilter}
+                onProjectFilterChange={setProjectFilter}
+                viewTabs={renderViewTabs()}
+              />
             </TabsContent>
             <TabsContent
               value="kanban"
-              className="flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
+              className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
             >
               <TasksKanban projectFilter={projectFilter} />
             </TabsContent>
             <TabsContent
               value="gantt"
-              className="flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
+              className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
             >
               <TasksGantt projectFilter={projectFilter} />
             </TabsContent>
             <TabsContent
               value="calendar"
-              className="flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
+              className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
             >
               <TasksCalendar projectFilter={projectFilter} />
             </TabsContent>
           </Tabs>
         </Section>
 
-        <Section
-          as="aside"
-          variant="flush"
-          className="flex max-h-[min(42vh,320px)] min-h-0 flex-col overflow-hidden sm:max-h-[min(38vh,360px)] xl:sticky xl:top-14 xl:col-start-1 xl:row-start-1 xl:max-h-[calc(100dvh-4.5rem)] xl:self-start"
-        >
-          <div className="shrink-0 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
-            <SectionHeader
-              level="card"
-              title="Görev özeti"
-              subtitle="Son güncellenen görevler"
-              spacing="none"
-            />
-          </div>
-          <div className="scrollbar-themed min-h-0 flex-1 overflow-auto px-4 py-3">
-            <GorevOzeti projectFilter={projectFilter} />
-          </div>
-        </Section>
+        {!summaryCollapsed && (
+          <Section
+            as="aside"
+            variant="flush"
+            className="flex max-h-[min(42vh,320px)] min-h-0 flex-col overflow-hidden sm:max-h-[min(38vh,360px)] xl:sticky xl:top-14 xl:col-start-1 xl:row-start-1 xl:max-h-[calc(100dvh-4.5rem)] xl:self-start"
+          >
+            <div className="flex shrink-0 items-start justify-between gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+              <SectionHeader
+                level="card"
+                title="Görev özeti"
+                subtitle="Son güncellenen görevler"
+                spacing="none"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setSummaryCollapsed(true)}
+                className="h-8 w-8 shrink-0 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+                aria-label="Görev özetini gizle"
+                title="Görev özetini gizle"
+              >
+                <PanelLeftClose className="h-4 w-4" aria-hidden />
+              </Button>
+            </div>
+            <div className="scrollbar-themed min-h-0 flex-1 overflow-auto px-4 py-3">
+              <GorevOzeti projectFilter={projectFilter} />
+            </div>
+          </Section>
+        )}
       </div>
     </div>
   );

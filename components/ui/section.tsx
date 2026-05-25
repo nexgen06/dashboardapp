@@ -14,16 +14,16 @@ import { cn } from "@/lib/utils";
  * `tone` parametresi yumuşak vurgu için: "neutral" | "muted" (slate-50 arka planlı).
  */
 const VARIANT_CLASSES = {
-  page: "p-4 md:p-6 rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800",
-  toolbar: "px-4 py-3 border-b border-slate-200 dark:border-slate-700",
-  item: "p-3 md:p-4 rounded-lg border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md dark:border-slate-700 dark:bg-slate-800",
+  page: "p-4 md:p-6 rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900",
+  toolbar: "px-4 py-3 border-b border-slate-200 dark:border-slate-800",
+  item: "p-3 md:p-4 rounded-lg border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md dark:border-slate-800 dark:bg-slate-900",
   modal: "p-6 md:p-8",
-  flush: "rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800",
+  flush: "rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900",
 } as const;
 
 const TONE_CLASSES = {
   neutral: "",
-  muted: "bg-slate-50/70 dark:bg-slate-800/40",
+  muted: "bg-slate-50/70 dark:bg-slate-900/40",
 } as const;
 
 export type SectionVariant = keyof typeof VARIANT_CLASSES;

@@ -20,7 +20,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="tr" suppressHydrationWarning className={GeistSans.variable}>
-      <body className="min-h-screen bg-slate-50 font-sans antialiased dark:bg-slate-900 dark:text-slate-100">
+      <body className="min-h-screen bg-slate-50 font-sans antialiased dark:bg-slate-950 dark:text-slate-100">
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){var s=localStorage.getItem('dashboard-settings');if(s){try{var p=JSON.parse(s);var t=p.theme||'system';var dark=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme:dark)').matches);document.documentElement.classList.toggle('dark',dark);if(p.language) document.documentElement.lang=p.language;}catch(e){}}})();`,

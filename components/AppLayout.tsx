@@ -37,14 +37,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <CommandPalette />
           <KeyboardShortcutsHUD />
           <OnboardingTour />
-          <div className="flex min-h-screen">
+          <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950">
             {/* Sidebar masaüstünde (md+); mobilde MobileBottomNav görünür */}
             <div className="hidden md:flex">
               <Sidebar />
             </div>
             <div className="flex flex-1 flex-col min-w-0">
               <Header />
-              <main className="flex flex-1 flex-col min-h-0 bg-white p-4 sm:p-6 dark:bg-slate-900 pb-20 md:pb-6">
+              <main className="flex flex-1 flex-col min-h-0 bg-slate-50 p-4 sm:p-6 dark:bg-slate-950 pb-20 md:pb-6">
                 <Suspense fallback={<div className="text-slate-500 p-4">Yükleniyor...</div>}>
                   {children}
                 </Suspense>
