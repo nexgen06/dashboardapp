@@ -75,6 +75,27 @@ function resolveIcon(icon?: string | null) {
   return iconMap[icon as keyof typeof iconMap] ?? Circle;
 }
 
+function isReflectorChip(option: ChipOption): boolean {
+  const value = `${option.value} ${option.label}`.toLocaleLowerCase("tr");
+  return [
+    "critical",
+    "kritik",
+    "overdue",
+    "gecikti",
+    "gecikmiş",
+    "breached",
+    "sla aşıldı",
+    "missing",
+    "eksik",
+    "rejected",
+    "reddedildi",
+    "revision",
+    "revize",
+    "blocked",
+    "engellendi",
+  ].some((token) => value.includes(token));
+}
+
 export function ChipBadge({
   template,
   option,
@@ -87,8 +108,10 @@ export function ChipBadge({
   className?: string;
 }) {
   const Icon = resolveIcon(option.icon ?? template?.icon);
+  const reflector = isReflectorChip(option);
   const title = [
     template?.name,
+    reflector ? "dikkat efekti" : null,
     rowValue?.source === "automation" ? "otomasyon" : rowValue?.source === "system" ? "sistem" : null,
   ].filter(Boolean).join(" · ");
   return (
@@ -96,6 +119,10 @@ export function ChipBadge({
       className={cn(
         "inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold shadow-sm",
         colorClass[option.color] ?? colorClass[template?.color ?? "slate"] ?? colorClass.slate,
+        reflector && "chip-reflector",
+        reflector && (option.color === "red" || /critical|kritik|rejected|reddedildi|blocked|engellendi/i.test(`${option.value} ${option.label}`)) && "chip-reflector-red",
+        reflector && (option.color === "amber" || /overdue|gecikti|gecikmiş|missing|eksik|revision|revize/i.test(`${option.value} ${option.label}`)) && "chip-reflector-amber",
+        reflector && option.color === "violet" && "chip-reflector-violet",
         className
       )}
       title={title || undefined}
@@ -139,7 +166,11 @@ export function ChipSelectCell({
         current?.color === "emerald" && "focus:border-emerald-500 focus:ring-emerald-500/25",
         current?.color === "blue" && "focus:border-blue-500 focus:ring-blue-500/25",
         current?.color === "violet" && "focus:border-violet-500 focus:ring-violet-500/25",
-        current?.color === "cyan" && "focus:border-cyan-500 focus:ring-cyan-500/25"
+        current?.color === "cyan" && "focus:border-cyan-500 focus:ring-cyan-500/25",
+        current && isReflectorChip(current) && "chip-reflector",
+        current && isReflectorChip(current) && (current.color === "red" || /critical|kritik|rejected|reddedildi|blocked|engellendi/i.test(`${current.value} ${current.label}`)) && "chip-reflector-red",
+        current && isReflectorChip(current) && (current.color === "amber" || /overdue|gecikti|gecikmiş|missing|eksik|revision|revize/i.test(`${current.value} ${current.label}`)) && "chip-reflector-amber",
+        current && isReflectorChip(current) && current.color === "violet" && "chip-reflector-violet"
       )}
       title={template.name}
     >

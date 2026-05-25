@@ -480,7 +480,7 @@ export function DashboardSection() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-72">
-              <DropdownMenuLabel className="text-xs">Gizli widget'lar — eklemek için tıklayın</DropdownMenuLabel>
+              <DropdownMenuLabel className="text-xs">Gizli widget&apos;lar — eklemek için tıklayın</DropdownMenuLabel>
               <DropdownMenuSeparator />
               {hiddenWidgets.map((w) => (
                 <DropdownMenuItem
@@ -501,7 +501,7 @@ export function DashboardSection() {
             size="sm"
             variant="ghost"
             onClick={resetWidgetLayout}
-            title="Tüm widget'ları görünür yap"
+            title="Tüm widget&apos;ları görünür yap"
             className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
           >
             <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
@@ -514,7 +514,7 @@ export function DashboardSection() {
           variant={isWidgetEditMode ? "default" : "outline"}
           onClick={() => setIsWidgetEditMode((v) => !v)}
           className={isWidgetEditMode ? "bg-emerald-600 hover:bg-emerald-700 text-white" : ""}
-          title={isWidgetEditMode ? "Düzenlemeyi bitir" : "Dashboard widget'larını kişiselleştir"}
+          title={isWidgetEditMode ? "Düzenlemeyi bitir" : "Dashboard widget&apos;larını kişiselleştir"}
         >
           {isWidgetEditMode ? (
             <>
@@ -524,7 +524,7 @@ export function DashboardSection() {
           ) : (
             <>
               <Settings2 className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-              Widget'ları düzenle
+              Widget&apos;ları düzenle
             </>
           )}
         </Button>

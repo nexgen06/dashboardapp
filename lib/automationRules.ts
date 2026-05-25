@@ -372,7 +372,7 @@ function normalizeRowColor(value: unknown): AutomationRowColor | null {
 
 export async function applyAutomationRulesForTasks(tasks: Task[], rules: AutomationRule[], catalog?: ChipCatalog): Promise<number> {
   const activeRules = rules.filter((rule) => rule.enabled);
-  if (tasks.length === 0 || activeRules.length === 0) return 0;
+  if (tasks.length === 0) return 0;
   const effectiveCatalog = catalog ?? await listChipCatalog(Array.from(new Set(tasks.map((task) => String(task.project_id ?? "")).filter(Boolean))));
   const currentRows = await listRowChipValues(tasks.map((task) => task.id));
   const currentStates = await listTaskAutomationStates(tasks.map((task) => task.id));
@@ -381,6 +381,7 @@ export async function applyAutomationRulesForTasks(tasks: Task[], rules: Automat
     currentRows.some((row) => row.taskId === taskId && row.templateId === templateId && row.optionId === optionId);
   let applied = 0;
   for (const task of tasks) {
+    let matchedRowColor: AutomationRowColor | null = null;
     for (const rule of activeRules) {
       if (!ruleMatchesTask(rule, task, { rowChipValues: currentRows, catalog: effectiveCatalog })) continue;
       for (const action of rule.actions) {
@@ -423,6 +424,7 @@ export async function applyAutomationRulesForTasks(tasks: Task[], rules: Automat
             await logAutomation({ ruleId: rule.id, taskId: task.id, status: "failed", message: "Satır rengi geçersiz." });
             continue;
           }
+          matchedRowColor = rowColor;
           const existing = stateByTaskId.get(task.id);
           if (existing?.rowColor === rowColor) continue;
           const ok = await upsertTaskAutomationState(task.id, { rowColor });
@@ -504,6 +506,26 @@ export async function applyAutomationRulesForTasks(tasks: Task[], rules: Automat
           status: "applied",
           message: `${found.template.name} = ${found.option.label}`,
           after: { template: found.template.name, option: found.option.label },
+        });
+        applied += 1;
+      }
+    }
+    const existingAfterRules = stateByTaskId.get(task.id);
+    if (existingAfterRules?.rowColor && matchedRowColor == null) {
+      const ok = await upsertTaskAutomationState(task.id, { rowColor: null });
+      if (ok) {
+        stateByTaskId.set(task.id, {
+          ...existingAfterRules,
+          rowColor: null,
+          updatedAt: new Date().toISOString(),
+        });
+        await logAutomation({
+          ruleId: null,
+          taskId: task.id,
+          status: "applied",
+          message: "Satır rengi temizlendi: renk kuralı artık eşleşmiyor.",
+          before: { rowColor: existingAfterRules.rowColor },
+          after: { rowColor: null },
         });
         applied += 1;
       }

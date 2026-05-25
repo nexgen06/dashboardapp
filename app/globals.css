@@ -208,6 +208,94 @@
   .animate-pulse-today { animation: none; }
 }
 
+/* Kritik çipler için hafif reflector efekti.
+   Neon patlaması değil; okunabilirliği bozmayan yumuşak ışık halkası. */
+@keyframes chip-reflector {
+  0%, 100% {
+    box-shadow:
+      0 0 0 0 rgb(59 130 246 / 0),
+      0 1px 2px rgb(15 23 42 / 0.10);
+    filter: saturate(1);
+  }
+  50% {
+    box-shadow:
+      0 0 0 4px rgb(59 130 246 / 0.24),
+      0 0 18px rgb(59 130 246 / 0.40),
+      0 1px 2px rgb(15 23 42 / 0.14);
+    filter: saturate(1.22) brightness(1.04);
+  }
+}
+
+@keyframes chip-reflector-red {
+  0%, 100% {
+    box-shadow:
+      0 0 0 0 rgb(239 68 68 / 0),
+      0 1px 2px rgb(15 23 42 / 0.10);
+    filter: saturate(1);
+  }
+  50% {
+    box-shadow:
+      0 0 0 5px rgb(239 68 68 / 0.28),
+      0 0 22px rgb(239 68 68 / 0.52),
+      0 1px 2px rgb(15 23 42 / 0.16);
+    filter: saturate(1.28) brightness(1.06);
+  }
+}
+
+@keyframes chip-reflector-amber {
+  0%, 100% {
+    box-shadow:
+      0 0 0 0 rgb(245 158 11 / 0),
+      0 1px 2px rgb(15 23 42 / 0.10);
+    filter: saturate(1);
+  }
+  50% {
+    box-shadow:
+      0 0 0 5px rgb(245 158 11 / 0.30),
+      0 0 22px rgb(245 158 11 / 0.55),
+      0 1px 2px rgb(15 23 42 / 0.16);
+    filter: saturate(1.28) brightness(1.06);
+  }
+}
+
+@keyframes chip-reflector-violet {
+  0%, 100% {
+    box-shadow:
+      0 0 0 0 rgb(139 92 246 / 0),
+      0 1px 2px rgb(15 23 42 / 0.10);
+    filter: saturate(1);
+  }
+  50% {
+    box-shadow:
+      0 0 0 5px rgb(139 92 246 / 0.26),
+      0 0 20px rgb(139 92 246 / 0.45),
+      0 1px 2px rgb(15 23 42 / 0.16);
+    filter: saturate(1.24) brightness(1.05);
+  }
+}
+
+.chip-reflector {
+  position: relative;
+  isolation: isolate;
+  animation: chip-reflector 1.15s ease-in-out infinite;
+  will-change: box-shadow, filter;
+}
+.chip-reflector-red {
+  animation-name: chip-reflector-red;
+}
+.chip-reflector-amber {
+  animation-name: chip-reflector-amber;
+}
+.chip-reflector-violet {
+  animation-name: chip-reflector-violet;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip-reflector {
+    animation: none;
+  }
+}
+
 @media print {
   [data-sensitive="true"] {
     color: transparent !important;

@@ -232,7 +232,7 @@ export function ProjectMemberPermissionsPanel({
                   <code className="rounded bg-white/70 px-1 text-xs dark:bg-slate-900/60">
                     scripts/project-member-permissions.sql
                   </code>{" "}
-                  dosyasını Supabase SQL Editor'da çalıştırın. Tablo oluşturulduktan sonra bu paneli yeniden açın.
+                  dosyasını Supabase SQL Editor&apos;da çalıştırın. Tablo oluşturulduktan sonra bu paneli yeniden açın.
                 </span>
               </p>
             </div>
@@ -363,7 +363,7 @@ export function ProjectMemberPermissionsPanel({
                     })}
                   </ul>
                   <p className="mt-3 text-[10px] text-slate-400 dark:text-slate-500">
-                    <span className="text-amber-500">*</span> Yalnızca admin atayabilir. Proje yöneticileri bu yetkileri vermek üzere admin'e başvurabilir.
+                    <span className="text-amber-500">*</span> Yalnızca admin atayabilir. Proje yöneticileri bu yetkileri vermek üzere admin&apos;e başvurabilir.
                   </p>
                 </div>
               )}
