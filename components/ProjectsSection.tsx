@@ -38,6 +38,7 @@ import { SaveTemplateDialog, TemplateListDialog } from "@/components/ProjectTemp
 import { isSensitiveExtraColumnKey } from "@/lib/extraColumnSensitiveDisplay";
 import { isStatusDone } from "@/lib/statusKind";
 import { normalizeWorkflowStatus } from "@/lib/taskWorkflow";
+import { listChipCatalog, upsertTableChipBinding } from "@/lib/chipSystem";
 import type { Project, ProjectStatus, ProjectPriority } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -83,6 +84,8 @@ export type NewProjectSubmitData = {
   teamEditAllTasks?: boolean;
   /** Canlı tabloda bu proje için önceden gösterilecek ek sütun adları (`extra_data` anahtarları). */
   extraColumnKeys?: string[];
+  /** Kullanıcının hazır seçimden eklediği merkezi çip kolonları. */
+  smartChipColumns?: string[];
   /** Görev başlığı (Kanban/Özet) için kullanılacak extra_data anahtarı. Boş → otomatik. */
   titleColumn?: string | null;
   /** Görev kartı altında gösterilecek alt başlık anahtarları (en fazla 3). */
@@ -161,6 +164,53 @@ const SMART_EXTRA_COLUMN_CHIPS = [
   { label: "Durum Notu", group: "Operasyon" },
   { label: "Son İşlem Tarihi", group: "Tarih" },
 ] as const;
+
+const SMART_CHIP_COLUMN_PRESETS = [
+  {
+    label: "Risk",
+    templateName: "Risk",
+    description: "Düşük, orta ve kritik operasyon riski.",
+    tone: "red",
+  },
+  {
+    label: "Ödeme Durumu",
+    templateName: "Ödeme Durumu",
+    description: "Ödendi, ödenmedi, gecikti ve kısmi ödeme.",
+    tone: "amber",
+  },
+  {
+    label: "Evrak",
+    templateName: "Evrak",
+    description: "Eksik evrak, işlemde ve arşivlendi takibi.",
+    tone: "blue",
+  },
+  {
+    label: "Gizlilik",
+    templateName: "Gizlilik",
+    description: "Genel, hizmete özel ve gizli veri sınıfı.",
+    tone: "violet",
+  },
+] as const;
+
+type SmartChipColumnPreset = (typeof SMART_CHIP_COLUMN_PRESETS)[number];
+
+function smartChipToneClass(tone: SmartChipColumnPreset["tone"], selected: boolean): string {
+  const base = {
+    red: selected
+      ? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/35 dark:text-red-200"
+      : "border-slate-300 bg-white text-slate-600 hover:border-red-300 hover:bg-red-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-red-800 dark:hover:bg-red-950/30",
+    amber: selected
+      ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/35 dark:text-amber-200"
+      : "border-slate-300 bg-white text-slate-600 hover:border-amber-300 hover:bg-amber-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-amber-800 dark:hover:bg-amber-950/30",
+    blue: selected
+      ? "border-blue-300 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/35 dark:text-blue-200"
+      : "border-slate-300 bg-white text-slate-600 hover:border-blue-300 hover:bg-blue-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-blue-800 dark:hover:bg-blue-950/30",
+    violet: selected
+      ? "border-violet-300 bg-violet-50 text-violet-800 dark:border-violet-800 dark:bg-violet-950/35 dark:text-violet-200"
+      : "border-slate-300 bg-white text-slate-600 hover:border-violet-300 hover:bg-violet-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-violet-800 dark:hover:bg-violet-950/30",
+  }[tone];
+  return base;
+}
 
 /** Proje hedef tarihine göre "Gecikmiş" veya "Yaklaşan" etiketi. */
 function getProjectDueLabel(project: Project): "Gecikmiş" | "Yaklaşan" | null {
@@ -758,6 +808,9 @@ function ProjectFormModal({
       return;
     }
     const extraColumnKeys = parseExtraColumnKeysFromForm(extraColumnKeysText);
+    const smartChipColumns = SMART_CHIP_COLUMN_PRESETS
+      .map((preset) => preset.label)
+      .filter((label) => extraColumnKeys.some((key) => key.trim().toLocaleLowerCase("tr") === label.toLocaleLowerCase("tr")));
     try {
       await onSubmit({
         name: name.trim(),
@@ -777,6 +830,7 @@ function ProjectFormModal({
         importGroupAssignments: !isEdit ? importGroupAssignments : undefined,
         importRowRangesText: !isEdit ? importRowRangesText : undefined,
         extraColumnKeys: extraColumnKeys.length > 0 ? extraColumnKeys : undefined,
+        smartChipColumns,
         titleColumn: titleColumn.trim() || null,
         subtitleColumns: subtitleColumns.length > 0 ? subtitleColumns : null,
         wipInProgressLimit: (() => {
@@ -947,6 +1001,53 @@ function ProjectFormModal({
           <label htmlFor="project-extra-columns" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
             Canlı tablo ek sütunları
           </label>
+          <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-900/35">
+            <div className="mb-2 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Akıllı çip sütunları</p>
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                  Hazır seçimler kolon adını ve merkezi çip bağlantısını otomatik oluşturur.
+                </p>
+              </div>
+              <Badge variant="outline" className="shrink-0 border-emerald-200 bg-emerald-50 text-[10px] text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/35 dark:text-emerald-200">
+                önerilen
+              </Badge>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {SMART_CHIP_COLUMN_PRESETS.map((preset) => {
+                const selected = schemaKeySet.has(preset.label.toLocaleLowerCase("tr"));
+                return (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() =>
+                      selected ? removeExtraColumnKeyFromForm(preset.label) : addExtraColumnKey(preset.label)
+                    }
+                    aria-pressed={selected}
+                    className={cn(
+                      "flex min-h-[4.25rem] items-start gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                      smartChipToneClass(preset.tone, selected)
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border",
+                        selected
+                          ? "border-current bg-white/60 dark:bg-slate-950/30"
+                          : "border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-900"
+                      )}
+                    >
+                      {selected ? <Check className="h-3.5 w-3.5" aria-hidden /> : <PlusCircle className="h-3.5 w-3.5" aria-hidden />}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold">{preset.label}</span>
+                      <span className="mt-0.5 block text-xs leading-snug opacity-80">{preset.description}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <div className="mb-2 flex flex-wrap gap-1.5">
             {SMART_EXTRA_COLUMN_CHIPS.map((chip) => {
               const selected = schemaKeySet.has(chip.label.toLowerCase());
@@ -2339,6 +2440,35 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
     return map;
   }, [tasks]);
 
+  const ensureSmartChipBindings = useCallback(
+    async (projectId: string, columnLabels: string[] | undefined) => {
+      const requested = (columnLabels ?? [])
+        .map((label) => label.trim())
+        .filter(Boolean);
+      if (requested.length === 0) return;
+      const catalog = await listChipCatalog([projectId]);
+      for (const columnKey of requested) {
+        const preset = SMART_CHIP_COLUMN_PRESETS.find(
+          (item) => item.label.toLocaleLowerCase("tr") === columnKey.toLocaleLowerCase("tr")
+        );
+        if (!preset) continue;
+        const template = catalog.templates.find(
+          (item) => item.name.toLocaleLowerCase("tr") === preset.templateName.toLocaleLowerCase("tr")
+        );
+        if (!template) {
+          console.warn(`[Projects] Çip şablonu bulunamadı: ${preset.templateName}`);
+          continue;
+        }
+        await upsertTableChipBinding({
+          projectId,
+          columnKey,
+          templateId: template.id,
+        });
+      }
+    },
+    []
+  );
+
   const handleFormSubmit = async (data: NewProjectSubmitData) => {
     setIsSubmitting(true);
     setFormError(null);
@@ -2371,6 +2501,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
             ? { team_edit_all_tasks: data.teamEditAllTasks ?? false }
             : {}),
         });
+        await ensureSmartChipBindings(editingProject.id, data.smartChipColumns);
         if (data.reassignExistingTasks) {
           const projectTasks = tasks.filter((t) => String(t.project_id ?? "") === editingProject.id);
           const targetTasks =
@@ -2449,6 +2580,9 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
         wip_in_progress_limit: data.wipInProgressLimit ?? null,
         workflow_enabled: data.workflowEnabled ?? false,
       });
+      if (projectId) {
+        await ensureSmartChipBindings(projectId, data.smartChipColumns);
+      }
       if (data.importFile && projectId) {
         const text = await data.importFile.text();
         const fileName = (data.importFile.name || "").toLowerCase();

@@ -43,6 +43,15 @@ export type Permission =
   | "liveTable.exportSensitiveUnmasked"
   | "liveTable.manageColumns"
   | "liveTable.autoSizeColumns"
+  // Kurumsal operasyon katmanı
+  | "chipTemplates.view"
+  | "chipTemplates.manage"
+  | "automation.view"
+  | "automation.manage"
+  | "automation.logs.view"
+  | "taskFiles.view"
+  | "taskFiles.manage"
+  | "sensitiveChips.manage"
   // Ayarlar
   | "settings.view"
   | "settings.edit"
@@ -105,6 +114,14 @@ export const ROLES: Record<RoleId, Role> = {
       "liveTable.exportSensitiveUnmasked",
       "liveTable.manageColumns",
       "liveTable.autoSizeColumns",
+      "chipTemplates.view",
+      "chipTemplates.manage",
+      "automation.view",
+      "automation.manage",
+      "automation.logs.view",
+      "taskFiles.view",
+      "taskFiles.manage",
+      "sensitiveChips.manage",
       "settings.view",
       "settings.edit",
       "userManagement.view",
@@ -152,6 +169,13 @@ export const ROLES: Record<RoleId, Role> = {
       "liveTable.exportAllRows",
       "liveTable.manageColumns",
       "liveTable.autoSizeColumns",
+      "chipTemplates.view",
+      "chipTemplates.manage",
+      "automation.view",
+      "automation.manage",
+      "automation.logs.view",
+      "taskFiles.view",
+      "taskFiles.manage",
       "settings.view",
       "settings.edit",
       "userManagement.view",
@@ -180,6 +204,10 @@ export const ROLES: Record<RoleId, Role> = {
       "liveTable.exportCsv",
       "liveTable.manageColumns",
       "liveTable.autoSizeColumns",
+      "chipTemplates.view",
+      "automation.view",
+      "taskFiles.view",
+      "taskFiles.manage",
       "settings.view",
       "settings.edit",
       "userManagement.view",
@@ -196,6 +224,8 @@ export const ROLES: Record<RoleId, Role> = {
       "projects.view",
       "projectDetail.view",
       "liveTable.view",
+      "chipTemplates.view",
+      "taskFiles.view",
       "settings.view",
       "userManagement.view",
     ],
@@ -250,6 +280,19 @@ export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] =
     ],
   },
   {
+    label: "Kurumsal operasyon",
+    permissions: [
+      "chipTemplates.view",
+      "chipTemplates.manage",
+      "automation.view",
+      "automation.manage",
+      "automation.logs.view",
+      "taskFiles.view",
+      "taskFiles.manage",
+      "sensitiveChips.manage",
+    ],
+  },
+  {
     label: "Ayarlar",
     permissions: ["settings.view", "settings.edit"],
   },
@@ -295,6 +338,14 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "liveTable.exportSensitiveUnmasked": "Hassas verileri maskesiz dışa aktarma",
   "liveTable.manageColumns": "Sütun sıralama / görünürlük",
   "liveTable.autoSizeColumns": "İçeriğe göre ölçeklendir",
+  "chipTemplates.view": "Çip kütüphanesini görüntüleme",
+  "chipTemplates.manage": "Çip şablonu ve seçenek yönetimi",
+  "automation.view": "Otomasyon merkezi görüntüleme",
+  "automation.manage": "Otomasyon kuralı yönetimi",
+  "automation.logs.view": "Otomasyon loglarını görüntüleme",
+  "taskFiles.view": "Satır dosyalarını görüntüleme",
+  "taskFiles.manage": "Satır dosyalarını yükleme/silme",
+  "sensitiveChips.manage": "Yönetici/hassas çipleri değiştirme",
   "settings.view": "Ayarları görüntüleme",
   "settings.edit": "Ayarları düzenleme",
   "userManagement.view": "Yetki listesini görüntüleme",

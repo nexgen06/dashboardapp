@@ -103,11 +103,25 @@ import { useToast } from "@/components/ui/toast";
 import { RestrictedButton } from "@/components/ui/permission-gate";
 import { TaskCardMobile } from "@/components/TaskCardMobile";
 import { TaskDetailSheet } from "@/components/TaskDetailSheet";
+import { ChipSelectCell } from "@/components/chips/ChipBadge";
 import { SavedViewsControl } from "@/components/SavedViewsControl";
 import { listSavedViews, type SavedView, type SavedViewConfig } from "@/lib/savedViews";
 import { urgentPrioritySetFromCsv, isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
 import { canEditTaskRow } from "@/lib/taskRowPermissions";
 import { listProjectColumns, type ProjectColumn } from "@/lib/projectColumns";
+import {
+  listChipCatalog,
+  listRowChipValues,
+  setRowChipValue,
+  type ChipCatalog,
+  type RowChipValue,
+} from "@/lib/chipSystem";
+import {
+  applyAutomationRulesForTasks,
+  applyBuiltInOperationalRules,
+  listAutomationRules,
+  type AutomationRule,
+} from "@/lib/automationRules";
 import {
   listMyProjectMemberPermissions,
   type ProjectMemberPermission,
@@ -139,6 +153,7 @@ const STATUS_FILTER_OPTIONS = ["Tümü", "Yapılacak", "Devam ediyor", "Devam", 
 const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
 const REFERENCE_WARNINGS_KEY = "__reference_warnings";
 const INTERNAL_EXTRA_DATA_KEYS = new Set([REFERENCE_WARNINGS_KEY]);
+const EMPTY_CHIP_CATALOG: ChipCatalog = { templates: [], options: [], bindings: [] };
 type ReportTemplateSelection = `builtin:${ReportTemplateId}` | `custom:${string}` | `managed:${string}`;
 
 function builtinReportTemplateSelection(id: ReportTemplateId): ReportTemplateSelection {
@@ -1239,6 +1254,7 @@ function CSVImportDialog({
   referenceKnownKeys = [],
   defaultStatus = "Yapılacak",
   defaultPriority = "Medium",
+  replaceTargetProjectName,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -1247,6 +1263,7 @@ function CSVImportDialog({
   referenceKnownKeys?: string[];
   defaultStatus?: string;
   defaultPriority?: string;
+  replaceTargetProjectName?: string | null;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importMode, setImportMode] = useState<"file" | "paste">("file");
@@ -1260,6 +1277,7 @@ function CSVImportDialog({
     priority: null,
   });
   const [replaceExisting, setReplaceExisting] = useState(false);
+  const [replaceConfirmText, setReplaceConfirmText] = useState("");
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -1269,6 +1287,7 @@ function CSVImportDialog({
     setRows([]);
     setColumnMap({ content: null, status: null, assignee: null, priority: null });
     setReplaceExisting(false);
+    setReplaceConfirmText("");
     setError(null);
     setPasteText("");
   }, []);
@@ -1407,6 +1426,14 @@ function CSVImportDialog({
   }, [pasteLines, defaultStatus, defaultPriority]);
 
   const handleImport = useCallback(async () => {
+    if (replaceExisting && !replaceTargetProjectName) {
+      setError("Mevcut veriyi değiştirmek için önce tek bir proje filtresi seçin.");
+      return;
+    }
+    if (replaceExisting && replaceConfirmText.trim() !== replaceTargetProjectName) {
+      setError(`Güvenlik onayı için proje adını birebir yazın: ${replaceTargetProjectName}`);
+      return;
+    }
     const tasks = importMode === "paste" ? buildTasksFromPaste() : buildTasks();
     if (tasks.length === 0) {
       setError(importMode === "paste" ? "En az bir satır metin girin (boş satırlar yok sayılır)." : "Dosyada geçerli veri bulunamadı (en az bir satırda veri olmalı).");
@@ -1455,9 +1482,22 @@ function CSVImportDialog({
     } finally {
       setImporting(false);
     }
-  }, [importMode, buildTasksFromPaste, buildTasks, referenceColumns, referenceKnownKeys, replaceExisting, onImport, onOpenChange]);
+  }, [
+    importMode,
+    buildTasksFromPaste,
+    buildTasks,
+    referenceColumns,
+    referenceKnownKeys,
+    replaceExisting,
+    replaceTargetProjectName,
+    replaceConfirmText,
+    onImport,
+    onOpenChange,
+  ]);
 
   const canImport = importMode === "paste" ? pasteLines.length > 0 : rows.length > 0;
+  const replaceConfirmationOk =
+    !replaceExisting || (!!replaceTargetProjectName && replaceConfirmText.trim() === replaceTargetProjectName);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1526,11 +1566,35 @@ function CSVImportDialog({
                 <input
                   type="checkbox"
                   checked={replaceExisting}
-                  onChange={(e) => setReplaceExisting(e.target.checked)}
-                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  disabled={!replaceTargetProjectName}
+                  onChange={(e) => {
+                    setReplaceExisting(e.target.checked);
+                    setReplaceConfirmText("");
+                    setError(null);
+                  }}
+                  className="rounded border-slate-300 text-red-600 focus:ring-red-500 disabled:opacity-50"
                 />
                 Mevcut veriyi sil ve yeni görevlerle değiştir
               </label>
+              {replaceExisting && replaceTargetProjectName && (
+                <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/35 dark:text-red-100">
+                  <p className="font-semibold">Riskli işlem: mevcut proje görevleri silinecek.</p>
+                  <p className="mt-1 text-xs text-red-700 dark:text-red-200">
+                    Devam etmek için proje adını birebir yazın: <strong>{replaceTargetProjectName}</strong>
+                  </p>
+                  <input
+                    value={replaceConfirmText}
+                    onChange={(e) => setReplaceConfirmText(e.target.value)}
+                    placeholder={replaceTargetProjectName}
+                    className="mt-2 w-full rounded-md border border-red-300 bg-white px-3 py-2 text-sm text-red-950 placeholder:text-red-300 focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500 dark:border-red-800 dark:bg-slate-950 dark:text-red-100"
+                  />
+                </div>
+              )}
+              {!replaceTargetProjectName && (
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  Mevcut veriyi değiştirmek için önce Canlı Tablo’da tek bir proje filtresi seçilmeli.
+                </p>
+              )}
             </>
           ) : (
             <>
@@ -1605,11 +1669,35 @@ function CSVImportDialog({
                 <input
                   type="checkbox"
                   checked={replaceExisting}
-                  onChange={(e) => setReplaceExisting(e.target.checked)}
-                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  disabled={!replaceTargetProjectName}
+                  onChange={(e) => {
+                    setReplaceExisting(e.target.checked);
+                    setReplaceConfirmText("");
+                    setError(null);
+                  }}
+                  className="rounded border-slate-300 text-red-600 focus:ring-red-500 disabled:opacity-50"
                 />
                 Mevcut veriyi sil ve CSV ile değiştir
               </label>
+              {replaceExisting && replaceTargetProjectName && (
+                <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/35 dark:text-red-100">
+                  <p className="font-semibold">Riskli işlem: mevcut proje görevleri silinecek.</p>
+                  <p className="mt-1 text-xs text-red-700 dark:text-red-200">
+                    Devam etmek için proje adını birebir yazın: <strong>{replaceTargetProjectName}</strong>
+                  </p>
+                  <input
+                    value={replaceConfirmText}
+                    onChange={(e) => setReplaceConfirmText(e.target.value)}
+                    placeholder={replaceTargetProjectName}
+                    className="mt-2 w-full rounded-md border border-red-300 bg-white px-3 py-2 text-sm text-red-950 placeholder:text-red-300 focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500 dark:border-red-800 dark:bg-slate-950 dark:text-red-100"
+                  />
+                </div>
+              )}
+              {!replaceTargetProjectName && (
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  Mevcut veriyi değiştirmek için önce Canlı Tablo’da tek bir proje filtresi seçilmeli.
+                </p>
+              )}
             </>
           )}
             </>
@@ -1620,8 +1708,21 @@ function CSVImportDialog({
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             İptal
           </Button>
-          <Button type="button" onClick={handleImport} disabled={!canImport || importing}>
-            {importing ? "Aktarılıyor…" : importMode === "paste" ? `${pasteLines.length} görev ekle` : `${rows.length} satır içe aktar`}
+          <Button
+            type="button"
+            variant={replaceExisting ? "destructive" : "default"}
+            onClick={handleImport}
+            disabled={!canImport || importing || !replaceConfirmationOk}
+          >
+            {importing
+              ? "Aktarılıyor…"
+              : replaceExisting
+                ? importMode === "paste"
+                  ? `${pasteLines.length} görevle değiştir`
+                  : `${rows.length} satırla değiştir`
+                : importMode === "paste"
+                  ? `${pasteLines.length} görev ekle`
+                  : `${rows.length} satır içe aktar`}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -2022,6 +2123,10 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const canManageColumns = hasPermission("liveTable.manageColumns");
   const canAutoSizeColumns = hasPermission("liveTable.autoSizeColumns");
   const canEditProject = hasPermission("projects.edit");
+  const canManageSensitiveChips =
+    hasPermission("sensitiveChips.manage") || user?.roleId === "admin" || user?.roleId === "project_manager";
+  const canRunClientAutomations =
+    hasPermission("automation.manage") || user?.roleId === "admin" || user?.roleId === "project_manager";
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   /** Hızlı satır ekleme zinciri: id verilirse content sütunundaki EditableCell mount'ta edit moduna geçer. */
   const [quickAddFocusId, setQuickAddFocusId] = useState<string | null>(null);
@@ -2109,6 +2214,11 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const [projectColumnsByProjectId, setProjectColumnsByProjectId] = useState<Record<string, ProjectColumn[]>>({});
   const [projectPermissionsByProjectId, setProjectPermissionsByProjectId] = useState<Record<string, ProjectMemberPermission>>({});
   const [projectPermissionsAvailable, setProjectPermissionsAvailable] = useState(false);
+  const [chipCatalog, setChipCatalog] = useState<ChipCatalog>(EMPTY_CHIP_CATALOG);
+  const [rowChipValues, setRowChipValues] = useState<RowChipValue[]>([]);
+  const [automationRules, setAutomationRules] = useState<AutomationRule[]>([]);
+  const automationApplyingRef = useRef(false);
+  const automationRunKeyRef = useRef("");
   const toast = useToast();
   const promptUser = usePrompt();
   const [globalSearch, setGlobalSearch] = useState("");
@@ -2179,6 +2289,105 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       cancelled = true;
     };
   }, [projects]);
+
+  const projectIds = useMemo(
+    () => Array.from(new Set(projects.map((project) => String(project.id ?? "")).filter(Boolean))),
+    [projects]
+  );
+  const taskIds = useMemo(() => tasks.map((task) => task.id), [tasks]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (projectIds.length === 0) {
+      setChipCatalog(EMPTY_CHIP_CATALOG);
+      setAutomationRules([]);
+      return;
+    }
+    void (async () => {
+      try {
+        const [nextCatalog, nextRules] = await Promise.all([
+          listChipCatalog(projectIds),
+          listAutomationRules(projectIds),
+        ]);
+        if (cancelled) return;
+        setChipCatalog(nextCatalog);
+        setAutomationRules(nextRules);
+      } catch (err) {
+        if (!cancelled) {
+          console.warn("[live table operations]", err instanceof Error ? err.message : err);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectIds]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (taskIds.length === 0) {
+      setRowChipValues([]);
+      return;
+    }
+    void (async () => {
+      try {
+        const rows = await listRowChipValues(taskIds);
+        if (!cancelled) setRowChipValues(rows);
+      } catch (err) {
+        if (!cancelled) console.warn("[live table chips]", err instanceof Error ? err.message : err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [taskIds]);
+
+  useEffect(() => {
+    if (!canRunClientAutomations || automationApplyingRef.current || tasks.length === 0 || chipCatalog.templates.length === 0) return;
+    const runKey = JSON.stringify({
+      tasks: tasks.map((task) => [
+        task.id,
+        task.status,
+        task.due_date,
+        task.updated_at,
+        task.extra_data?.["Ödeme Tarihi"],
+        task.extra_data?.["Odeme Tarihi"],
+        task.extra_data?.payment_date,
+        task.extra_data?.["Ödeme Durumu"],
+        task.extra_data?.["Odeme Durumu"],
+        task.extra_data?.payment_status,
+      ]),
+      rules: automationRules.map((rule) => [rule.id, rule.enabled, rule.updatedAt]),
+    });
+    if (automationRunKeyRef.current === runKey) return;
+    automationRunKeyRef.current = runKey;
+
+    let cancelled = false;
+    automationApplyingRef.current = true;
+    void (async () => {
+      try {
+        const builtInCount = await applyBuiltInOperationalRules(tasks, rowChipValues, chipCatalog);
+        const customCount = await applyAutomationRulesForTasks(tasks, automationRules, chipCatalog);
+        if (!cancelled && builtInCount + customCount > 0) {
+          setRowChipValues(await listRowChipValues(taskIds));
+        }
+      } catch (err) {
+        if (!cancelled) console.warn("[live table automation]", err instanceof Error ? err.message : err);
+      } finally {
+        automationApplyingRef.current = false;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    automationRules,
+    canRunClientAutomations,
+    chipCatalog,
+    rowChipValues,
+    taskIds,
+    tasks,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3852,6 +4061,65 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                   )
                 ).sort((a, b) => a.localeCompare(b, "tr", { sensitivity: "base" }))
               : typedColumn?.config.options?.filter(Boolean) ?? [];
+          const chipBinding =
+            candidateProjectIds
+              .map((projectId) =>
+                chipCatalog.bindings.find(
+                  (binding) =>
+                    binding.projectId === projectId &&
+                    binding.columnKey.trim().toLocaleLowerCase("tr") === normalizedExtraKey
+                )
+              )
+              .find(Boolean) ?? null;
+          if (chipBinding) {
+            const chipTemplate = chipCatalog.templates.find((template) => template.id === chipBinding.templateId) ?? null;
+            const chipOptions = chipCatalog.options.filter((option) => option.templateId === chipBinding.templateId);
+            const chipRow = rowChipValues.find(
+              (item) => item.taskId === taskId && item.templateId === chipBinding.templateId
+            );
+            if (chipTemplate && chipOptions.length > 0) {
+              const chipDisabled = !rowCanEdit || (chipTemplate.managerOnly && !canManageSensitiveChips);
+              return (
+                <div className="flex min-w-0 items-center gap-1">
+                  {referenceWarning && (
+                    <AlertTriangle
+                      className="h-3.5 w-3.5 shrink-0 text-amber-500"
+                      aria-label="Referans veri uyarısı"
+                    >
+                      <title>{referenceWarning}</title>
+                    </AlertTriangle>
+                  )}
+                  <ChipSelectCell
+                    template={chipTemplate}
+                    options={chipOptions}
+                    value={chipRow?.optionId ?? ""}
+                    disabled={chipDisabled}
+                    onChange={(optionId) => {
+                      void (async () => {
+                        try {
+                          const next = await setRowChipValue({
+                            taskId,
+                            templateId: chipTemplate.id,
+                            optionId,
+                            source: "manual",
+                          });
+                          setRowChipValues((prev) => [
+                            ...prev.filter(
+                              (item) => !(item.taskId === taskId && item.templateId === chipTemplate.id)
+                            ),
+                            next,
+                          ]);
+                          toast.success("Çip güncellendi");
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : "Çip güncellenemedi.");
+                        }
+                      })();
+                    }}
+                  />
+                </div>
+              );
+            }
+          }
           // Checkbox için: "yapıldı", "tamamlandı", "done", "completed", "ok", "✓"
           const isCheckbox = /^(yapıldı|yapildi|tamamlandı|tamamlandi|done|completed|ok|✓|x|check)$/i.test(key);
           if (isCheckbox) {
@@ -4067,6 +4335,10 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       projectById,
       projectColumnsByProjectId,
       projectFilter,
+      chipCatalog,
+      rowChipValues,
+      canManageSensitiveChips,
+      toast,
     ]
   );
 
@@ -5320,6 +5592,7 @@ ${emailTemplate.html}
           referenceKnownKeys={extraDataKeys}
           defaultStatus={settings.defaultTaskStatus}
           defaultPriority={settings.defaultTaskPriority}
+          replaceTargetProjectName={projectFilter.length === 1 ? projectById.get(projectFilter[0])?.name ?? null : null}
         />
       )}
       {(() => {

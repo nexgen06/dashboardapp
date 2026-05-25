@@ -83,6 +83,27 @@ const REQUIRED_SCRIPT_CHECKS: Array<Omit<SystemScriptCheck, "status" | "message"
     table: "admin_alerts",
     description: "Riskli hassas veri ve sistem olaylarını admin gündemine düşürür.",
   },
+  {
+    id: "chip-system",
+    title: "Merkezi çip sistemi",
+    script: "scripts/chip-system.sql",
+    table: "chip_templates",
+    description: "Çip şablonları, tablo/kolon bağları ve satır çip değerleri.",
+  },
+  {
+    id: "automation-rules",
+    title: "Otomasyon kuralları",
+    script: "scripts/automation-rules.sql",
+    table: "automation_rules",
+    description: "Kural motoru, otomasyon aksiyonları ve otomasyon logları.",
+  },
+  {
+    id: "task-files",
+    title: "Satır dosyaları",
+    script: "scripts/task-files.sql",
+    table: "task_files",
+    description: "Satır detay panelindeki dosya ekleri ve depolama erişim kuralları.",
+  },
 ];
 
 function messageFromError(error: { code?: string; message?: string } | null | undefined): string {

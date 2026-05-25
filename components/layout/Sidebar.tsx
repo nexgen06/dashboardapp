@@ -18,6 +18,8 @@ import {
   Database,
   FileText,
   ServerCog,
+  Sparkles,
+  Bot,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -65,6 +67,8 @@ export function Sidebar() {
     { href: "/yonetim/gorev-istatistikleri", label: "Görev istatistikleri", icon: BarChart3, permission: "area.userManagement" as const, alsoRequire: null },
     { href: "/yonetim/rapor-sablonlari", label: "Rapor şablonları", tooltip: "PDF/e-posta export şablonları", icon: FileText, permission: "area.userManagement" as const, alsoRequire: null },
     { href: "/yonetim/referans-veriler", label: "Referans veriler", tooltip: "JSON kaynakları ve merkezi dropdown verileri", icon: Database, permission: "area.userManagement" as const, alsoRequire: null },
+    { href: "/yonetim/cip-kutuphanesi", label: "Çip Kütüphanesi", tooltip: "Merkezi çip şablonları ve kolon bağlantıları", icon: Sparkles, permission: "chipTemplates.view" as const, alsoRequire: null },
+    { href: "/yonetim/otomasyon-merkezi", label: "Otomasyon Merkezi", tooltip: "Koşul ve aksiyon bazlı operasyon kuralları", icon: Bot, permission: "automation.view" as const, alsoRequire: null },
     { href: "/yonetim/pii-access", label: "PII erişim kayıtları", tooltip: "TCKN/Sicil kopya/export izleme", icon: Shield, permission: "area.piiAccess" as const, alsoRequire: "piiAccess.view" as const },
     { href: "/yonetim/geri-bildirimler", label: "Geri bildirim yönetimi", tooltip: "Kullanıcılardan gelen öneri/hata/soru", icon: MessageSquarePlus, permission: "area.feedbackAdmin" as const, alsoRequire: "feedback.manage" as const },
     { href: "/yonetim/duyurular", label: "Duyurular", tooltip: "Tüm kullanıcılara mesaj gönder", icon: Megaphone, permission: "area.announcementsAdmin" as const, alsoRequire: "notifications.send" as const },

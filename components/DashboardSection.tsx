@@ -32,10 +32,20 @@ import {
   Plus,
   Check,
   RotateCcw,
+  AlertTriangle,
+  CreditCard,
+  ShieldAlert,
+  TimerOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Task } from "@/types/tasks";
 import type { Project } from "@/types/project";
+import {
+  listChipCatalog,
+  listRowChipValues,
+  type ChipCatalog,
+  type RowChipValue,
+} from "@/lib/chipSystem";
 import {
   WIDGET_CATALOG,
   defaultWidgetVisibility,
@@ -56,6 +66,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 import { isStatusDone, isStatusInProgress, isStatusTodo } from "@/lib/statusKind";
+
+const EMPTY_CHIP_CATALOG: ChipCatalog = { templates: [], options: [], bindings: [] };
 
 /** Saate göre selamlama. */
 function greetingByHour(): string {
@@ -93,7 +105,7 @@ function SecondaryKpi({
   label,
 }: {
   icon: React.ReactNode;
-  tone: "blue" | "slate" | "amber" | "emerald";
+  tone: "blue" | "slate" | "amber" | "emerald" | "red" | "violet";
   value: number;
   label: string;
 }) {
@@ -102,6 +114,8 @@ function SecondaryKpi({
     slate: "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300",
     amber: "bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400",
     emerald: "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400",
+    red: "bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400",
+    violet: "bg-violet-100 text-violet-600 dark:bg-violet-900/40 dark:text-violet-400",
   }[tone];
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition-shadow hover:shadow-md dark:border-slate-700 dark:bg-slate-800/80">
@@ -190,6 +204,48 @@ export function DashboardSection() {
       }),
     [scopedProjectIds, tasks]
   );
+  const scopedProjectIdList = useMemo(() => Array.from(scopedProjectIds), [scopedProjectIds]);
+  const projectLinkedTaskIds = useMemo(() => projectLinkedTasks.map((task) => task.id), [projectLinkedTasks]);
+  const [operationChipCatalog, setOperationChipCatalog] = useState<ChipCatalog>(EMPTY_CHIP_CATALOG);
+  const [operationRowChips, setOperationRowChips] = useState<RowChipValue[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (scopedProjectIdList.length === 0) {
+      setOperationChipCatalog(EMPTY_CHIP_CATALOG);
+      return;
+    }
+    void (async () => {
+      try {
+        const catalog = await listChipCatalog(scopedProjectIdList);
+        if (!cancelled) setOperationChipCatalog(catalog);
+      } catch (err) {
+        if (!cancelled) console.warn("[dashboard chips]", err instanceof Error ? err.message : err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [scopedProjectIdList]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (projectLinkedTaskIds.length === 0) {
+      setOperationRowChips([]);
+      return;
+    }
+    void (async () => {
+      try {
+        const rows = await listRowChipValues(projectLinkedTaskIds);
+        if (!cancelled) setOperationRowChips(rows);
+      } catch (err) {
+        if (!cancelled) console.warn("[dashboard row chips]", err instanceof Error ? err.message : err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectLinkedTaskIds]);
 
   const kpi = useMemo(() => {
     const totalProjects = scopedProjects.length;
@@ -200,6 +256,45 @@ export function DashboardSection() {
     const completionPct = totalTasks > 0 ? Math.round((done / totalTasks) * 100) : 0;
     return { totalProjects, totalTasks, done, inProgress, todo, completionPct };
   }, [scopedProjects.length, projectLinkedTasks]);
+
+  const operationKpi = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const taskIdSet = new Set(projectLinkedTaskIds);
+    const selectedRows = operationRowChips.filter((row) => taskIdSet.has(row.taskId));
+    const optionById = new Map(operationChipCatalog.options.map((option) => [option.id, option]));
+    const templateById = new Map(operationChipCatalog.templates.map((template) => [template.id, template]));
+    const countChip = (templateName: RegExp, optionValueOrLabel: RegExp) =>
+      selectedRows.filter((row) => {
+        const template = templateById.get(row.templateId);
+        const option = optionById.get(row.optionId);
+        return !!template && !!option && templateName.test(template.name) && optionValueOrLabel.test(`${option.value} ${option.label}`);
+      }).length;
+    const open = projectLinkedTasks.filter((task) => !isStatusDone(task.status)).length;
+    const overdue = projectLinkedTasks.filter((task) => {
+      if (!task.due_date || isStatusDone(task.status)) return false;
+      const due = new Date(task.due_date);
+      due.setHours(0, 0, 0, 0);
+      return Number.isFinite(due.getTime()) && due < today;
+    }).length;
+    const completedToday = projectLinkedTasks.filter((task) => {
+      if (!isStatusDone(task.status) || !task.updated_at) return false;
+      const updated = new Date(task.updated_at);
+      return updated >= today && updated < tomorrow;
+    }).length;
+    return {
+      open,
+      overdue,
+      criticalRisk: countChip(/^Risk$/i, /critical|kritik/i),
+      slaBreaches: countChip(/SLA/i, /breach|aşıldı|asildi/i),
+      pendingApprovals: projectLinkedTasks.filter((task) => task.workflow_status === "submitted").length,
+      completedToday,
+      staleRows: countChip(/^Sistem$/i, /stale|hareketsiz/i),
+      paymentDelays: countChip(/Ödeme|Odeme|Payment/i, /overdue|gecikti/i),
+    };
+  }, [operationChipCatalog, operationRowChips, projectLinkedTaskIds, projectLinkedTasks]);
 
   const recentTasks = useMemo(() => {
     return [...projectLinkedTasks]
@@ -553,6 +648,27 @@ export function DashboardSection() {
         </div>
       </section>
       </WidgetWrapper>
+      )}
+
+      {widgetVisibility.kpi && (
+        <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800/80">
+          <SectionHeader
+            level="card"
+            title="Operasyon sağlığı"
+            icon={<Activity className="h-4 w-4 text-violet-600 dark:text-violet-300" />}
+            spacing="sm"
+          />
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <SecondaryKpi icon={<ListTodo className="h-4 w-4" />} tone="blue" value={operationKpi.open} label="Açık görev" />
+            <SecondaryKpi icon={<AlertTriangle className="h-4 w-4" />} tone="red" value={operationKpi.overdue} label="Geciken görev" />
+            <SecondaryKpi icon={<ShieldAlert className="h-4 w-4" />} tone="red" value={operationKpi.criticalRisk} label="Kritik risk" />
+            <SecondaryKpi icon={<Clock className="h-4 w-4" />} tone="amber" value={operationKpi.slaBreaches} label="SLA ihlali" />
+            <SecondaryKpi icon={<CheckCircle2 className="h-4 w-4" />} tone="violet" value={operationKpi.pendingApprovals} label="Onay bekleyen" />
+            <SecondaryKpi icon={<Check className="h-4 w-4" />} tone="emerald" value={operationKpi.completedToday} label="Bugün tamamlanan" />
+            <SecondaryKpi icon={<TimerOff className="h-4 w-4" />} tone="slate" value={operationKpi.staleRows} label="Hareketsiz satır" />
+            <SecondaryKpi icon={<CreditCard className="h-4 w-4" />} tone="amber" value={operationKpi.paymentDelays} label="Ödeme gecikmesi" />
+          </div>
+        </section>
       )}
 
       {/* YENİ — Onay bekleyen görevler + Bildirim özeti (2 kolon grid) */}

@@ -30,9 +30,11 @@ import {
   RotateCcw,
   XCircle,
   GitMerge,
+  Sparkles,
 } from "lucide-react";
 import type { Task } from "@/types/tasks";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/auth-context";
 import { getStatusKind } from "@/lib/statusKind";
 import { formatDate } from "@/lib/formatDate";
 import { getRelativeTime } from "@/lib/relativeTime";
@@ -61,6 +63,9 @@ import {
   WORKFLOW_STATUS_LABELS,
   WORKFLOW_STATUS_CLASS,
 } from "@/lib/taskWorkflow";
+import { TaskChipsPanel } from "@/components/chips/TaskChipsPanel";
+import { AutomationLogPanel } from "@/components/automation/AutomationLogPanel";
+import { TaskFilesPanel } from "@/components/files/TaskFilesPanel";
 
 const EXTRA_DATA_LINK_KEY = "link";
 
@@ -235,6 +240,7 @@ export function TaskDetailSheet({
   canComment = canEdit,
   onEdit,
 }: TaskDetailSheetProps) {
+  const { user, hasPermission } = useAuth();
   /**
    * Audit log timeline state.
    * Görev değiştikçe audit_log realtime INSERT'leri ile anında güncellenir.
@@ -354,11 +360,23 @@ export function TaskDetailSheet({
       ? String(task.extra_data[EXTRA_DATA_LINK_KEY])
       : null;
   const nonLinkExtras = extraEntries.filter(([k]) => k !== EXTRA_DATA_LINK_KEY);
+  const canViewFiles = hasPermission("taskFiles.view");
+  const canManageFiles = canEdit && hasPermission("taskFiles.manage");
+  const canManageSensitiveChips = hasPermission("sensitiveChips.manage") || user?.roleId === "admin" || user?.roleId === "project_manager";
+  const aiHints = [
+    task.due_date && new Date(task.due_date) < new Date() && !/tamamlandı|tamamlandi|done|completed/i.test(task.status)
+      ? "Son tarih geçmiş ve görev tamamlanmamış. Risk çipini Kritik Risk yapıp yöneticiye bildirim göndermek mantıklı."
+      : null,
+    task.updated_at && Date.now() - new Date(task.updated_at).getTime() > 7 * 24 * 60 * 60 * 1000
+      ? "Satır 7 günden uzun süredir güncellenmemiş. Hareketsiz çipi ve takip bildirimi önerilir."
+      : null,
+    !task.assignee?.trim() ? "Satır atanmamış. Operasyon sahipliği için bir kullanıcıya atama önerilir." : null,
+  ].filter(Boolean) as string[];
 
   return (
     <Sheet open={!!task} onOpenChange={(open) => !open && onClose()}>
       <SheetContent
-        widthClass="w-full max-w-[440px]"
+        widthClass="w-full max-w-[520px]"
         className="dark:bg-slate-900"
       >
         <SheetHeader className="space-y-2.5 border-b border-slate-200/80 px-5 py-4 dark:border-slate-700/80 dark:bg-slate-900">
@@ -505,6 +523,36 @@ export function TaskDetailSheet({
               <WorkflowProgressBar task={task} />
             </section>
           )}
+
+          <TaskChipsPanel
+            task={task}
+            canEdit={canEdit}
+            canManageSensitive={canManageSensitiveChips}
+          />
+
+          {aiHints.length > 0 && (
+            <section className="rounded-xl border border-blue-200 bg-blue-50/60 p-3.5 dark:border-blue-800 dark:bg-blue-950/25">
+              <h3 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-300">
+                <Sparkles className="h-3 w-3" aria-hidden />
+                AI öneri alanı
+              </h3>
+              <ul className="space-y-1.5 text-xs leading-snug text-blue-900 dark:text-blue-100">
+                {aiHints.map((hint) => <li key={hint}>• {hint}</li>)}
+              </ul>
+            </section>
+          )}
+
+          {canViewFiles && (
+            <TaskFilesPanel
+              taskId={task.id}
+              projectId={task.project_id ? String(task.project_id) : null}
+              canEdit={canManageFiles}
+              userId={user?.id ?? null}
+              userEmail={user?.email ?? null}
+            />
+          )}
+
+          {hasPermission("automation.logs.view") && <AutomationLogPanel taskId={task.id} />}
 
           {/* Yorumlar — task_comments üzerinden, realtime senkron */}
           {task && (
