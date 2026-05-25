@@ -55,8 +55,41 @@ export default function CanliTabloPage() {
    *   Böylece kullanıcı seçim yapıp hemen sayfa değiştirir/yenilerse kayıt korunur.
    */
   const [projectFilter, setProjectFilterState] = useState<string[]>([]);
-  const [summaryCollapsed, setSummaryCollapsed] = useState(true);
+  /**
+   * Görev Özeti sidebar — varsayılan AÇIK. Kullanıcı isterse gizleyebilir,
+   * tercih localStorage'a kayıt. xl+ ekranda solda 280px panel olarak görünür.
+   * Önce: default kapalıydı → kullanıcı her açılışta toggle'a basmak zorundaydı.
+   */
+  const [summaryCollapsed, setSummaryCollapsedState] = useState(false);
   const [activeView, setActiveView] = useState("table");
+
+  // Hydrate summary tercihini localStorage'tan (per-user)
+  useEffect(() => {
+    if (!userId) return;
+    try {
+      const stored = localStorage.getItem(`dashboardapp.canli-tablo.summaryCollapsed.v1:${userId}`);
+      if (stored === "true") setSummaryCollapsedState(true);
+    } catch {
+      /* localStorage devre dışı — yok say */
+    }
+  }, [userId]);
+
+  const setSummaryCollapsed = useCallback(
+    (value: boolean | ((prev: boolean) => boolean)) => {
+      setSummaryCollapsedState((prev) => {
+        const next = typeof value === "function" ? value(prev) : value;
+        try {
+          if (userId) {
+            localStorage.setItem(`dashboardapp.canli-tablo.summaryCollapsed.v1:${userId}`, String(next));
+          }
+        } catch {
+          /* localStorage devre dışı */
+        }
+        return next;
+      });
+    },
+    [userId]
+  );
 
   // Hydrate from localStorage after mount (user.id known).
   useEffect(() => {

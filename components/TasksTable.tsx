@@ -5081,13 +5081,17 @@ ${emailTemplate.html}
     [selectedTasks, canBulkUpdate, canBulkUpdateRow, saveTask, updateTaskOptimistic, toast]
   );
 
-  /* ─── TopStrip useMemo'ları — KRİTİK: hooks rules için early return'lerden ÖNCE ─── */
+  /* ─── TopStrip useMemo'ları — KRİTİK: hooks rules için early return'lerden ÖNCE ───
+       Sabit kapsam: proje TOPLAMINI gösterir (filtreden bağımsız). Filtre değiştikçe
+       footer'daki "X / N kayıt" zaten anlık değişir. Burada proje kimliği vurgulanır. */
   const topStripMetrics = useMemo(() => {
-    const total = filteredData.length;
-    const done = filteredData.filter((t) => isStatusDone(t.status)).length;
-    const inProgress = filteredData.filter((t) => isStatusInProgress(t.status)).length;
-    return { total, done, inProgress };
-  }, [filteredData]);
+    const total = tasks.length;
+    const done = tasks.filter((t) => isStatusDone(t.status)).length;
+    const inProgress = tasks.filter((t) => isStatusInProgress(t.status)).length;
+    // Aktif filtre var mı? filteredData ≠ tasks ise "filtreli" durumdayız
+    const isFiltered = filteredData.length !== tasks.length;
+    return { total, done, inProgress, filteredCount: filteredData.length, isFiltered };
+  }, [tasks, filteredData]);
 
   const topStripActiveProject = useMemo(() => {
     if (projectFilter.length !== 1) return null;
@@ -7686,6 +7690,14 @@ ${emailTemplate.html}
         </span>
         <span className="text-xs text-slate-500 dark:text-slate-400">devam ediyor</span>
       </span>
+
+      {/* Filtre aktif badge — TOTAL view'a ek olarak filtered count'ı subtle olarak gösterir */}
+      {topStripMetrics.isFiltered && (
+        <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:border-blue-800/70 dark:bg-blue-950/30 dark:text-blue-300" title={`Aktif filtre: ${topStripMetrics.filteredCount} / ${topStripMetrics.total} kayıt`}>
+          <Filter className="h-2.5 w-2.5" aria-hidden />
+          {topStripMetrics.filteredCount.toLocaleString("tr-TR")}
+        </span>
+      )}
 
       {/* Aktif proje rozeti (tek proje filtreliyse) */}
       {topStripActiveProject && (
