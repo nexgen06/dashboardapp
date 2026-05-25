@@ -5440,50 +5440,48 @@ ${emailTemplate.html}
           <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden />
           Filtreler
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Grup A — Arama */}
-          <div className="relative w-full max-w-md flex-1 min-w-[180px]">
-            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+        <div className="flex flex-wrap items-center gap-1.5">
+          {/* Grup A — Arama (h-8 toolbar standardı) */}
+          <div className="relative w-full max-w-sm flex-1 min-w-[180px]">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" aria-hidden />
             <input
               type="text"
-              placeholder="Görev veya atanan kişide ara"
+              placeholder="Görev veya kişi ara…"
               value={globalSearch}
               onChange={(e) => setGlobalSearch(e.target.value)}
-              className="w-full rounded-md border border-slate-300 bg-white py-2 pl-9 pr-3 text-ui-body text-slate-900 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+              className="h-8 w-full rounded-md border border-slate-200 bg-white pl-8 pr-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
             />
           </div>
 
-          {/* Grup B + C — Kapsam, Gelişmiş filtre ve hızlı filtre dropdownları (aynı flex row içinde) */}
+          {/* Grup B — Kapsam + Gelişmiş filtre (h-8 toolbar standardı) */}
           <select
             value={projectLinkedFilter}
             onChange={(e) => setProjectLinkedFilter(e.target.value as "proje" | "tümü")}
-            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+            className="h-8 rounded-md border border-slate-200 bg-white px-2 pr-7 text-xs text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
             title="Canlı tabloda varsayılan olarak sadece projeye bağlı görevler gösterilir"
           >
-            <option value="proje">Sadece proje görevleri</option>
+            <option value="proje">Proje görevleri</option>
             <option value="tümü">Tüm görevler</option>
           </select>
-          <Button
+          <button
             type="button"
-            variant="outline"
-            size="sm"
             className={cn(
-              "h-[38px] text-sm shrink-0",
+              "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
               activeAdvancedFilterRuleCount > 0
                 ? "border-blue-400 bg-blue-50 text-blue-800 dark:border-blue-600 dark:bg-blue-900/30 dark:text-blue-200"
-                : "text-slate-700 dark:text-slate-300"
+                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
             )}
             onClick={() => setAdvancedFilterOpen(true)}
             title="Tüm alanlarda metin koşulları (VE ile birleşir)"
           >
-            <ListFilter className="mr-1.5 h-4 w-4 shrink-0" aria-hidden />
+            <ListFilter className="h-3.5 w-3.5 shrink-0" aria-hidden />
             Gelişmiş filtre
             {activeAdvancedFilterRuleCount > 0 && (
-              <span className="ml-1.5 rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white dark:bg-blue-500">
+              <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white dark:bg-blue-500">
                 {activeAdvancedFilterRuleCount}
               </span>
             )}
-          </Button>
+          </button>
           {/* /Grup B */}
 
           {/* Hızlı filtre dropdownları (Durum / Atanan / Öncelik / Tarih) — aynı flex row */}
@@ -5493,7 +5491,7 @@ ${emailTemplate.html}
               type="button"
               onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
               className={cn(
-                "flex items-center gap-2 rounded-md border px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500",
+                "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20",
                 Array.isArray(statusFilter) && statusFilter.length > 0
                   ? "border-amber-400 bg-amber-50 text-amber-800 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-300"
                   : "border-slate-300 bg-white text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
@@ -5561,7 +5559,7 @@ ${emailTemplate.html}
               type="button"
               onClick={() => setAssigneeDropdownOpen(!assigneeDropdownOpen)}
               className={cn(
-                "flex items-center gap-2 rounded-md border px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500",
+                "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20",
                 Array.isArray(assigneeFilter) && assigneeFilter.length > 0
                   ? "border-emerald-400 bg-emerald-50 text-emerald-800 dark:border-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300"
                   : "border-slate-300 bg-white text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
@@ -5643,7 +5641,7 @@ ${emailTemplate.html}
               type="button"
               onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
               className={cn(
-                "flex items-center gap-2 rounded-md border px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500",
+                "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20",
                 Array.isArray(projectFilter) && projectFilter.length > 0
                   ? "border-sky-400 bg-sky-50 text-sky-800 dark:border-sky-600 dark:bg-sky-900/30 dark:text-sky-300"
                   : "border-slate-300 bg-white text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
@@ -5705,52 +5703,66 @@ ${emailTemplate.html}
             )}
           </div>
 
-          <select
-            value={datePreset}
-            onChange={(e) => applyDatePreset(e.target.value)}
-            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+          {/* Tarih kontrolü — preset select + (custom modda) iki date input
+              Aşama 3: 3 ayrı element tek bordered container'da "→" ile birleştirildi. */}
+          <div
+            className={cn(
+              "inline-flex h-8 items-stretch overflow-hidden rounded-md border bg-white text-xs dark:bg-slate-900",
+              (dateFrom || dateTo)
+                ? "border-indigo-300 dark:border-indigo-700"
+                : "border-slate-200 dark:border-slate-700"
+            )}
           >
-            <option value="custom">📅 Tarih aralığı</option>
-            <optgroup label="Gelecek">
-              <option value="today">🔵 Bugün</option>
-              <option value="tomorrow">➡️ Yarın</option>
-              <option value="thisWeek">📆 Bu hafta (7 gün)</option>
-              <option value="nextWeek">⏭️ Gelecek hafta</option>
-              <option value="thisMonth">📊 Bu ay</option>
-              <option value="nextMonth">⏩ Gelecek ay</option>
-            </optgroup>
-            <optgroup label="Geçmiş">
-              <option value="last7days">⏪ Son 7 gün</option>
-              <option value="last30days">⏮️ Son 30 gün</option>
-            </optgroup>
-          </select>
-          {datePreset === "custom" && (
-            <>
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => {
-                  setDateFrom(e.target.value);
-                  setDatePreset("custom");
-                }}
-                placeholder="Başlangıç"
-                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-1 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
-              />
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => {
-                  setDateTo(e.target.value);
-                  setDatePreset("custom");
-                }}
-                placeholder="Bitiş"
-                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-1 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
-              />
-            </>
-          )}
+            <select
+              value={datePreset}
+              onChange={(e) => applyDatePreset(e.target.value)}
+              className="border-0 bg-transparent px-2 text-slate-700 focus:outline-none focus:ring-0 dark:text-slate-200"
+              aria-label="Tarih aralığı önayarı"
+            >
+              <option value="custom">📅 Tarih aralığı</option>
+              <optgroup label="Gelecek">
+                <option value="today">🔵 Bugün</option>
+                <option value="tomorrow">➡️ Yarın</option>
+                <option value="thisWeek">📆 Bu hafta (7 gün)</option>
+                <option value="nextWeek">⏭️ Gelecek hafta</option>
+                <option value="thisMonth">📊 Bu ay</option>
+                <option value="nextMonth">⏩ Gelecek ay</option>
+              </optgroup>
+              <optgroup label="Geçmiş">
+                <option value="last7days">⏪ Son 7 gün</option>
+                <option value="last30days">⏮️ Son 30 gün</option>
+              </optgroup>
+            </select>
+            {datePreset === "custom" && (
+              <>
+                <span className="self-center border-l border-slate-200 dark:border-slate-700" aria-hidden style={{ height: "60%" }} />
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => {
+                    setDateFrom(e.target.value);
+                    setDatePreset("custom");
+                  }}
+                  className="w-[120px] border-0 bg-transparent px-2 text-slate-700 focus:outline-none focus:ring-0 dark:text-slate-200"
+                  aria-label="Başlangıç tarihi"
+                />
+                <span className="self-center text-slate-400 dark:text-slate-500" aria-hidden>→</span>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => {
+                    setDateTo(e.target.value);
+                    setDatePreset("custom");
+                  }}
+                  className="w-[120px] border-0 bg-transparent px-2 text-slate-700 focus:outline-none focus:ring-0 dark:text-slate-200"
+                  aria-label="Bitiş tarihi"
+                />
+              </>
+            )}
+          </div>
           {datePreset !== "custom" && (dateFrom || dateTo) && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-800 dark:border-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
-              <Calendar className="h-3.5 w-3.5 shrink-0" />
+            <span className="inline-flex h-8 items-center gap-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-2 text-xs font-medium text-indigo-800 dark:border-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
+              <Calendar className="h-3 w-3 shrink-0" aria-hidden />
               {dateFrom} → {dateTo}
             </span>
           )}
@@ -6008,50 +6020,12 @@ ${emailTemplate.html}
           "top-0"
         )}
       >
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-              <Rows3 className="h-3.5 w-3.5" aria-hidden />
-            </span>
-            <span className="text-base font-semibold text-slate-900 dark:text-slate-50">Canlı Tablo</span>
-            {realtimeConnection === "live" && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:border-emerald-800/70 dark:bg-emerald-950/30 dark:text-emerald-300" title="Realtime kanalı bağlı">
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500 animate-pulse" aria-hidden />
-                Canlı
-              </span>
-            )}
-            {realtimeConnection === "connecting" && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-300" title="Realtime aboneliği bekleniyor">
-                <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
-                Bağlanıyor
-              </span>
-            )}
-            {realtimeConnection === "disconnected" && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300" title="Anlık güncelleme doğrulanamadı veya kapalı; sekmeyi yenileyebilir veya Publication ayarını kontrol edebilirsiniz">
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" aria-hidden />
-                Senkron yok
-              </span>
-            )}
-            <TaskStats tasks={tasks} />
-            {projectFilter.length === 1 && (
-              <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:border-blue-800/70 dark:bg-blue-950/30 dark:text-blue-300">
-                Proje odaklı
-              </span>
-            )}
-          </div>
-          {onlineUsers.length > 0 && (
-            <OnlineUsersPanel
-              onlineUsers={onlineUsers}
-              editorsByRowId={editorsByRowId}
-              currentUserEmail={currentUserEmail}
-              tasks={tasks}
-              label={projectFilter.length === 1 ? "Aktif ekip" : "Aktif kullanıcılar"}
-            />
-          )}
-        </div>
+        {/* Eski "internal title row" — Sprint X3a TopStrip eklendiğinde duplikasyon
+            oluşturuyordu. Tüm içerik (Canlı Tablo + realtime chip + TaskStats +
+            Proje odaklı pill + OnlineUsersPanel) artık TopStrip'te. Burası kalmaz. */}
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
           {viewTabs && <div className="mr-auto shrink-0">{viewTabs}</div>}
-          <span className="hidden text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 lg:inline">
+          <span className="hidden text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400 dark:text-slate-500 lg:inline">
             Görünümler
           </span>
           <SavedViewsControl
@@ -6063,7 +6037,7 @@ ${emailTemplate.html}
           {canManageColumns && (
             <>
             <span className="hidden h-5 w-px bg-slate-200 dark:bg-slate-700 lg:inline-block" />
-            <span className="hidden text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 lg:inline">
+            <span className="hidden text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400 dark:text-slate-500 lg:inline">
               Kolonlar
             </span>
             <Dialog open={columnPickerOpen} onOpenChange={setColumnPickerOpen}>
@@ -6074,8 +6048,8 @@ ${emailTemplate.html}
                 className="text-slate-700 dark:text-slate-300"
                 onClick={openColumnPicker}
               >
-                <Columns3 className="mr-2 h-4 w-4" />
-                Kolonları göster
+                <Columns3 className="mr-1.5 h-3.5 w-3.5" />
+                Kolonlar
               </Button>
               <DialogContent
                 className="flex max-h-[min(90dvh,36rem)] max-w-md flex-col gap-0 overflow-hidden rounded-xl border-slate-200/80 p-0 shadow-2xl shadow-slate-900/10 dark:border-slate-700/80 dark:bg-slate-800 dark:text-slate-100 dark:shadow-black/30 sm:max-w-md"
@@ -6283,16 +6257,15 @@ ${emailTemplate.html}
               onClick={resetColumnOrderToDefault}
               title="Sütun sırasını ve sabitlemeleri varsayılan düzene alır (görünürlük / genişlik değişmez)"
             >
-              <RotateCcw className="mr-2 h-4 w-4 shrink-0" aria-hidden />
-              <span className="hidden sm:inline">Varsayılan sıra</span>
-              <span className="sm:hidden">Sıra</span>
+              <RotateCcw className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span className="sr-only">Sütun sırasını varsayılana al</span>
             </Button>
             </>
           )}
           {(canImportCsv || canCreateTask) && (
             <>
               <span className="hidden h-5 w-px bg-slate-200 dark:bg-slate-700 lg:inline-block" />
-              <span className="hidden text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 lg:inline">
+              <span className="hidden text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400 dark:text-slate-500 lg:inline">
                 Veri
               </span>
             </>
@@ -6304,15 +6277,16 @@ ${emailTemplate.html}
               size="sm"
               onClick={() => setImportOpen(true)}
               className="text-slate-700 dark:text-slate-300"
+              title="CSV içe aktar"
             >
-              <Upload className="mr-2 h-4 w-4" />
-              CSV içe aktar
+              <Upload className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span className="sr-only">CSV içe aktar</span>
             </Button>
           )}
           {canExportCsv && (
             <>
               <span className="hidden h-5 w-px bg-slate-200 dark:bg-slate-700 lg:inline-block" />
-              <span className="hidden text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 lg:inline">
+              <span className="hidden text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400 dark:text-slate-500 lg:inline">
                 Paylaşım
               </span>
             </>
@@ -6321,7 +6295,7 @@ ${emailTemplate.html}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button type="button" variant="outline" size="sm" className="text-slate-700 dark:text-slate-300">
-                <Download className="mr-2 h-4 w-4 shrink-0" aria-hidden />
+                <Download className="mr-1.5 h-3.5 w-3.5 shrink-0" aria-hidden />
                 Dışa aktar
               </Button>
             </DropdownMenuTrigger>
@@ -7730,6 +7704,19 @@ ${emailTemplate.html}
             )}
           </span>
         </>
+      )}
+
+      {/* Aktif kullanıcılar paneli — Sprint X3a sonrası TopStrip'e taşındı (önce internal duplicate header'daydı) */}
+      {onlineUsers.length > 0 && (
+        <div className="ml-auto">
+          <OnlineUsersPanel
+            onlineUsers={onlineUsers}
+            editorsByRowId={editorsByRowId}
+            currentUserEmail={currentUserEmail}
+            tasks={tasks}
+            label={projectFilter.length === 1 ? "Aktif ekip" : "Aktif kullanıcılar"}
+          />
+        </div>
       )}
     </header>
   );
