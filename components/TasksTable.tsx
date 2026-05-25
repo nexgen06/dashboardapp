@@ -6078,12 +6078,17 @@ ${emailTemplate.html}
                 Kolonları göster
               </Button>
               <DialogContent
-                className="flex max-h-[min(90dvh,36rem)] max-w-lg flex-col gap-0 overflow-hidden border-slate-200 p-0 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 sm:max-w-lg"
+                className="flex max-h-[min(90dvh,36rem)] max-w-md flex-col gap-0 overflow-hidden rounded-xl border-slate-200/80 p-0 shadow-2xl shadow-slate-900/10 dark:border-slate-700/80 dark:bg-slate-800 dark:text-slate-100 dark:shadow-black/30 sm:max-w-md"
                 showClose
               >
-                <div className="shrink-0 space-y-3 border-b border-slate-200 px-5 pb-3 pt-5 dark:border-slate-700">
+                <div className="shrink-0 space-y-3 border-b border-slate-200/80 bg-slate-50/40 px-5 pb-3 pt-5 dark:border-slate-700/80 dark:bg-slate-900/30">
                   <DialogHeader className="space-y-1 text-left">
-                    <DialogTitle className="text-base">Sütun görünürlüğü</DialogTitle>
+                    <DialogTitle className="flex items-center gap-2 text-base">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600/10 ring-1 ring-blue-600/20 dark:bg-blue-500/15 dark:ring-blue-500/30">
+                        <Columns3 className="h-3.5 w-3.5 text-blue-700 dark:text-blue-300" aria-hidden />
+                      </span>
+                      Sütun görünürlüğü
+                    </DialogTitle>
                     <DialogDescription className="text-xs text-slate-600 dark:text-slate-400">
                       Bir rozete tıkla; sütun anında gösterilir veya gizlenir. Dolu = görünür, soluk = gizli.
                     </DialogDescription>
