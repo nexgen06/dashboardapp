@@ -98,6 +98,13 @@ const REQUIRED_SCRIPT_CHECKS: Array<Omit<SystemScriptCheck, "status" | "message"
     description: "Kural motoru, otomasyon aksiyonları ve otomasyon logları.",
   },
   {
+    id: "task-automation-state",
+    title: "Otomasyon satır durumu",
+    script: "scripts/task-automation-state.sql",
+    table: "task_automation_state",
+    description: "Otomasyonların satır rengi ve kilit durumunu canlı tabloya yansıtması.",
+  },
+  {
     id: "task-files",
     title: "Satır dosyaları",
     script: "scripts/task-files.sql",

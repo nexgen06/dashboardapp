@@ -6,7 +6,8 @@ export type NotificationType =
   | "overdue"
   | "admin_team_done"
   | "chat_unread"
-  | "announcement";
+  | "announcement"
+  | "automation";
 
 export type CentralNotification = {
   id: string;

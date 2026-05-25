@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Bell, ArrowRight, Megaphone, ListTodo, MessageSquare, AlertCircle, FolderOpen, UserCheck } from "lucide-react";
+import { Bell, ArrowRight, Megaphone, ListTodo, MessageSquare, AlertCircle, FolderOpen, UserCheck, Bot } from "lucide-react";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,7 @@ const TYPE_ICONS = {
   admin_team_done: UserCheck,
   chat_unread: MessageSquare,
   announcement: Megaphone,
+  automation: Bot,
 } as const;
 
 const TYPE_LABELS = {
@@ -30,6 +31,7 @@ const TYPE_LABELS = {
   admin_team_done: "Yönetici",
   chat_unread: "Sohbet",
   announcement: "Duyurular",
+  automation: "Otomasyon",
 } as const;
 
 const TYPE_TINT = {
@@ -39,6 +41,7 @@ const TYPE_TINT = {
   admin_team_done: "text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/40",
   chat_unread: "text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/40",
   announcement: "text-violet-600 dark:text-violet-400 bg-violet-100 dark:bg-violet-900/40",
+  automation: "text-cyan-600 dark:text-cyan-300 bg-cyan-100 dark:bg-cyan-900/40",
 } as const;
 
 export function NotificationsSummaryWidget() {

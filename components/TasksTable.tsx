@@ -125,6 +125,10 @@ import {
   type AutomationRule,
 } from "@/lib/automationRules";
 import {
+  listTaskAutomationStates,
+  type TaskAutomationState,
+} from "@/lib/taskAutomationState";
+import {
   listMyProjectMemberPermissions,
   type ProjectMemberPermission,
 } from "@/lib/projectMemberPermissions";
@@ -156,6 +160,14 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
 const REFERENCE_WARNINGS_KEY = "__reference_warnings";
 const INTERNAL_EXTRA_DATA_KEYS = new Set([REFERENCE_WARNINGS_KEY]);
 const EMPTY_CHIP_CATALOG: ChipCatalog = { templates: [], options: [], bindings: [] };
+const AUTOMATION_ROW_COLOR_CLASS: Record<string, string> = {
+  red: "bg-red-50/70 dark:bg-red-950/30 hover:bg-red-50/90 dark:hover:bg-red-950/40",
+  amber: "bg-amber-50/75 dark:bg-amber-950/30 hover:bg-amber-50/95 dark:hover:bg-amber-950/40",
+  emerald: "bg-emerald-50/70 dark:bg-emerald-950/25 hover:bg-emerald-50/90 dark:hover:bg-emerald-950/35",
+  blue: "bg-blue-50/70 dark:bg-blue-950/25 hover:bg-blue-50/90 dark:hover:bg-blue-950/35",
+  purple: "bg-purple-50/70 dark:bg-purple-950/25 hover:bg-purple-50/90 dark:hover:bg-purple-950/35",
+  slate: "bg-slate-100/75 dark:bg-slate-800/55 hover:bg-slate-100 dark:hover:bg-slate-800/70",
+};
 type ReportTemplateSelection = `builtin:${ReportTemplateId}` | `custom:${string}` | `managed:${string}`;
 
 function builtinReportTemplateSelection(id: ReportTemplateId): ReportTemplateSelection {
@@ -2218,6 +2230,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const [projectPermissionsAvailable, setProjectPermissionsAvailable] = useState(false);
   const [chipCatalog, setChipCatalog] = useState<ChipCatalog>(EMPTY_CHIP_CATALOG);
   const [rowChipValues, setRowChipValues] = useState<RowChipValue[]>([]);
+  const [rowAutomationStates, setRowAutomationStates] = useState<TaskAutomationState[]>([]);
   /**
    * Çip değer çözücü — global arama + dışa aktarımda chip-bound kolonların
    * gerçek option label'ını döner. Hem extra_data'nın boş kaldığı satırlar
@@ -2307,6 +2320,10 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     [projects]
   );
   const taskIds = useMemo(() => tasks.map((task) => task.id), [tasks]);
+  const rowAutomationStateByTaskId = useMemo(
+    () => new Map(rowAutomationStates.map((state) => [state.taskId, state])),
+    [rowAutomationStates]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -2339,12 +2356,19 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     let cancelled = false;
     if (taskIds.length === 0) {
       setRowChipValues([]);
+      setRowAutomationStates([]);
       return;
     }
     void (async () => {
       try {
-        const rows = await listRowChipValues(taskIds);
-        if (!cancelled) setRowChipValues(rows);
+        const [rows, states] = await Promise.all([
+          listRowChipValues(taskIds),
+          listTaskAutomationStates(taskIds),
+        ]);
+        if (!cancelled) {
+          setRowChipValues(rows);
+          setRowAutomationStates(states);
+        }
       } catch (err) {
         if (!cancelled) console.warn("[live table chips]", err instanceof Error ? err.message : err);
       }
@@ -2362,12 +2386,13 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         task.status,
         task.due_date,
         task.updated_at,
-        task.extra_data?.["Ödeme Tarihi"],
-        task.extra_data?.["Odeme Tarihi"],
-        task.extra_data?.payment_date,
-        task.extra_data?.["Ödeme Durumu"],
-        task.extra_data?.["Odeme Durumu"],
-        task.extra_data?.payment_status,
+        task.extra_data,
+      ]),
+      chips: rowChipValues.map((value) => [
+        value.taskId,
+        value.templateId,
+        value.optionId,
+        value.updatedAt,
       ]),
       rules: automationRules.map((rule) => [rule.id, rule.enabled, rule.updatedAt]),
     });
@@ -2381,7 +2406,12 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         const builtInCount = await applyBuiltInOperationalRules(tasks, rowChipValues, chipCatalog);
         const customCount = await applyAutomationRulesForTasks(tasks, automationRules, chipCatalog);
         if (!cancelled && builtInCount + customCount > 0) {
-          setRowChipValues(await listRowChipValues(taskIds));
+          const [nextChipValues, nextAutomationStates] = await Promise.all([
+            listRowChipValues(taskIds),
+            listTaskAutomationStates(taskIds),
+          ]);
+          setRowChipValues(nextChipValues);
+          setRowAutomationStates(nextAutomationStates);
         }
       } catch (err) {
         if (!cancelled) console.warn("[live table automation]", err instanceof Error ? err.message : err);
@@ -2464,11 +2494,13 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       });
       if (!baseAllowed) return false;
       if (isAdmin) return true;
+      const automationState = rowAutomationStateByTaskId.get(task.id);
+      if (automationState?.locked && user?.roleId !== "project_manager") return false;
 
       const projectPermission = getProjectPermissionForTask(task);
       return projectPermission ? projectPermission.can_view && projectPermission.can_edit : baseAllowed;
     },
-    [canEditTask, currentUserEmail, getProjectPermissionForTask, isAdmin, projectById, user?.roleId]
+    [canEditTask, currentUserEmail, getProjectPermissionForTask, isAdmin, projectById, rowAutomationStateByTaskId, user?.roleId]
   );
 
   const canCommentRow = useCallback(
@@ -7618,6 +7650,8 @@ ${emailTemplate.html}
               const isCompleted = isTaskCompleted(row.original);
               const urgency = getDueUrgency(row.original);
               const showUrgency = !isCompleted && !isEditedByOthers && !isSelected;
+              const automationState = rowAutomationStateByTaskId.get(row.original.id);
+              const automationRowColorClass = automationState?.rowColor ? AUTOMATION_ROW_COLOR_CLASS[automationState.rowColor] : "";
               const visibleCells = row.getVisibleCells();
               let rowTooltipBody: ReactNode | undefined;
               if (isEditedByOthers) {
@@ -7687,7 +7721,10 @@ ${emailTemplate.html}
                     whenLabel = "";
                   }
                 }
-                return [whoLabel, whenLabel].filter(Boolean).join(" · ");
+                const lockLabel = automationState?.locked
+                  ? `Otomasyon kilidi${automationState.lockedReason ? `: ${automationState.lockedReason}` : ""}`
+                  : "";
+                return [lockLabel, whoLabel, whenLabel].filter(Boolean).join(" · ");
               })();
               const rowClassName = cn(
                 "group/row border-b border-slate-100 transition-[background-color,box-shadow,border-color] duration-150 dark:border-slate-800",
@@ -7703,6 +7740,10 @@ ${emailTemplate.html}
                   isCompleted &&
                   !isSelected &&
                   "border-l-4 border-l-emerald-400 dark:border-l-emerald-500",
+                !isEditedByOthers && !isSelected && !isCompleted && automationRowColorClass,
+                automationState?.locked &&
+                  !isEditedByOthers &&
+                  "border-l-4 border-l-slate-500 shadow-[inset_0_0_0_1px_rgba(100,116,139,0.18)] dark:border-l-slate-400 dark:shadow-[inset_0_0_0_1px_rgba(148,163,184,0.2)]",
                 isSelected && !isCompleted && !isEditedByOthers && "bg-blue-50/75 shadow-[inset_3px_0_0_rgb(59,130,246)] dark:bg-blue-950/30 dark:shadow-[inset_3px_0_0_rgb(96,165,250)]",
                 isSelected && !isCompleted && !isEditedByOthers && "border-l-4 border-l-blue-500 dark:border-l-blue-400",
                 isSelected &&

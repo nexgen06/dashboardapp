@@ -13,6 +13,7 @@ import {
   ArrowRight,
   Loader2,
   Megaphone,
+  Bot,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { type NotificationSummaryItem } from "@/hooks/useNotificationSummary";
@@ -70,6 +71,13 @@ const TYPE_META: Record<
     bg: "bg-violet-100 dark:bg-violet-900/40",
     text: "text-violet-700 dark:text-violet-300",
   },
+  automation: {
+    label: "Otomasyon",
+    icon: Bot,
+    chip: "Otomasyon",
+    bg: "bg-cyan-100 dark:bg-cyan-900/40",
+    text: "text-cyan-700 dark:text-cyan-300",
+  },
 };
 
 const ORDER: NotifType[] = [
@@ -79,6 +87,7 @@ const ORDER: NotifType[] = [
   "project_assigned",
   "chat_unread",
   "admin_team_done",
+  "automation",
 ];
 
 type DateGroup = "today" | "week" | "older" | "unknown";
@@ -115,6 +124,7 @@ export default function BildirimlerPage() {
       admin_team_done: 0,
       chat_unread: 0,
       announcement: 0,
+      automation: 0,
     };
     for (const item of summary.items) {
       m[item.type] = (m[item.type] ?? 0) + item.count;

@@ -5,6 +5,11 @@ import type { Task } from "@/types/tasks";
 import type { ChipCatalog, RowChipValue } from "@/lib/chipSystem";
 import { listChipCatalog, listRowChipValues, setRowChipValue } from "@/lib/chipSystem";
 import { isStatusDone } from "@/lib/statusKind";
+import {
+  listTaskAutomationStates,
+  upsertTaskAutomationState,
+  type AutomationRowColor,
+} from "@/lib/taskAutomationState";
 
 export type AutomationConditionOperator =
   | "is_empty"
@@ -207,6 +212,23 @@ export async function listAutomationLogs(taskId: string): Promise<AutomationLog[
   }));
 }
 
+export async function listRecentAutomationLogs(limit = 120): Promise<AutomationLog[]> {
+  const { data, error } = await supabase
+    .from("automation_logs")
+    .select("id,rule_id,task_id,status,message,created_at")
+    .order("created_at", { ascending: false })
+    .limit(Math.max(20, Math.min(300, Math.floor(limit))));
+  if (error) throw friendlyAutomationError(error);
+  return ((data ?? []) as LogRow[]).map((row) => ({
+    id: row.id,
+    ruleId: row.rule_id,
+    taskId: row.task_id,
+    status: row.status,
+    message: row.message,
+    createdAt: row.created_at,
+  }));
+}
+
 function taskFieldValue(task: Task, field: string): string {
   if (field === "content") return String(task.content ?? "");
   if (field === "status") return String(task.status ?? "");
@@ -215,6 +237,28 @@ function taskFieldValue(task: Task, field: string): string {
   if (field === "due_date") return String(task.due_date ?? "");
   if (field === "updated_at") return String(task.updated_at ?? "");
   return String(task.extra_data?.[field] ?? "");
+}
+
+function normalizeConditionText(value: string): string {
+  return value.trim().toLocaleLowerCase("tr");
+}
+
+function taskConditionValues(task: Task, field: string, rowChipValues?: RowChipValue[], catalog?: ChipCatalog): string[] {
+  const values = [taskFieldValue(task, field)];
+  if (rowChipValues && catalog && task.project_id) {
+    const normalizedField = normalizeConditionText(field);
+    const binding = catalog.bindings.find(
+      (item) =>
+        item.projectId === String(task.project_id) &&
+        normalizeConditionText(item.columnKey) === normalizedField
+    );
+    if (binding) {
+      const row = rowChipValues.find((item) => item.taskId === task.id && item.templateId === binding.templateId);
+      const option = row ? catalog.options.find((item) => item.id === row.optionId) : null;
+      if (option) values.push(option.label, option.value);
+    }
+  }
+  return Array.from(new Set(values.map((value) => String(value ?? "").trim())));
 }
 
 function isToday(value: string): boolean {
@@ -235,19 +279,24 @@ function isBeforeToday(value: string): boolean {
   return d < today;
 }
 
-export function ruleMatchesTask(rule: Pick<AutomationRule, "conditions" | "projectId">, task: Task): boolean {
+export function ruleMatchesTask(
+  rule: Pick<AutomationRule, "conditions" | "projectId">,
+  task: Task,
+  context?: { rowChipValues?: RowChipValue[]; catalog?: ChipCatalog }
+): boolean {
   if (rule.projectId && String(task.project_id ?? "") !== rule.projectId) return false;
   return rule.conditions.every((condition) => {
-    const raw = taskFieldValue(task, condition.field).trim();
+    const values = taskConditionValues(task, condition.field, context?.rowChipValues, context?.catalog);
+    const raw = values[0] ?? "";
     const target = String(condition.value ?? "").trim();
-    if (condition.op === "is_empty") return raw === "";
-    if (condition.op === "is_not_empty") return raw !== "";
-    if (condition.op === "equals") return raw.toLocaleLowerCase("tr") === target.toLocaleLowerCase("tr");
-    if (condition.op === "not_equals") return raw.toLocaleLowerCase("tr") !== target.toLocaleLowerCase("tr");
-    if (condition.op === "date_before_today") return isBeforeToday(raw);
-    if (condition.op === "date_today") return isToday(raw);
-    if (condition.op === "number_gt") return Number(raw.replace(",", ".")) > Number(target.replace(",", "."));
-    if (condition.op === "number_lt") return Number(raw.replace(",", ".")) < Number(target.replace(",", "."));
+    if (condition.op === "is_empty") return values.every((value) => value === "");
+    if (condition.op === "is_not_empty") return values.some((value) => value !== "");
+    if (condition.op === "equals") return values.some((value) => normalizeConditionText(value) === normalizeConditionText(target));
+    if (condition.op === "not_equals") return values.every((value) => normalizeConditionText(value) !== normalizeConditionText(target));
+    if (condition.op === "date_before_today") return values.some(isBeforeToday);
+    if (condition.op === "date_today") return values.some(isToday);
+    if (condition.op === "number_gt") return values.some((value) => Number(value.replace(",", ".")) > Number(target.replace(",", ".")));
+    if (condition.op === "number_lt") return values.some((value) => Number(value.replace(",", ".")) < Number(target.replace(",", ".")));
     if (condition.op === "updated_before_days") {
       if (!raw) return false;
       const d = new Date(raw).getTime();
@@ -282,6 +331,26 @@ async function logAutomation(input: {
   if (error) console.warn("[automation log]", error.message);
 }
 
+async function createAutomationNotification(input: {
+  taskId: string;
+  ruleId: string;
+  title: string;
+  body?: string | null;
+}): Promise<number> {
+  const { data, error } = await supabase.rpc("create_automation_notification", {
+    p_task_id: input.taskId,
+    p_rule_id: input.ruleId,
+    p_title: input.title,
+    p_body: input.body ?? null,
+  });
+  if (error) {
+    const message = String(error.message ?? "");
+    if (/create_automation_notification|function/i.test(message)) return 0;
+    throw new Error(message || "Otomasyon bildirimi oluşturulamadı.");
+  }
+  return Number(data ?? 0);
+}
+
 function findOption(catalog: ChipCatalog, templateName: string, optionValueOrLabel: string) {
   const template = catalog.templates.find((item) => item.name.toLocaleLowerCase("tr") === templateName.toLocaleLowerCase("tr"));
   if (!template) return null;
@@ -294,15 +363,126 @@ function findOption(catalog: ChipCatalog, templateName: string, optionValueOrLab
   return option ? { template, option } : null;
 }
 
+const AUTOMATION_ROW_COLORS = new Set<AutomationRowColor>(["red", "amber", "emerald", "blue", "purple", "slate"]);
+
+function normalizeRowColor(value: unknown): AutomationRowColor | null {
+  const color = String(value ?? "").trim().toLowerCase();
+  return AUTOMATION_ROW_COLORS.has(color as AutomationRowColor) ? color as AutomationRowColor : null;
+}
+
 export async function applyAutomationRulesForTasks(tasks: Task[], rules: AutomationRule[], catalog?: ChipCatalog): Promise<number> {
   const activeRules = rules.filter((rule) => rule.enabled);
   if (tasks.length === 0 || activeRules.length === 0) return 0;
   const effectiveCatalog = catalog ?? await listChipCatalog(Array.from(new Set(tasks.map((task) => String(task.project_id ?? "")).filter(Boolean))));
+  const currentRows = await listRowChipValues(tasks.map((task) => task.id));
+  const currentStates = await listTaskAutomationStates(tasks.map((task) => task.id));
+  const stateByTaskId = new Map(currentStates.map((state) => [state.taskId, state]));
+  const hasChip = (taskId: string, templateId: string, optionId: string) =>
+    currentRows.some((row) => row.taskId === taskId && row.templateId === templateId && row.optionId === optionId);
   let applied = 0;
   for (const task of tasks) {
     for (const rule of activeRules) {
-      if (!ruleMatchesTask(rule, task)) continue;
+      if (!ruleMatchesTask(rule, task, { rowChipValues: currentRows, catalog: effectiveCatalog })) continue;
       for (const action of rule.actions) {
+        if (action.actionType === "log_only") {
+          continue;
+        }
+        if (action.actionType === "notify") {
+          const title = String(action.payload.title ?? "Otomasyon bildirimi").trim() || "Otomasyon bildirimi";
+          const body = String(action.payload.body ?? rule.name ?? "").trim();
+          try {
+            const notified = await createAutomationNotification({
+              taskId: task.id,
+              ruleId: rule.id,
+              title,
+              body,
+            });
+            if (notified > 0) {
+              await logAutomation({
+                ruleId: rule.id,
+                taskId: task.id,
+                status: "applied",
+                message: `Bildirim gönderildi (${notified})`,
+                after: { title, body, notified },
+              });
+              applied += 1;
+            }
+          } catch (err) {
+            await logAutomation({
+              ruleId: rule.id,
+              taskId: task.id,
+              status: "failed",
+              message: err instanceof Error ? err.message : "Bildirim oluşturulamadı.",
+            });
+          }
+          continue;
+        }
+        if (action.actionType === "color_row") {
+          const rowColor = normalizeRowColor(action.payload.rowColor ?? action.payload.color);
+          if (!rowColor) {
+            await logAutomation({ ruleId: rule.id, taskId: task.id, status: "failed", message: "Satır rengi geçersiz." });
+            continue;
+          }
+          const existing = stateByTaskId.get(task.id);
+          if (existing?.rowColor === rowColor) continue;
+          const ok = await upsertTaskAutomationState(task.id, { rowColor });
+          if (!ok) {
+            await logAutomation({
+              ruleId: rule.id,
+              taskId: task.id,
+              status: "failed",
+              message: "Satır rengi yazılamadı. scripts/task-automation-state.sql uygulanmamış olabilir.",
+            });
+            continue;
+          }
+          stateByTaskId.set(task.id, {
+            taskId: task.id,
+            rowColor,
+            locked: existing?.locked ?? false,
+            lockedReason: existing?.lockedReason ?? null,
+            updatedAt: new Date().toISOString(),
+          });
+          await logAutomation({
+            ruleId: rule.id,
+            taskId: task.id,
+            status: "applied",
+            message: `Satır rengi = ${rowColor}`,
+            after: { rowColor },
+          });
+          applied += 1;
+          continue;
+        }
+        if (action.actionType === "lock_row") {
+          const existing = stateByTaskId.get(task.id);
+          const reason = String(action.payload.body ?? action.payload.reason ?? rule.name ?? "Otomasyon kilidi").trim();
+          if (existing?.locked && (existing.lockedReason ?? "") === reason) continue;
+          const ok = await upsertTaskAutomationState(task.id, { locked: true, lockedReason: reason });
+          if (!ok) {
+            await logAutomation({
+              ruleId: rule.id,
+              taskId: task.id,
+              status: "failed",
+              message: "Satır kilidi yazılamadı. scripts/task-automation-state.sql uygulanmamış olabilir.",
+            });
+            continue;
+          }
+          stateByTaskId.set(task.id, {
+            taskId: task.id,
+            rowColor: existing?.rowColor ?? null,
+            locked: true,
+            lockedReason: reason,
+            updatedAt: new Date().toISOString(),
+          });
+          await logAutomation({
+            ruleId: rule.id,
+            taskId: task.id,
+            status: "applied",
+            message: `Satır kilitlendi: ${reason}`,
+            after: { locked: true, lockedReason: reason },
+          });
+          applied += 1;
+          continue;
+        }
         if (action.actionType !== "assign_chip" && action.actionType !== "set_risk") continue;
         const templateName = String(action.payload.templateName ?? (action.actionType === "set_risk" ? "Risk" : ""));
         const optionValue = String(action.payload.optionValue ?? action.payload.optionLabel ?? "");
@@ -311,6 +491,7 @@ export async function applyAutomationRulesForTasks(tasks: Task[], rules: Automat
           await logAutomation({ ruleId: rule.id, taskId: task.id, status: "failed", message: `${templateName}/${optionValue} çipi bulunamadı.` });
           continue;
         }
+        if (hasChip(task.id, found.template.id, found.option.id)) continue;
         await setRowChipValue({
           taskId: task.id,
           templateId: found.template.id,
@@ -369,4 +550,3 @@ export async function applyBuiltInOperationalRules(tasks: Task[], existingRows?:
   }
   return applied;
 }
-

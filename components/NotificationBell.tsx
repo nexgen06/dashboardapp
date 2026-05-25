@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Bell, FolderOpen, ListTodo, AlertCircle, UserCheck, MessageSquare, CheckCheck, Megaphone } from "lucide-react";
+import { Bell, FolderOpen, ListTodo, AlertCircle, UserCheck, MessageSquare, CheckCheck, Megaphone, Bot } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -19,6 +19,7 @@ const ICON_MAP = {
   admin_team_done: UserCheck,
   chat_unread: MessageSquare,
   announcement: Megaphone,
+  automation: Bot,
 } as const;
 
 export function NotificationBell({ summary }: { summary: NotificationSummary }) {
