@@ -399,3 +399,58 @@ export function buildChipValueResolver(
   };
 }
 
+/**
+ * Bir görevin TÜM aktif chip option label'larını döner (tüm chip-bound kolonlardan).
+ * Global aramada extra_data'da bulunmayan chip-only değerleri yakalamak için kullanılır.
+ *
+ * Örnek: "Risk" kolonu chip-bound ve extra_data'da yok ama row_chip_values'da
+ * "Orta Risk" var → ["Orta Risk"] döner. Global arama "orta" sorgusu eşleşir.
+ */
+export function getAllChipLabelsForTask(
+  task: { id: string; project_id?: string | null },
+  rowChipValues: RowChipValue[],
+  catalog: ChipCatalog
+): string[] {
+  const projectId = task.project_id != null ? String(task.project_id).trim() : "";
+  if (!projectId) return [];
+  // Bu projeye ait binding'ler
+  const projectBindings = catalog.bindings.filter((b) => b.projectId === projectId);
+  if (projectBindings.length === 0) return [];
+  // optionId → label index
+  const optionLabelById = new Map<string, string>();
+  for (const o of catalog.options) optionLabelById.set(o.id, o.label);
+  // Görevin chip değerlerini topla
+  const labels: string[] = [];
+  for (const binding of projectBindings) {
+    const row = rowChipValues.find((v) => v.taskId === task.id && v.templateId === binding.templateId);
+    if (!row) continue;
+    const label = optionLabelById.get(row.optionId);
+    if (label) labels.push(label);
+  }
+  return labels;
+}
+
+/**
+ * Bir proje + kolon kombinasyonu için tüm mümkün chip option label'larını döner.
+ * Sütun filtresi (column filter) dropdown'unda chip-bound kolona "Orta Risk",
+ * "Kritik Risk" gibi tüm seçenekleri göstermek için kullanılır.
+ *
+ * Görev verisinde o option kullanılmamış olsa bile listede görünür — kullanıcı
+ * "henüz kullanılmamış" değerleri de seçip filtre koyabilir.
+ */
+export function getChipOptionsForColumn(
+  projectId: string | null | undefined,
+  columnKey: string,
+  catalog: ChipCatalog
+): ChipOption[] {
+  if (!projectId) return [];
+  const normalizedKey = (columnKey ?? "").trim().toLocaleLowerCase("tr");
+  const binding = catalog.bindings.find(
+    (b) => b.projectId === projectId && b.columnKey.trim().toLocaleLowerCase("tr") === normalizedKey
+  );
+  if (!binding) return [];
+  return catalog.options
+    .filter((o) => o.templateId === binding.templateId)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+

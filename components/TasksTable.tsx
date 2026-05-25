@@ -111,6 +111,7 @@ import { canEditTaskRow } from "@/lib/taskRowPermissions";
 import { listProjectColumns, type ProjectColumn } from "@/lib/projectColumns";
 import {
   buildChipValueResolver,
+  getChipOptionsForColumn,
   listChipCatalog,
   listRowChipValues,
   setRowChipValue,
@@ -2999,6 +3000,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         columnFilters,
         advancedFilterRules,
         chipResolver,
+        rowChipValues,
+        chipCatalog,
       }),
     [
       tasks,
@@ -3010,6 +3013,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       dateFrom,
       dateTo,
       chipResolver,
+      rowChipValues,
+      chipCatalog,
       columnFilters,
       advancedFilterRules,
     ]
@@ -3199,6 +3204,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   // Sütun için benzersiz değerleri hesapla
   const getUniqueValuesForColumn = useCallback((columnId: string): string[] => {
     const values = new Set<string>();
+    // 1) Görevlerden gerçek değerleri topla — chip-bound kolonlarda resolved label kullanılır
     tasks.forEach((t) => {
       let cellValue: string = "";
       if (columnId === "content") cellValue = t.content ?? "";
@@ -3206,16 +3212,36 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       else if (columnId === "assignee") cellValue = t.assignee ?? "";
       else if (columnId === "priority") cellValue = t.priority ?? "";
       else if (columnId === "due_date") cellValue = t.due_date ?? "";
-      else if (columnId.startsWith("extra:") && t.extra_data) {
+      else if (columnId.startsWith("extra:")) {
         const extraKey = columnId.replace("extra:", "");
-        cellValue = String(t.extra_data[extraKey] ?? "");
+        // Chip-bound override: resolved label varsa onu kullan
+        const chipLabel = chipResolver(t, extraKey);
+        if (chipLabel != null) {
+          cellValue = chipLabel;
+        } else if (t.extra_data) {
+          cellValue = String(t.extra_data[extraKey] ?? "");
+        }
       }
       if (cellValue && cellValue.trim()) {
         values.add(cellValue.trim());
       }
     });
+    // 2) Chip-bound bir kolonsa, henüz hiç görevde kullanılmamış option'ları da ekle
+    //    (kullanıcı "Kritik Risk" gibi var ama atanmamış olanları seçip filtre koyabilsin)
+    if (columnId.startsWith("extra:")) {
+      const extraKey = columnId.replace("extra:", "");
+      // Görünen görevlerin proje ID'leri (her projede ayrı binding olabilir)
+      const projectIds = new Set<string>();
+      for (const t of tasks) {
+        if (t.project_id) projectIds.add(String(t.project_id));
+      }
+      Array.from(projectIds).forEach((projectId) => {
+        const options = getChipOptionsForColumn(projectId, extraKey, chipCatalog);
+        options.forEach((opt) => values.add(opt.label));
+      });
+    }
     return Array.from(values).sort((a, b) => a.localeCompare(b, "tr"));
-  }, [tasks]);
+  }, [tasks, chipResolver, chipCatalog]);
 
   // Sütun filtresi toggle
   const toggleColumnFilterValue = useCallback((columnId: string, value: string) => {

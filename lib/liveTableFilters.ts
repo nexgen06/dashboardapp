@@ -6,7 +6,8 @@ import {
 import { isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
 import type { Project } from "@/types/project";
 import type { Task } from "@/types/tasks";
-import type { ChipValueResolver } from "@/lib/chipSystem";
+import type { ChipValueResolver, ChipCatalog, RowChipValue } from "@/lib/chipSystem";
+import { getAllChipLabelsForTask } from "@/lib/chipSystem";
 
 export type LiveTableFilterInput = {
   tasks: Task[];
@@ -22,6 +23,10 @@ export type LiveTableFilterInput = {
   /** Çip-bound kolonların değerlerini globally search ederken kullanılır.
    *  Verilmezse arama sadece extra_data ham değerlerinde gezinir. */
   chipResolver?: ChipValueResolver;
+  /** Global aramada chip-only kolonları (extra_data'da olmayan, sadece row_chip_values'da
+   *  bulunan değerleri) da kapsayabilmek için ham veriler. Hem rowChipValues hem catalog gerek. */
+  rowChipValues?: RowChipValue[];
+  chipCatalog?: ChipCatalog;
 };
 
 export type SmartFilterCountsInput = {
@@ -42,15 +47,24 @@ export function taskStatusMatchesToolbarChip(taskStatus: string, filterLabel: st
   return s === f;
 }
 
-function getColumnFilterCellValue(task: Task, columnId: string): string {
+function getColumnFilterCellValue(
+  task: Task,
+  columnId: string,
+  chipResolver?: ChipValueResolver
+): string {
   if (columnId === "content") return task.content ?? "";
   if (columnId === "status") return task.status ?? "";
   if (columnId === "assignee") return task.assignee ?? "";
   if (columnId === "priority") return task.priority ?? "";
   if (columnId === "due_date") return task.due_date ?? "";
-  if (columnId.startsWith("extra:") && task.extra_data) {
+  if (columnId.startsWith("extra:")) {
     const extraKey = columnId.replace("extra:", "");
-    return String(task.extra_data[extraKey] ?? "");
+    // Önce chip-bound mu kontrol et — chip varsa label, yoksa raw extra_data
+    if (chipResolver) {
+      const chipLabel = chipResolver(task, extraKey);
+      if (chipLabel != null) return chipLabel;
+    }
+    if (task.extra_data) return String(task.extra_data[extraKey] ?? "");
   }
   return "";
 }
@@ -84,17 +98,24 @@ export function filterLiveTableTasks(input: LiveTableFilterInput): Task[] {
   if (q) {
     result = result.filter((t) => {
       if ((t.content ?? "").toLowerCase().includes(q) || (t.assignee ?? "").toLowerCase().includes(q)) return true;
+      // 1) Ham extra_data değerleri
       if (t.extra_data) {
         for (const [key, v] of Object.entries(t.extra_data)) {
-          // 1) Ham extra_data değeri eşleşiyor mu?
           if (String(v ?? "").toLowerCase().includes(q)) return true;
-          // 2) Bu kolon chip-bound ise resolved label'ı da kontrol et
-          //    Örnek: extra_data["Eposta Durumu"] boş veya stale olabilir ama
-          //    row_chip_values'taki güncel "Mail Gönderildi" eşleşmeli
+          // Çip-bound override: aynı key için chip label varsa onu da dene
           if (input.chipResolver) {
             const chipLabel = input.chipResolver(t, key);
             if (chipLabel && chipLabel.toLowerCase().includes(q)) return true;
           }
+        }
+      }
+      // 2) Chip-ONLY kolonlar — extra_data'da hiç olmayan ama row_chip_values'ta
+      //    değer atanmış kolonlar (örn. "Risk" kolonu chip ile yönetiliyorsa
+      //    ham extra_data["Risk"] boş ama row_chip_values'ta "Orta Risk" var)
+      if (input.rowChipValues && input.chipCatalog) {
+        const allChipLabels = getAllChipLabelsForTask(t, input.rowChipValues, input.chipCatalog);
+        for (const label of allChipLabels) {
+          if (label.toLowerCase().includes(q)) return true;
         }
       }
       return false;
@@ -134,7 +155,7 @@ export function filterLiveTableTasks(input: LiveTableFilterInput): Task[] {
   if (activeColumnFilters.length > 0) {
     result = result.filter((t) =>
       activeColumnFilters.every(([colId, selectedValues]) => {
-        const cellValue = getColumnFilterCellValue(t, colId);
+        const cellValue = getColumnFilterCellValue(t, colId, input.chipResolver);
         const isEmpty = !cellValue || cellValue.trim() === "";
         if (selectedValues.includes("__empty__") && isEmpty) return true;
         if (selectedValues.includes("__filled__") && !isEmpty) return true;
