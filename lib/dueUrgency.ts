@@ -64,12 +64,14 @@ export function getDueUrgency(
   return "none";
 }
 
-/** Tailwind class'ları — satır/kart arkaplan + opsiyonel pulse animasyonu. */
+/** Tailwind class'ları — satır/kart arkaplan + opsiyonel breathe animasyonu.
+ * Not: "breathe-*" 4s yumuşak nefes alma efekti (eski "pulse-*" 2s keskin
+ * efektten daha az dikkat dağıtıcı). Kullanıcı isterse pulse'a geri dönebiliriz. */
 export const URGENCY_ROW_CLASS: Record<DueUrgency, string> = {
   overdue:
-    "bg-red-50/70 hover:bg-red-50 dark:bg-red-950/30 dark:hover:bg-red-950/40 animate-pulse-overdue",
+    "bg-red-50/70 hover:bg-red-50 dark:bg-red-950/30 dark:hover:bg-red-950/40 breathe-overdue",
   today:
-    "bg-amber-50/70 hover:bg-amber-50 dark:bg-amber-950/30 dark:hover:bg-amber-950/40 animate-pulse-today",
+    "bg-amber-50/70 hover:bg-amber-50 dark:bg-amber-950/30 dark:hover:bg-amber-950/40 breathe-today",
   soon: "bg-yellow-50/40 hover:bg-yellow-50/70 dark:bg-yellow-950/20 dark:hover:bg-yellow-950/30",
   upcoming: "",
   none: "",

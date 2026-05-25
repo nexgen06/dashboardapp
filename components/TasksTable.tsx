@@ -178,8 +178,8 @@ const CANLI_TABLO_COLUMN_ORDER: ColumnOrderState = ["select", "status", "assigne
 /** Sabit sütun sırası (dinamik sütun yokken); component dışında referans sabit kalsın diye */
 const BASE_COLUMN_ORDER_STABLE: ColumnOrderState = ["select", "status", "workflow", "content", "project", "actions"];
 
-/** İlk açılışta İşlemler sütunu gizli; «Kolonları göster» ile açılabilir. Daha önce kaydedilmiş tercih varsa o kullanılır. */
-const DEFAULT_LIVE_TABLE_COLUMN_VISIBILITY: VisibilityState = { actions: false };
+/** İşlemler kolonu varsayılan görünür; detay/yorum paneli bilinçli aksiyonla buradan açılır. */
+const DEFAULT_LIVE_TABLE_COLUMN_VISIBILITY: VisibilityState = {};
 
 /** Canlı Tablo görünüm yoğunluğu — padding, yazı ve kontrol boyutları */
 const LIVE_TABLE_DENSITY_UI: Record<
@@ -199,8 +199,8 @@ const LIVE_TABLE_DENSITY_UI: Record<
 > = {
   compact: {
     table: "text-xs",
-    th: "px-2 py-1",
-    td: "px-2 py-0.5",
+    th: "px-2 py-1.5",
+    td: "px-2 py-1",
     grip: "h-3.5 w-3.5",
     colFilterBtn: "h-6 w-6",
     colMenuBtn: "h-6 w-6",
@@ -211,8 +211,8 @@ const LIVE_TABLE_DENSITY_UI: Record<
   },
   normal: {
     table: "text-sm",
-    th: "px-3 py-2",
-    td: "px-3 py-1",
+    th: "px-3 py-2.5",
+    td: "px-3 py-1.5",
     grip: "h-4 w-4",
     colFilterBtn: "h-7 w-7",
     colMenuBtn: "h-7 w-7",
@@ -223,8 +223,8 @@ const LIVE_TABLE_DENSITY_UI: Record<
   },
   comfortable: {
     table: "text-base",
-    th: "px-4 py-3",
-    td: "px-4 py-2",
+    th: "px-4 py-3.5",
+    td: "px-4 py-2.5",
     grip: "h-5 w-5",
     colFilterBtn: "h-8 w-8",
     colMenuBtn: "h-8 w-8",
@@ -1940,16 +1940,22 @@ function TaskStats({ tasks }: { tasks: Task[] }) {
   const diger = total - tamamlandi - devamEden;
 
   return (
-    <div className="flex flex-wrap items-center gap-3 text-xs font-medium text-slate-700 sm:text-sm dark:text-slate-300">
-      <span className="text-slate-800 dark:text-slate-100">Toplam {total} görev</span>
-      <span className="text-slate-400 dark:text-slate-500">·</span>
-      <span className="font-normal text-slate-600 dark:text-slate-400">{tamamlandi} tamamlandı</span>
-      <span className="text-slate-400 dark:text-slate-500">·</span>
-      <span className="font-normal text-slate-600 dark:text-slate-400">{devamEden} devam ediyor</span>
+    <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+      <span className="font-semibold text-slate-700 dark:text-slate-200">{total} görev</span>
+      <span className="text-slate-300 dark:text-slate-600">·</span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
+        <span>{tamamlandi} tamamlandı</span>
+      </span>
+      <span className="text-slate-300 dark:text-slate-600">·</span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden />
+        <span>{devamEden} devam ediyor</span>
+      </span>
       {diger > 0 && (
         <>
-          <span className="text-slate-400 dark:text-slate-500">·</span>
-          <span className="font-normal text-slate-600 dark:text-slate-400">{diger} diğer</span>
+          <span className="text-slate-300 dark:text-slate-600">·</span>
+          <span>{diger} diğer</span>
         </>
       )}
     </div>
@@ -1960,6 +1966,7 @@ type TasksTableProps = {
   /** Üst seviyeden kontrol edilen proje filtresi. Verilmezse internal state kullanılır. */
   projectFilter?: string[];
   onProjectFilterChange?: (next: string[]) => void;
+  viewTabs?: ReactNode;
 };
 
 type ActiveEditableCell = {
@@ -1967,7 +1974,7 @@ type ActiveEditableCell = {
   columnId: string;
 };
 
-export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterChange }: TasksTableProps = {}) {
+export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterChange, viewTabs }: TasksTableProps = {}) {
   const {
     tasks,
     updateTaskOptimistic,
@@ -2065,7 +2072,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   }, [isFullWidth]);
 
   /** Dar ekranda hızlı filtre satırı varsayılan kapalı */
-  const [quickFiltersOpen, setQuickFiltersOpen] = useState(false);
+  const [quickFiltersOpen, setQuickFiltersOpen] = useState(true);
   const [draggedColumnId, setDraggedColumnId] = useState<string | null>(null);
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
@@ -5320,25 +5327,22 @@ ${emailTemplate.html}
         );
       })()}
       {/* Mutation feedback artık <Toaster /> üzerinden sağ-altta gösteriliyor. */}
-      <div className="flex shrink-0 flex-col gap-2 px-2 py-2 sm:px-4">
-        {/* Akıllı filtreler — isteğe bağlı açılır; ana toolbar kalabalığını azaltır */}
-        <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-2 dark:border-slate-700 dark:bg-slate-800/40">
+      <div className="order-[-1] flex shrink-0 flex-col gap-0 border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+        {/* Akıllı filtreler */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
           <button
             type="button"
             aria-expanded={quickFiltersOpen}
             onClick={() => setQuickFiltersOpen((o) => !o)}
-            className="flex w-full items-center justify-between rounded-md px-1 py-1 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 hover:bg-slate-100/80 dark:text-slate-400 dark:hover:bg-slate-700/50"
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500 hover:bg-slate-100/80 dark:text-slate-500 dark:hover:bg-slate-900"
           >
-            <span className="inline-flex items-center gap-2">
-              <Filter className="h-3.5 w-3.5" aria-hidden />
-              Akıllı filtreler ve hızlı odaklar
-            </span>
+            Hızlı filtre
             <ChevronDown
-              className={cn("h-4 w-4 shrink-0 text-slate-500 transition-transform dark:text-slate-400", quickFiltersOpen && "rotate-180")}
+              className={cn("h-3.5 w-3.5 shrink-0 text-slate-500 transition-transform dark:text-slate-400", quickFiltersOpen && "rotate-180")}
               aria-hidden
             />
           </button>
-          <div className={cn("mt-2 flex flex-wrap items-center gap-2", !quickFiltersOpen && "hidden")}>
+          <div className={cn("flex flex-wrap items-center gap-1.5", !quickFiltersOpen && "hidden")}>
           <Button
             type="button"
             variant="outline"
@@ -5450,8 +5454,8 @@ ${emailTemplate.html}
         </div>
 
         {/* Filtreler — arama, kapsam ve alan filtreleri tek sakin bantta */}
-        <div className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
-        <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <div className="px-3 py-2">
+        <div className="sr-only mb-2 items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
           <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden />
           Filtreler
         </div>
@@ -5830,6 +5834,9 @@ ${emailTemplate.html}
               {isFullWidth ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
             </Button>
           </div>
+          <span className="shrink-0 text-xs font-medium text-slate-500 dark:text-slate-400">
+            {table.getFilteredRowModel().rows.length} / {tasks.length} kayıt
+          </span>
         </div>
         </div>
         {/* Aktif filtre özeti — sadece varsa gösterilir, minimum yer kaplar */}
@@ -6016,43 +6023,53 @@ ${emailTemplate.html}
       </div>
       <div
         className={cn(
-          "sticky z-20 -mx-2 flex shrink-0 flex-col gap-3 border-b border-slate-200 bg-white/90 px-2 py-3 shadow-sm backdrop-blur-md dark:border-slate-700 dark:bg-slate-900/90 sm:-mx-4 sm:px-4 sm:flex-row sm:items-center sm:justify-between supports-[backdrop-filter]:bg-white/80 dark:supports-[backdrop-filter]:bg-slate-900/85",
-          isFullWidth ? "top-0" : "top-14"
+          "order-[-2] sticky z-20 flex shrink-0 flex-col gap-0 border-b border-slate-200 bg-white shadow-sm backdrop-blur-md dark:border-slate-800 dark:bg-slate-950 supports-[backdrop-filter]:bg-white/90 dark:supports-[backdrop-filter]:bg-slate-950/90",
+          "top-0"
         )}
       >
-        <div className="flex flex-wrap items-center gap-3">
-          <TaskStats tasks={tasks} />
-          {realtimeConnection === "live" && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" title="Realtime kanalı bağlı">
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500 animate-pulse" aria-hidden />
-              Canlı
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+              <Rows3 className="h-3.5 w-3.5" aria-hidden />
             </span>
-          )}
-          {realtimeConnection === "connecting" && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-300" title="Realtime aboneliği bekleniyor">
-              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-600" aria-hidden />
-              Bağlanıyor…
-            </span>
-          )}
-          {realtimeConnection === "disconnected" && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300" title="Anlık güncelleme doğrulanamadı veya kapalı; sekmeyi yenileyebilir veya Publication ayarını kontrol edebilirsiniz">
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" aria-hidden />
-              Anlık senkron yok
-            </span>
-          )}
+            <span className="text-base font-semibold text-slate-900 dark:text-slate-50">Canlı Tablo</span>
+            {realtimeConnection === "live" && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:border-emerald-800/70 dark:bg-emerald-950/30 dark:text-emerald-300" title="Realtime kanalı bağlı">
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500 animate-pulse" aria-hidden />
+                Canlı
+              </span>
+            )}
+            {realtimeConnection === "connecting" && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-300" title="Realtime aboneliği bekleniyor">
+                <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
+                Bağlanıyor
+              </span>
+            )}
+            {realtimeConnection === "disconnected" && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300" title="Anlık güncelleme doğrulanamadı veya kapalı; sekmeyi yenileyebilir veya Publication ayarını kontrol edebilirsiniz">
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" aria-hidden />
+                Senkron yok
+              </span>
+            )}
+            <TaskStats tasks={tasks} />
+            {projectFilter.length === 1 && (
+              <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:border-blue-800/70 dark:bg-blue-950/30 dark:text-blue-300">
+                Proje odaklı
+              </span>
+            )}
+          </div>
           {onlineUsers.length > 0 && (
-            <span className="inline-flex items-center gap-1.5">
-              <OnlineUsersPanel
-                onlineUsers={onlineUsers}
-                editorsByRowId={editorsByRowId}
-                currentUserEmail={currentUserEmail}
-                tasks={tasks}
-                label={projectFilter.length === 1 ? "Aktif ekip" : "Aktif kullanıcılar"}
-              />
-            </span>
+            <OnlineUsersPanel
+              onlineUsers={onlineUsers}
+              editorsByRowId={editorsByRowId}
+              currentUserEmail={currentUserEmail}
+              tasks={tasks}
+              label={projectFilter.length === 1 ? "Aktif ekip" : "Aktif kullanıcılar"}
+            />
           )}
         </div>
-        <div className="flex flex-wrap items-center gap-2 shrink-0 rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-800/60">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+          {viewTabs && <div className="mr-auto shrink-0">{viewTabs}</div>}
           <span className="hidden text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 lg:inline">
             Görünümler
           </span>
@@ -6398,7 +6415,7 @@ ${emailTemplate.html}
             size="sm"
             onClick={() => setNewTaskOpen(true)}
             aria-label="Yeni görev"
-            className="bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-500 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus-visible:ring-blue-400"
+            className="bg-orange-500 text-white shadow-sm shadow-orange-500/20 hover:bg-orange-600 focus-visible:ring-orange-500 dark:bg-orange-500 dark:hover:bg-orange-400 dark:focus-visible:ring-orange-400"
           >
             <PlusCircle className="h-4 w-4 shrink-0 sm:mr-2" aria-hidden />
             <span className="hidden sm:inline">Yeni görev</span>
@@ -7035,7 +7052,7 @@ ${emailTemplate.html}
       <div
         ref={liveTableScrollRef}
         className={cn(
-          "hidden md:flex flex-1 min-h-0 w-full min-w-0 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 bg-white isolate [overflow-anchor:none] dark:border-slate-700 dark:bg-slate-800",
+          "hidden md:flex flex-1 min-h-0 w-full min-w-0 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 bg-slate-50/80 shadow-sm isolate [overflow-anchor:none] dark:border-slate-700/80 dark:bg-slate-950/40 dark:shadow-[0_18px_42px_-32px_rgba(0,0,0,0.8)]",
           /* Sayfa düzeni flex’te bazen yükseklik sınırlanmıyor; viewport tavanı iç scroll + thead sticky’yi garanti eder (genişlet modunda portal zaten sınırlı). */
           !isFullWidth &&
             "md:max-h-[calc(100dvh-20rem)] lg:max-h-[calc(100dvh-18rem)] xl:max-h-[calc(100dvh-16rem)]",
@@ -7044,7 +7061,7 @@ ${emailTemplate.html}
         )}
       >
         <table
-          className={cn("border-separate border-spacing-0 min-w-full", dui.table)}
+          className={cn("border-separate border-spacing-0 min-w-full bg-white dark:bg-slate-900", dui.table)}
           aria-describedby="live-table-caption"
           style={{
             tableLayout: "fixed",
@@ -7086,13 +7103,13 @@ ${emailTemplate.html}
                               : undefined
                       }
                       className={cn(
-                        "relative sticky top-0 z-[15] select-none border-r border-b-2 border-slate-200 bg-slate-100 text-left font-medium text-slate-700 shadow-[0_2px_6px_-3px_rgba(15,23,42,0.12)] dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:shadow-[0_2px_6px_-3px_rgba(0,0,0,0.35)]",
+                        "relative sticky top-0 z-[15] select-none border-r border-b border-slate-200/90 bg-slate-100/95 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-600 shadow-[0_2px_8px_-5px_rgba(15,23,42,0.35)] backdrop-blur dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-300 dark:shadow-[0_2px_10px_-6px_rgba(0,0,0,0.8)]",
                         dui.th,
                         draggedColumnId === col.id && "opacity-50",
                         isPinnedLeft &&
-                          "left-0 z-[25] bg-slate-100 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.08),0_2px_6px_-3px_rgba(15,23,42,0.12)] dark:bg-slate-700 dark:shadow-[4px_0_8px_-2px_rgba(0,0,0,0.3),0_2px_6px_-3px_rgba(0,0,0,0.35)]",
+                          "left-0 z-[25] bg-slate-100 shadow-[4px_0_10px_-4px_rgba(15,23,42,0.22),0_2px_8px_-5px_rgba(15,23,42,0.35)] dark:bg-slate-900 dark:shadow-[4px_0_12px_-5px_rgba(0,0,0,0.75),0_2px_10px_-6px_rgba(0,0,0,0.8)]",
                         isPinnedRight &&
-                          "right-0 z-[25] bg-slate-100 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.08),0_2px_6px_-3px_rgba(15,23,42,0.12)] dark:bg-slate-700 dark:shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.3),0_2px_6px_-3px_rgba(0,0,0,0.35)]"
+                          "right-0 z-[25] bg-slate-100 shadow-[-4px_0_10px_-4px_rgba(15,23,42,0.22),0_2px_8px_-5px_rgba(15,23,42,0.35)] dark:bg-slate-900 dark:shadow-[-4px_0_12px_-5px_rgba(0,0,0,0.75),0_2px_10px_-6px_rgba(0,0,0,0.8)]"
                       )}
                       style={{
                         width: wPx,
@@ -7100,12 +7117,12 @@ ${emailTemplate.html}
                       }}
                     >
                       <div className="flex min-w-0 items-center gap-1">
-                        <GripVertical className={cn(dui.grip, "shrink-0 cursor-grab text-slate-400 active:cursor-grabbing")} aria-hidden />
+                        <GripVertical className={cn(dui.grip, "shrink-0 cursor-grab text-slate-400/80 active:cursor-grabbing dark:text-slate-500")} aria-hidden />
                         {col.getCanSort?.() ? (
                           <button
                             type="button"
                             onClick={col.getToggleSortingHandler()}
-                            className="flex min-w-0 flex-1 items-center gap-1 truncate text-left hover:text-slate-900 dark:hover:text-slate-100"
+                            className="flex min-w-0 flex-1 items-center gap-1 truncate text-left hover:text-slate-950 dark:hover:text-white"
                           >
                             <span className="truncate">{flexRender(header.column.columnDef.header, header.getContext())}</span>
                             {col.getIsSorted() === "asc" ? (
@@ -7329,9 +7346,9 @@ ${emailTemplate.html}
                   );
                 }
               }
-              const rowLockedByOthersBg = "bg-violet-50/65 dark:bg-violet-950/35";
-              const completedCellBg = "bg-emerald-50/80 dark:bg-emerald-950/25";
-              const pinnedDefaultBg = "bg-white dark:bg-slate-800";
+              const rowLockedByOthersBg = "bg-violet-50/75 dark:bg-violet-950/35";
+              const completedCellBg = "bg-emerald-50/60 dark:bg-emerald-950/20";
+              const pinnedDefaultBg = "bg-white dark:bg-slate-900";
               const pinnedBg = isEditedByOthers
                 ? rowLockedByOthersBg
                 : isCompleted
@@ -7355,27 +7372,27 @@ ${emailTemplate.html}
                 return [whoLabel, whenLabel].filter(Boolean).join(" · ");
               })();
               const rowClassName = cn(
-                "border-b border-slate-100 transition-colors dark:border-slate-700",
+                "group/row border-b border-slate-100 transition-[background-color,box-shadow,border-color] duration-150 dark:border-slate-800",
                 rowCanEdit ? "cursor-default" : "cursor-default select-none",
                 // Realtime ile az önce gelen UPDATE: 3 sn'lik amber flash
                 isRecentlyUpdated &&
-                  "animate-[pulse_1.5s_ease-in-out_2] bg-amber-50/70 dark:bg-amber-950/30",
-                !isEditedByOthers && "hover:bg-slate-50/50 dark:hover:bg-slate-700/30",
+                  "animate-[pulse_1.5s_ease-in-out_2] bg-amber-50/75 dark:bg-amber-950/30",
+                !isEditedByOthers && "hover:bg-blue-50/35 dark:hover:bg-slate-800/65",
                 !isEditedByOthers &&
                   isCompleted &&
-                  "bg-emerald-50/80 dark:bg-emerald-950/25 hover:bg-emerald-50/90 dark:hover:bg-emerald-950/35",
+                  "bg-emerald-50/55 dark:bg-emerald-950/20 hover:bg-emerald-50/80 dark:hover:bg-emerald-950/30",
                 !isEditedByOthers &&
                   isCompleted &&
                   !isSelected &&
                   "border-l-4 border-l-emerald-400 dark:border-l-emerald-500",
-                isSelected && !isCompleted && !isEditedByOthers && "bg-blue-50/60 dark:bg-blue-900/20 hover:bg-blue-50/80 dark:hover:bg-blue-900/30",
+                isSelected && !isCompleted && !isEditedByOthers && "bg-blue-50/75 shadow-[inset_3px_0_0_rgb(59,130,246)] dark:bg-blue-950/30 dark:shadow-[inset_3px_0_0_rgb(96,165,250)]",
                 isSelected && !isCompleted && !isEditedByOthers && "border-l-4 border-l-blue-500 dark:border-l-blue-400",
                 isSelected &&
                   isCompleted &&
                   !isEditedByOthers &&
-                  "bg-emerald-50/85 ring-2 ring-inset ring-blue-400/50 dark:bg-emerald-950/30 dark:ring-blue-500/45",
+                  "bg-emerald-50/85 ring-2 ring-inset ring-blue-400/45 dark:bg-emerald-950/30 dark:ring-blue-500/40",
                 isEditedByOthers &&
-                  "relative z-[1] cursor-default border-l-4 border-l-violet-500 bg-violet-50/65 shadow-[inset_0_0_0_1px_rgba(139,92,246,0.14)] dark:border-l-violet-400 dark:bg-violet-950/35 dark:shadow-[inset_0_0_0_1px_rgba(167,139,250,0.2)] hover:bg-violet-50/90 dark:hover:bg-violet-950/45",
+                  "relative z-[1] cursor-default border-l-4 border-l-violet-500 bg-violet-50/75 shadow-[inset_0_0_0_1px_rgba(139,92,246,0.16)] dark:border-l-violet-400 dark:bg-violet-950/35 dark:shadow-[inset_0_0_0_1px_rgba(167,139,250,0.2)] hover:bg-violet-50/95 dark:hover:bg-violet-950/45",
                 showUrgency && URGENCY_ROW_CLASS[urgency],
                 showUrgency && URGENCY_LEFT_BORDER_CLASS[urgency]
               );
@@ -7389,13 +7406,13 @@ ${emailTemplate.html}
                   <td
                     key={cell.id}
                     className={cn(
-                      "border-r border-slate-100 dark:border-slate-700 align-top",
+                      "border-r border-slate-100 align-middle transition-colors dark:border-slate-800",
                       dui.td,
                       !rowCanEdit && "select-none",
                       isEditedByOthers && rowLockedByOthersBg,
                       isCompleted && !isEditedByOthers && completedCellBg,
-                      isPinnedLeft && "sticky left-0 z-10 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.05)] dark:shadow-[4px_0_8px_-2px_rgba(0,0,0,0.2)]",
-                      isPinnedRight && "sticky right-0 z-10 shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.05)] dark:shadow-[-4px_0_8px_-2px_rgba(0,0,0,0.2)]",
+                      isPinnedLeft && "sticky left-0 z-10 shadow-[4px_0_10px_-5px_rgba(15,23,42,0.18)] dark:shadow-[4px_0_12px_-6px_rgba(0,0,0,0.75)]",
+                      isPinnedRight && "sticky right-0 z-10 shadow-[-4px_0_10px_-5px_rgba(15,23,42,0.18)] dark:shadow-[-4px_0_12px_-6px_rgba(0,0,0,0.75)]",
                       (isPinnedLeft || isPinnedRight) && pinnedBg
                     )}
                     style={{
@@ -7430,6 +7447,7 @@ ${emailTemplate.html}
                     <TooltipTrigger asChild>
                       <tr
                         className={rowClassName}
+                        data-selected={isSelected ? "true" : undefined}
                         {...rowPointerHandlers}
                         onPointerEnter={() => setPresenceHoverRowId(row.id)}
                         onPointerLeave={() =>
@@ -7446,13 +7464,13 @@ ${emailTemplate.html}
                 );
               }
               return (
-                <tr key={row.id} className={rowClassName} {...rowPointerHandlers}>
+                <tr key={row.id} className={rowClassName} data-selected={isSelected ? "true" : undefined} {...rowPointerHandlers}>
                   {rowCells}
                 </tr>
               );
             })}
             {canCreateTask && (
-              <tr className="border-b border-slate-100 dark:border-slate-700">
+              <tr className="border-b border-slate-100 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-900/80">
                 <td
                   colSpan={table.getVisibleLeafColumns().length}
                   className="p-0"
@@ -7461,12 +7479,12 @@ ${emailTemplate.html}
                     <button
                       type="button"
                       onClick={handleQuickAddRow}
-                      className="group flex flex-1 items-center gap-2 px-3 py-2 text-left text-sm text-slate-500 transition-colors hover:bg-blue-50/60 hover:text-blue-700 focus:bg-blue-50/60 focus:text-blue-700 focus:outline-none dark:text-slate-400 dark:hover:bg-blue-950/30 dark:hover:text-blue-300 dark:focus:bg-blue-950/30 dark:focus:text-blue-300"
+                      className="group flex flex-1 items-center gap-2 px-3 py-2.5 text-left text-sm font-medium text-slate-500 transition-colors hover:bg-blue-50/80 hover:text-blue-700 focus:bg-blue-50/80 focus:text-blue-700 focus:outline-none dark:text-slate-400 dark:hover:bg-blue-950/35 dark:hover:text-blue-200 dark:focus:bg-blue-950/35 dark:focus:text-blue-200"
                       aria-label="Yeni satır ekle (Enter ile zincirleme)"
                     >
-                      <PlusCircle className="h-4 w-4 shrink-0 opacity-70 group-hover:opacity-100" aria-hidden />
+                      <PlusCircle className="h-4 w-4 shrink-0 opacity-75 group-hover:opacity-100" aria-hidden />
                       <span>Yeni satır</span>
-                      <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-700 dark:text-slate-300">
+                      <span className="ml-2 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
                         Enter ile zincirle
                       </span>
                     </button>
@@ -7474,7 +7492,7 @@ ${emailTemplate.html}
                       <button
                         type="button"
                         onClick={handleDeleteEmptyRows}
-                        className="flex shrink-0 items-center gap-1.5 border-l border-slate-200 px-3 py-2 text-xs text-slate-500 hover:bg-red-50/70 hover:text-red-700 focus:bg-red-50/70 focus:text-red-700 focus:outline-none dark:border-slate-700 dark:text-slate-400 dark:hover:bg-red-950/30 dark:hover:text-red-300 dark:focus:bg-red-950/30 dark:focus:text-red-300"
+                        className="flex shrink-0 items-center gap-1.5 border-l border-slate-200 px-3 py-2 text-xs font-medium text-slate-500 hover:bg-red-50/80 hover:text-red-700 focus:bg-red-50/80 focus:text-red-700 focus:outline-none dark:border-slate-700 dark:text-slate-400 dark:hover:bg-red-950/35 dark:hover:text-red-300 dark:focus:bg-red-950/35 dark:focus:text-red-300"
                         title="Mevcut görünümdeki içeriksiz/boş satırları sil — geri alınabilir"
                       >
                         <Trash2 className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
