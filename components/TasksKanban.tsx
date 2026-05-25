@@ -10,7 +10,14 @@ import {
   User,
   FolderKanban,
   Plus,
+  Flame,
+  GitMerge,
 } from "lucide-react";
+import {
+  normalizeWorkflowStatus,
+  WORKFLOW_STATUS_LABELS,
+  WORKFLOW_STATUS_CLASS,
+} from "@/lib/taskWorkflow";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
 import { useProjects } from "@/hooks/useProjects";
 import { useAuth } from "@/contexts/auth-context";
@@ -26,7 +33,6 @@ import { getStatusKind, type StatusKind } from "@/lib/statusKind";
 import {
   getDueUrgency,
   URGENCY_ROW_CLASS,
-  URGENCY_LEFT_BORDER_CLASS,
   URGENCY_LABEL,
   URGENCY_BADGE_CLASS,
 } from "@/lib/dueUrgency";
@@ -464,30 +470,93 @@ function KanbanCard({
   // CSV içe aktarımda content boş kalabilir; extra_data'dan başlık seçilir
   const content = label && label !== "—" ? label : (task.content?.trim() || "İçerik yok");
 
+  // Claude Design "KanbanCard" sol urgency şerit rengi (3px absolute bar)
+  const stripColor: Record<typeof urgency, string> = {
+    overdue: "bg-rose-500",
+    today: "bg-amber-500",
+    soon: "bg-yellow-400",
+    upcoming: "bg-slate-300 dark:bg-slate-600",
+    none: "",
+  };
+
+  const workflowStatus = task.workflow_status ? normalizeWorkflowStatus(task.workflow_status) : null;
+  // Draft kart üstünde gösterilmez — fazla gürültü; submitted/review/approved gibi anlamlı durumlar gösterilir
+  const showWorkflowChip = workflowStatus && workflowStatus !== "draft";
+  const isHighPriority = task.priority === "High" || (task.priority ? urgentPrioritySet.has(task.priority.toLowerCase()) : false);
+
   return (
     <article
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onClick={onClick}
+      data-tk-focus="true"
       className={cn(
-        "group cursor-grab rounded-md border bg-white p-2.5 text-left shadow-sm transition-all hover:shadow-md active:cursor-grabbing dark:bg-slate-900",
+        // Claude Design: rounded-xl + flex-col gap + soft shadow + hover lift
+        "group/card relative flex cursor-grab flex-col gap-2 overflow-hidden rounded-xl border bg-white p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md active:cursor-grabbing dark:bg-slate-800/70 dark:hover:bg-slate-800",
         isDragging
           ? "border-blue-400 opacity-50 ring-2 ring-blue-300"
           : "border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600",
-        !isDragging && showUrgency && URGENCY_ROW_CLASS[urgency],
-        !isDragging && showUrgency && URGENCY_LEFT_BORDER_CLASS[urgency]
+        // Acil/bugün için yumuşak breathe arkaplan — mevcut URGENCY_ROW_CLASS kalır
+        !isDragging && showUrgency && URGENCY_ROW_CLASS[urgency]
       )}
     >
-      <p className="line-clamp-3 text-sm leading-snug text-slate-800 dark:text-slate-100">
-        {content}
-      </p>
-      {subtitle && (
-        <p className="mt-0.5 line-clamp-2 text-[11px] text-slate-500 dark:text-slate-400">
-          {subtitle}
-        </p>
+      {/* Sol urgency şerit — Design "3px absolute strip" */}
+      {showUrgency && stripColor[urgency] && (
+        <span
+          className={cn("absolute inset-y-0 left-0 w-[3px]", stripColor[urgency])}
+          aria-hidden
+        />
       )}
-      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+
+      {/* Üst satır — workflow chip (sol) + öncelik flame (sağ) */}
+      {(showWorkflowChip || isHighPriority) && (
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1">
+            {showWorkflowChip && (
+              <span
+                className={cn(
+                  "inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0 text-[10px] font-semibold uppercase tracking-wide",
+                  WORKFLOW_STATUS_CLASS[workflowStatus]
+                )}
+                title={WORKFLOW_STATUS_LABELS[workflowStatus]}
+              >
+                <GitMerge className="h-2.5 w-2.5" aria-hidden />
+                {WORKFLOW_STATUS_LABELS[workflowStatus]}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            {isHighPriority && (
+              <span
+                className="inline-flex items-center text-rose-500 dark:text-rose-400"
+                title="Yüksek öncelik"
+              >
+                <Flame className="h-3 w-3" strokeWidth={2} aria-hidden />
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Başlık + alt başlık (subtitle) — Design "title + meta line" */}
+      <div className="flex flex-col gap-0.5">
+        <span
+          className="line-clamp-2 text-sm font-medium uppercase tracking-wide text-slate-900 group-hover/card:text-slate-950 dark:text-slate-50 dark:group-hover/card:text-white"
+          title={content}
+        >
+          {content}
+        </span>
+        {subtitle && (
+          <span className="line-clamp-1 text-[10px] text-slate-500 dark:text-slate-400">
+            {subtitle}
+          </span>
+        )}
+      </div>
+
+      {/* Footer — proje + atanan + son tarih + öncelik */}
+      <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+        {/* Urgency badge — yalnızca overdue/today */}
         {showUrgency && (urgency === "overdue" || urgency === "today") && (
           <span
             className={cn(
@@ -499,7 +568,7 @@ function KanbanCard({
             {URGENCY_LABEL[urgency]}
           </span>
         )}
-        {task.priority && (
+        {task.priority && !isHighPriority && (
           <PriorityBadge priority={task.priority} urgentSet={urgentPrioritySet} />
         )}
         {projectName && (
@@ -512,7 +581,7 @@ function KanbanCard({
         {dueDate && (
           <span
             className={cn(
-              "inline-flex items-center gap-0.5",
+              "ml-auto inline-flex items-center gap-0.5",
               isOverdue && "font-semibold text-red-600 dark:text-red-400"
             )}
           >
