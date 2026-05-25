@@ -7530,64 +7530,76 @@ ${emailTemplate.html}
       </div>
       </TooltipProvider>
       {filteredData.length > 0 && (
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-700">
+        /* Minimalist footer — Claude Design referans:
+           Satır N ▼ | SIK ORTA GENİŞ | 32 kayıt · sayfa 1/1 ◀ ▶
+           Tek satır, küçük font, soft border, inline metin pagination. */
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-slate-200/80 bg-white/60 px-4 py-1.5 text-[11px] text-slate-500 backdrop-blur dark:border-slate-700/80 dark:bg-slate-900/40 dark:text-slate-400">
           <div className="flex items-center gap-2">
-            <span className="text-sm text-slate-600 dark:text-slate-400">Satır:</span>
-            <select
-              value={table.getState().pagination.pageSize}
-              onChange={(e) => table.setPageSize(Number(e.target.value))}
-              className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-1 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
-            >
-              {PAGE_SIZE_OPTIONS.map((n) => (
-                <option key={n} value={n}>{n}</option>
-              ))}
-            </select>
-            <span className="text-sm text-slate-500 dark:text-slate-400">
-              {filteredData.length} görev (sayfa {table.getState().pagination.pageIndex + 1} / {table.getPageCount() || 1})
-            </span>
+            <label className="inline-flex items-center gap-1.5">
+              <span>Satır</span>
+              <select
+                value={table.getState().pagination.pageSize}
+                onChange={(e) => table.setPageSize(Number(e.target.value))}
+                className="h-6 rounded-md border border-slate-200 bg-white px-1.5 pr-5 text-[11px] text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              >
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </label>
+            <span className="hidden h-3 w-px bg-slate-200 dark:bg-slate-700 sm:block" aria-hidden />
+            {/* Density inline pill toggle — SIK / ORTA / GENİŞ */}
+            <div className="inline-flex items-center rounded-full bg-slate-100 p-0.5 dark:bg-slate-800/80" role="radiogroup" aria-label="Tablo yoğunluğu">
+              {(["compact", "normal", "comfortable"] as const).map((d) => {
+                const label = d === "compact" ? "Sık" : d === "normal" ? "Orta" : "Geniş";
+                const active = settings.liveTableDensity === d;
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => updateSetting("liveTableDensity", d)}
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide transition-all",
+                      active
+                        ? "bg-white text-slate-800 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                        : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+                    )}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          <div className="flex items-center gap-1">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => table.previousPage()}
-              disabled={!table.getCanPreviousPage()}
-              className="h-8 w-8 p-0"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            {Array.from({ length: Math.min(5, table.getPageCount() || 1) }, (_, i) => {
-              const total = table.getPageCount() || 1;
-              const current = table.getState().pagination.pageIndex;
-              let page: number;
-              if (total <= 5) page = i;
-              else if (current <= 2) page = i;
-              else if (current >= total - 3) page = total - 5 + i;
-              else page = current - 2 + i;
-              return (
-                <Button
-                  key={page}
-                  type="button"
-                  variant={current === page ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => table.setPageIndex(page)}
-                  className="h-8 w-8 p-0"
-                >
-                  {page + 1}
-                </Button>
-              );
-            })}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => table.nextPage()}
-              disabled={!table.getCanNextPage()}
-              className="h-8 w-8 p-0"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
+          <div className="flex items-center gap-2">
+            <span className="tabular-nums">
+              <span className="font-semibold text-slate-700 dark:text-slate-200">{filteredData.length}</span> kayıt
+              <span className="mx-1.5 opacity-50">·</span>
+              sayfa <span className="font-semibold text-slate-700 dark:text-slate-200">{table.getState().pagination.pageIndex + 1}</span>
+              <span className="opacity-60"> / {table.getPageCount() || 1}</span>
+            </span>
+            <div className="flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => table.previousPage()}
+                disabled={!table.getCanPreviousPage()}
+                className="inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                aria-label="Önceki sayfa"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
+              </button>
+              <button
+                type="button"
+                onClick={() => table.nextPage()}
+                disabled={!table.getCanNextPage()}
+                className="inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                aria-label="Sonraki sayfa"
+              >
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            </div>
           </div>
         </div>
       )}
