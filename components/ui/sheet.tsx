@@ -24,7 +24,9 @@ const SheetOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      "fixed inset-0 z-50 bg-slate-900/30 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+      // Backdrop: hafif yarı şeffaf + ince blur — Claude Design "PreviewDrawer" stili.
+      // Tek başına opak değil; arkadaki tablo hafif blurla seçilir kalır.
+      "fixed inset-0 z-50 bg-slate-900/30 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 dark:bg-slate-950/50",
       className
     )}
     {...props}

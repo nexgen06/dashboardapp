@@ -358,11 +358,23 @@ export function TaskDetailSheet({
   return (
     <Sheet open={!!task} onOpenChange={(open) => !open && onClose()}>
       <SheetContent
-        widthClass="w-full max-w-[420px]"
+        widthClass="w-full max-w-[440px]"
         className="dark:bg-slate-900"
       >
-        <SheetHeader className="space-y-2 px-4 py-3 dark:bg-slate-900">
-          <div className="flex items-center gap-2 pr-8">
+        <SheetHeader className="space-y-2.5 border-b border-slate-200/80 px-5 py-4 dark:border-slate-700/80 dark:bg-slate-900">
+          {/* Üst chip satırı: workflow + status + priority + pozisyon */}
+          <div className="flex flex-wrap items-center gap-1.5 pr-8">
+            {task.workflow_status && (
+              <span
+                className={cn(
+                  "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide",
+                  WORKFLOW_STATUS_CLASS[normalizeWorkflowStatus(task.workflow_status)]
+                )}
+              >
+                <GitMerge className="h-3 w-3" aria-hidden />
+                {WORKFLOW_STATUS_LABELS[normalizeWorkflowStatus(task.workflow_status)]}
+              </span>
+            )}
             <span
               className={cn(
                 "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium",
@@ -382,7 +394,7 @@ export function TaskDetailSheet({
               </span>
             )}
           </div>
-          <SheetTitle className="break-words text-base leading-snug">
+          <SheetTitle className="break-words text-ui-h3 leading-snug text-slate-900 dark:text-slate-50">
             {task.content?.trim() || (
               <span className="italic font-normal text-slate-400">İçerik yok</span>
             )}
@@ -402,8 +414,8 @@ export function TaskDetailSheet({
 
         <SheetBody className="space-y-3 px-4 py-3">
           {/* Meta grid */}
-          <section className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800/70">
-            <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 dark:border-slate-700 dark:bg-slate-800/40">
+            <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
               Detaylar
             </h3>
             <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-2 text-sm">
@@ -462,8 +474,8 @@ export function TaskDetailSheet({
 
           {/* Ek alanlar */}
           {nonLinkExtras.length > 0 && (
-            <section className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800/70">
-              <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 dark:border-slate-700 dark:bg-slate-800/40">
+              <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Ek alanlar ({nonLinkExtras.length})
               </h3>
               <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1.5 text-sm">
@@ -486,8 +498,8 @@ export function TaskDetailSheet({
 
           {/* Onay workflow progress bar — yalnızca workflow_status varsa göster */}
           {task.workflow_status && (
-            <section className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800/70">
-              <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 dark:border-slate-700 dark:bg-slate-800/40">
+              <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Onay Süreci
               </h3>
               <WorkflowProgressBar task={task} />
@@ -500,14 +512,14 @@ export function TaskDetailSheet({
               taskId={task.id}
               projectId={task.project_id ? String(task.project_id) : null}
               canComment={canComment}
-              className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800/70"
+              className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 dark:border-slate-700 dark:bg-slate-800/40"
             />
           )}
 
           {/* Aktivite timeline — audit_log üzerinden, realtime senkron */}
-          <section className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800/70">
+          <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 dark:border-slate-700 dark:bg-slate-800/40">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <h3 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <h3 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 <History className="h-3 w-3" aria-hidden />
                 Aktivite
                 {auditLog.length > 0 && (
