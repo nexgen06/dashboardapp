@@ -132,6 +132,32 @@ export default function CanliTabloPage() {
   );
 
   /**
+   * Görev Özeti aç/kapa toggle — view bağımsız.
+   * - Tablo view'da: TasksTable'ın viewTabs prop'una bu butonla birlikte gelir
+   * - Kanban/Gantt/Takvim view'larında: view-specific header'da görünür
+   * Kapalıyken: PanelLeftOpen ikonu + "Özeti göster" (xl+ ekranda label)
+   * Açıkken: PanelLeftClose ikonu + "Özeti gizle"
+   */
+  const renderSummaryToggle = () => (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={() => setSummaryCollapsed((value) => !value)}
+      className="h-8 shrink-0 gap-1.5 text-xs"
+      aria-pressed={!summaryCollapsed}
+      title={summaryCollapsed ? "Görev özetini göster" : "Görev özetini gizle"}
+    >
+      {summaryCollapsed ? (
+        <PanelLeftOpen className="h-3.5 w-3.5" aria-hidden />
+      ) : (
+        <PanelLeftClose className="h-3.5 w-3.5" aria-hidden />
+      )}
+      <span className="hidden xl:inline">{summaryCollapsed ? "Özeti göster" : "Özeti gizle"}</span>
+    </Button>
+  );
+
+  /**
    * URL query `?project=ID` ile gelen proje filtre tohumu — proje detayından
    * "Canlı Tabloda Aç" tıklanınca buraya düşüyoruz. Filtre uygulanır ve URL
    * temizlenir ki kullanıcı içinde sonra filtre değiştirirse param yapışmasın.
@@ -221,22 +247,7 @@ export default function CanliTabloPage() {
               </div>
               {renderViewTabs()}
               <div className="flex shrink-0 items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSummaryCollapsed((value) => !value)}
-                  className="h-8 gap-1.5 text-xs"
-                  aria-pressed={!summaryCollapsed}
-                  title={summaryCollapsed ? "Sol görev özetini göster" : "Sol görev özetini gizle"}
-                >
-                  {summaryCollapsed ? (
-                    <PanelLeftOpen className="h-3.5 w-3.5" aria-hidden />
-                  ) : (
-                    <PanelLeftClose className="h-3.5 w-3.5" aria-hidden />
-                  )}
-                  <span className="hidden sm:inline">{summaryCollapsed ? "Özeti göster" : "Özeti gizle"}</span>
-                </Button>
+                {renderSummaryToggle()}
                 <Button variant="ghost" size="sm" asChild className="h-8 text-xs">
                   <Link href="/">{`Dashboard`}</Link>
                 </Button>
@@ -250,7 +261,12 @@ export default function CanliTabloPage() {
               <TasksTable
                 projectFilter={projectFilter}
                 onProjectFilterChange={setProjectFilter}
-                viewTabs={renderViewTabs()}
+                viewTabs={
+                  <div className="flex min-w-0 items-center gap-2">
+                    {renderViewTabs()}
+                    {renderSummaryToggle()}
+                  </div>
+                }
               />
             </TabsContent>
             <TabsContent
