@@ -132,7 +132,7 @@ import {
   type ManagedReportTemplate,
 } from "@/lib/reportTemplates";
 import { usePrompt } from "@/components/ui/modals";
-import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, Expand, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban, Eye, Mail, MessageSquare, Printer } from "lucide-react";
+import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, Expand, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban, Eye, Mail, MessageSquare, Printer, Activity } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
 const STATUS_FILTER_OPTIONS = ["Tümü", "Yapılacak", "Devam ediyor", "Devam", "Tamamlandı"] as const;
@@ -2073,6 +2073,11 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
 
   /** Dar ekranda hızlı filtre satırı varsayılan kapalı */
   const [quickFiltersOpen, setQuickFiltersOpen] = useState(true);
+  /** Hangi hızlı filtre şu anda aktif (chip görsel state için).
+   *  null = hiçbiri. clearFilters ve filtre değişiklikleri otomatik sıfırlar. */
+  const [activeSmartFilter, setActiveSmartFilter] = useState<
+    "overdue" | "thisWeek" | "priority" | "mine" | "unassigned" | null
+  >(null);
   const [draggedColumnId, setDraggedColumnId] = useState<string | null>(null);
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
   const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
@@ -2857,6 +2862,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     setDatePreset("custom");
     setColumnFilters({});
     setAdvancedFilterRules([]);
+    setActiveSmartFilter(null);
   }, [setProjectFilter]);
 
   /**
@@ -3079,7 +3085,13 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
 
   // Akıllı Filtreler
   const applySmartFilter = useCallback((filterType: "overdue" | "thisWeek" | "priority" | "mine" | "unassigned") => {
+    // Aynı filtreye tekrar tıklanırsa toggle (kapat)
+    if (activeSmartFilter === filterType) {
+      clearFilters();
+      return;
+    }
     clearFilters();
+    setActiveSmartFilter(filterType);
     const bugun = new Date();
     bugun.setHours(0, 0, 0, 0);
     const haftaSonu = new Date(bugun);
@@ -3119,7 +3131,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         setAssigneeFilter(["__unassigned__"]);
         break;
     }
-  }, [clearFilters, currentUserEmail, projects, urgentPrioritySetForTable, setProjectFilter]);
+  }, [activeSmartFilter, clearFilters, currentUserEmail, projects, urgentPrioritySetForTable, setProjectFilter]);
 
   // Akıllı filtre sayıları
   // Kapsam: Görev Özeti ile aynı sabit kural — projesi olmayan ("orphan") görevler
@@ -5342,115 +5354,71 @@ ${emailTemplate.html}
               aria-hidden
             />
           </button>
-          <div className={cn("flex flex-wrap items-center gap-1.5", !quickFiltersOpen && "hidden")}>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => applySmartFilter("overdue")}
-            disabled={smartFilterCounts.overdue === 0}
-            className={cn(
-              "h-7 text-xs",
-              smartFilterCounts.overdue > 0 
-                ? "border-red-300 bg-red-50 text-red-700 hover:bg-red-100 hover:border-red-400 dark:border-red-700 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/40"
-                : "opacity-50"
+          {/* ─── SmartRail — Claude Design "Hızlı filtre" chip stili ───
+              Rounded-full chip + ikon + label + count rozeti.
+              Aktif state: doygun bg + ring. Tekrar tıklayınca toggle. */}
+          <div className={cn("flex flex-wrap items-center gap-1.5", !quickFiltersOpen && "hidden")} role="toolbar" aria-label="Hızlı filtreler">
+            {[
+              { id: "overdue" as const,    icon: AlertTriangle, label: "Gecikmiş",     count: smartFilterCounts.overdue,    tone: "rose" as const },
+              { id: "thisWeek" as const,   icon: Calendar,      label: "Bu hafta",     count: smartFilterCounts.thisWeek,   tone: "indigo" as const },
+              { id: "priority" as const,   icon: Flame,         label: "Öncelikli",    count: smartFilterCounts.priority,   tone: "amber" as const },
+              ...(currentUserEmail ? [{ id: "mine" as const, icon: UserCheck, label: "Bana atanan", count: smartFilterCounts.mine, tone: "emerald" as const }] : []),
+              { id: "unassigned" as const, icon: UserX,         label: "Atanmamış",    count: smartFilterCounts.unassigned, tone: "slate" as const },
+            ].map((chip) => {
+              const Ic = chip.icon;
+              const isActive = activeSmartFilter === chip.id;
+              const isEmpty = chip.count === 0;
+              // Tone bazlı renk paleti — aktif/pasif/empty
+              const toneMap = {
+                rose:    { active: "border-rose-500 bg-rose-500 text-white ring-rose-300/50 dark:ring-rose-400/40 shadow-rose-500/20",       idle: "border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300 hover:bg-rose-100 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-950/70",                badge: "bg-rose-600 text-white dark:bg-rose-500" },
+                indigo:  { active: "border-indigo-500 bg-indigo-500 text-white ring-indigo-300/50 dark:ring-indigo-400/40 shadow-indigo-500/20", idle: "border-indigo-200 bg-indigo-50 text-indigo-700 hover:border-indigo-300 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-950/70", badge: "bg-indigo-600 text-white dark:bg-indigo-500" },
+                amber:   { active: "border-amber-500 bg-amber-500 text-white ring-amber-300/50 dark:ring-amber-400/40 shadow-amber-500/20",    idle: "border-amber-200 bg-amber-50 text-amber-800 hover:border-amber-300 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-950/70",            badge: "bg-amber-600 text-white dark:bg-amber-500" },
+                emerald: { active: "border-emerald-500 bg-emerald-500 text-white ring-emerald-300/50 dark:ring-emerald-400/40 shadow-emerald-500/20", idle: "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/70", badge: "bg-emerald-600 text-white dark:bg-emerald-500" },
+                slate:   { active: "border-slate-600 bg-slate-700 text-white ring-slate-400/50 dark:ring-slate-500/40 shadow-slate-700/20",   idle: "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-300 dark:hover:bg-slate-800/70",          badge: "bg-slate-600 text-white dark:bg-slate-500" },
+              }[chip.tone];
+              return (
+                <button
+                  key={chip.id}
+                  type="button"
+                  onClick={() => applySmartFilter(chip.id)}
+                  disabled={isEmpty && !isActive}
+                  aria-pressed={isActive}
+                  data-tk-focus="true"
+                  className={cn(
+                    "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-all",
+                    isActive
+                      ? cn("shadow-sm ring-2 ring-offset-1 dark:ring-offset-slate-900", toneMap.active)
+                      : toneMap.idle,
+                    isEmpty && !isActive && "cursor-not-allowed opacity-50"
+                  )}
+                >
+                  <Ic className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  <span>{chip.label}</span>
+                  {chip.count > 0 && (
+                    <span
+                      className={cn(
+                        "inline-flex h-4 min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold tabular-nums",
+                        isActive ? "bg-white/25 text-white" : toneMap.badge
+                      )}
+                    >
+                      {chip.count > 99 ? "99+" : chip.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+            {activeSmartFilter && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="inline-flex h-7 items-center gap-1 rounded-full border border-transparent px-2 text-[11px] font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                title="Hızlı filtreyi kapat"
+              >
+                <X className="h-3 w-3" aria-hidden />
+                Temizle
+              </button>
             )}
-          >
-            <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />
-            Gecikmiş
-            {smartFilterCounts.overdue > 0 && (
-              <span className="ml-1.5 rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-bold text-white dark:bg-red-500">
-                {smartFilterCounts.overdue}
-              </span>
-            )}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => applySmartFilter("thisWeek")}
-            disabled={smartFilterCounts.thisWeek === 0}
-            className={cn(
-              "h-7 text-xs",
-              smartFilterCounts.thisWeek > 0
-                ? "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:border-blue-400 dark:border-blue-700 dark:bg-blue-900/20 dark:text-blue-300 dark:hover:bg-blue-900/40"
-                : "opacity-50"
-            )}
-          >
-            <Calendar className="mr-1.5 h-3.5 w-3.5" />
-            Bu hafta
-            {smartFilterCounts.thisWeek > 0 && (
-              <span className="ml-1.5 rounded-full bg-blue-600 px-1.5 py-0.5 text-xs font-bold text-white dark:bg-blue-500">
-                {smartFilterCounts.thisWeek}
-              </span>
-            )}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => applySmartFilter("priority")}
-            disabled={smartFilterCounts.priority === 0}
-            className={cn(
-              "h-7 text-xs",
-              smartFilterCounts.priority > 0
-                ? "border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100 hover:border-purple-400 dark:border-purple-700 dark:bg-purple-900/20 dark:text-purple-300 dark:hover:bg-purple-900/40"
-                : "opacity-50"
-            )}
-          >
-            <Flame className="mr-1.5 h-3.5 w-3.5" />
-            Öncelikli
-            {smartFilterCounts.priority > 0 && (
-              <span className="ml-1.5 rounded-full bg-purple-600 px-1.5 py-0.5 text-xs font-bold text-white dark:bg-purple-500">
-                {smartFilterCounts.priority}
-              </span>
-            )}
-          </Button>
-          {currentUserEmail && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => applySmartFilter("mine")}
-              disabled={smartFilterCounts.mine === 0}
-              className={cn(
-                "h-7 text-xs",
-                smartFilterCounts.mine > 0
-                  ? "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:border-emerald-400 dark:border-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300 dark:hover:bg-emerald-900/40"
-                  : "opacity-50"
-              )}
-            >
-              <UserCheck className="mr-1.5 h-3.5 w-3.5" />
-              Bana atanan
-              {smartFilterCounts.mine > 0 && (
-                <span className="ml-1.5 rounded-full bg-emerald-600 px-1.5 py-0.5 text-xs font-bold text-white dark:bg-emerald-500">
-                  {smartFilterCounts.mine}
-                </span>
-              )}
-            </Button>
-          )}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => applySmartFilter("unassigned")}
-            disabled={smartFilterCounts.unassigned === 0}
-            className={cn(
-              "h-7 text-xs",
-              smartFilterCounts.unassigned > 0
-                ? "border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100 hover:border-slate-400 dark:border-slate-600 dark:bg-slate-700/30 dark:text-slate-300 dark:hover:bg-slate-700/50"
-                : "opacity-50"
-            )}
-          >
-            <UserX className="mr-1.5 h-3.5 w-3.5" />
-            Atanmamış
-            {smartFilterCounts.unassigned > 0 && (
-              <span className="ml-1.5 rounded-full bg-slate-600 px-1.5 py-0.5 text-xs font-bold text-white dark:bg-slate-500">
-                {smartFilterCounts.unassigned}
-              </span>
-            )}
-          </Button>
-        </div>
+          </div>
         </div>
 
         {/* Filtreler — arama, kapsam ve alan filtreleri tek sakin bantta */}
@@ -6422,38 +6390,74 @@ ${emailTemplate.html}
           </RestrictedButton>
         </div>
       </div>
+      {/* ─── SelectionBar — fixed slide-up panel ───
+          Önceden satır arası inline'dı; artık alt orta noktada sabit kart olarak çıkar.
+          Mobil için MobileBottomNav (≈4rem) üzerinde, safe-area uyumlu.
+          Çoklu eylem: sayım + Durumu güncelle + Sil + Kapat (X).
+          animate-in slide-in-from-bottom-2 ile yumuşak giriş. */}
       {selectedIds.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2 dark:border-slate-700 dark:bg-slate-800/50 shrink-0">
-          <span className="text-sm text-slate-600 dark:text-slate-400">
-            <strong>{selectedIds.length}</strong> görev seçildi
-          </span>
-          {selectedCanBulkUpdate && (
-            <DropdownMenu open={bulkStatusOpen} onOpenChange={setBulkStatusOpen}>
-              <DropdownMenuTrigger asChild>
-                <Button type="button" variant="outline" size="sm">
-                  Durumu güncelle
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                {statusOptions.map((s) => (
-                  <DropdownMenuItem key={s} onClick={() => handleBulkStatusUpdate(s)}>
-                    {s}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-          {selectedCanBulkDelete && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="text-red-600 hover:text-red-700"
-            onClick={() => setBulkDeleteConfirmOpen(true)}
-          >
-            Seçilenleri sil
-          </Button>
-          )}
+        <div
+          role="region"
+          aria-label="Toplu işlemler"
+          className="pointer-events-none fixed inset-x-0 z-30 flex justify-center px-3 animate-in fade-in slide-in-from-bottom-2 duration-200"
+          style={{
+            bottom: "calc(env(safe-area-inset-bottom, 0px) + 4.75rem)",
+          }}
+        >
+          <div className="pointer-events-auto flex max-w-full flex-wrap items-center gap-2 rounded-2xl border border-slate-200/80 bg-white/95 px-3 py-2 shadow-xl shadow-slate-900/10 backdrop-blur-md dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-black/30 md:bottom-4 sm:gap-3 sm:px-4">
+            <span className="inline-flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-100">
+              <span className="inline-flex h-6 min-w-[24px] items-center justify-center rounded-full bg-blue-600 px-1.5 text-xs font-bold tabular-nums text-white">
+                {selectedIds.length}
+              </span>
+              <span className="hidden sm:inline">kayıt seçili</span>
+              <span className="sm:hidden">seçili</span>
+            </span>
+            <span className="mx-1 hidden h-5 w-px bg-slate-200 dark:bg-slate-700 sm:block" />
+            {selectedCanBulkUpdate && (
+              <DropdownMenu open={bulkStatusOpen} onOpenChange={setBulkStatusOpen}>
+                <DropdownMenuTrigger asChild>
+                  <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5">
+                    <Activity className="h-3.5 w-3.5" aria-hidden />
+                    <span className="hidden sm:inline">Durumu güncelle</span>
+                    <span className="sm:hidden">Durum</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="center" side="top" sideOffset={8}>
+                  {statusOptions.map((s) => (
+                    <DropdownMenuItem key={s} onClick={() => handleBulkStatusUpdate(s)}>
+                      {s}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            {selectedCanBulkDelete && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 border-red-200 text-red-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/40 dark:hover:text-red-300"
+                onClick={() => setBulkDeleteConfirmOpen(true)}
+              >
+                <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                <span className="hidden sm:inline">Seçilenleri sil</span>
+                <span className="sm:hidden">Sil</span>
+              </Button>
+            )}
+            <span className="mx-0.5 h-5 w-px bg-slate-200 dark:bg-slate-700" />
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 gap-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+              onClick={() => setRowSelection({})}
+              aria-label="Seçimi temizle"
+              title="Seçimi temizle"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden />
+              <span className="hidden sm:inline">Temizle</span>
+            </Button>
+          </div>
         </div>
       )}
       <Dialog open={pdfDialogOpen} onOpenChange={handlePdfDialogOpenChange}>
