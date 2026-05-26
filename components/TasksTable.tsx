@@ -805,16 +805,51 @@ function ReferenceSelectCell({
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
+  // Debounced query — yazma sırasında her keystroke yerine durduktan 120ms sonra filter çalışır.
+  // 2000+ kayıtlık listede UI kasması azalır.
+  const [debouncedQuery, setDebouncedQuery] = useState(localValue);
   useEffect(() => {
     setLocalValue(value);
   }, [value]);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(localValue), 120);
+    return () => clearTimeout(timer);
+  }, [localValue]);
 
-  const normalizedQuery = localValue.trim().toLocaleLowerCase("tr");
+  const MAX_DROPDOWN = 40;
+  const LARGE_LIST_THRESHOLD = 200; // bu kadar veya daha fazla option varsa "type to search" modu
+
+  const normalizedQuery = debouncedQuery.trim().toLocaleLowerCase("tr");
+  const isLargeList = options.length >= LARGE_LIST_THRESHOLD;
+
   const filteredOptions = useMemo(() => {
-    const source = normalizedQuery
-      ? options.filter((opt) => opt.toLocaleLowerCase("tr").includes(normalizedQuery))
-      : options;
-    return source.slice(0, 40);
+    // Büyük liste + boş query: kullanıcıyı yazmaya yönlendir, ilk 20'yi göster
+    if (isLargeList && !normalizedQuery) {
+      return options.slice(0, 20);
+    }
+    if (!normalizedQuery) {
+      return options.slice(0, MAX_DROPDOWN);
+    }
+    // Erken bail — yeterli match toplanınca dur (büyük listelerde tarama maliyetini azaltır)
+    const out: string[] = [];
+    for (const opt of options) {
+      if (opt.toLocaleLowerCase("tr").includes(normalizedQuery)) {
+        out.push(opt);
+        if (out.length >= MAX_DROPDOWN) break;
+      }
+    }
+    return out;
+  }, [isLargeList, normalizedQuery, options]);
+
+  const totalMatches = useMemo(() => {
+    if (!normalizedQuery) return options.length;
+    // Sadece sayım için tam tarama — bu da pahalı ama kullanıcı feedback için lazım
+    // Performans: kısa quer'ide bail yok; sadece hint için
+    let count = 0;
+    for (const opt of options) {
+      if (opt.toLocaleLowerCase("tr").includes(normalizedQuery)) count += 1;
+    }
+    return count;
   }, [normalizedQuery, options]);
 
   const commitValue = useCallback(
@@ -898,7 +933,7 @@ function ReferenceSelectCell({
             inputRef.current?.blur();
           }
         }}
-        placeholder="Ara ve seç"
+        placeholder={isLargeList ? `${options.length} kayıt — aramak için yazın` : "Ara ve seç"}
         title={title}
         className={cn(
           "w-full min-w-0 rounded border border-slate-200 bg-white text-slate-800 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100",
@@ -927,9 +962,11 @@ function ReferenceSelectCell({
               {opt}
             </button>
           ))}
-          {(normalizedQuery ? options.filter((opt) => opt.toLocaleLowerCase("tr").includes(normalizedQuery)).length : options.length) > filteredOptions.length && (
+          {totalMatches > filteredOptions.length && (
             <p className="px-2 py-1 text-[10px] text-slate-500 dark:text-slate-400">
-              Daha fazla sonuç için yazmaya devam et.
+              {normalizedQuery
+                ? `${filteredOptions.length} / ${totalMatches} eşleşme — daha sınırlamak için yazmaya devam edin.`
+                : `İlk ${filteredOptions.length} kayıt — aramak için yazmaya başlayın (${options.length} toplam).`}
             </p>
           )}
         </div>,
@@ -4335,28 +4372,44 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
           const typedRecords = liveReferenceSource
             ? liveReferenceSource.records
             : typedReference?.records ?? [];
+
+          // Büyük referans listelerde cross-ref filter çok pahalı (her hücre × her render).
+          // 500+ kayıt varsa filter'ı atla; kullanıcı dropdown'a yazarak kendi filtreyi yapsın.
+          const LARGE_REF_THRESHOLD = 500;
+          const skipCrossRefFilter = typedRecords.length >= LARGE_REF_THRESHOLD;
+
           const filteredReferenceRecords =
             typedReference?.labelField && typedRecords.length > 0
-              ? typedRecords.filter((record) => {
-                  for (const [field, recordValue] of Object.entries(record)) {
-                    if (field === typedReference.labelField) continue;
-                    const targetKey = resolveReferenceTargetKey(field, extraDataKeys);
-                    if (!targetKey || targetKey === key) continue;
-                    const currentValue = String(task.extra_data?.[targetKey] ?? "").trim();
-                    if (currentValue && !valuesMatch(currentValue, recordValue)) return false;
-                  }
-                  return true;
-                })
+              ? skipCrossRefFilter
+                ? typedRecords
+                : typedRecords.filter((record) => {
+                    for (const [field, recordValue] of Object.entries(record)) {
+                      if (field === typedReference.labelField) continue;
+                      const targetKey = resolveReferenceTargetKey(field, extraDataKeys);
+                      if (!targetKey || targetKey === key) continue;
+                      const currentValue = String(task.extra_data?.[targetKey] ?? "").trim();
+                      if (currentValue && !valuesMatch(currentValue, recordValue)) return false;
+                    }
+                    return true;
+                  })
               : [];
+
+          // Büyük listede sort + Set + sort pahalı; sadece label'ları toplayıp ham veriyle dön.
+          // ReferenceSelectCell zaten kendi içinde filter + slice yapıyor.
           const typedOptions =
             typedReference?.labelField && filteredReferenceRecords.length > 0
-              ? Array.from(
-                  new Set(
-                    filteredReferenceRecords
-                      .map((record) => String(record[typedReference.labelField] ?? "").trim())
-                      .filter(Boolean)
-                  )
-                ).sort((a, b) => a.localeCompare(b, "tr", { sensitivity: "base" }))
+              ? skipCrossRefFilter
+                ? // Büyük liste: dedup ve sort atla — string array olarak ver, cell içinde gerekiyorsa filtrelenir
+                  filteredReferenceRecords
+                    .map((record) => String(record[typedReference.labelField] ?? "").trim())
+                    .filter(Boolean)
+                : Array.from(
+                    new Set(
+                      filteredReferenceRecords
+                        .map((record) => String(record[typedReference.labelField] ?? "").trim())
+                        .filter(Boolean)
+                    )
+                  ).sort((a, b) => a.localeCompare(b, "tr", { sensitivity: "base" }))
               : typedColumn?.config.options?.filter(Boolean) ?? [];
           const chipBinding =
             candidateProjectIds

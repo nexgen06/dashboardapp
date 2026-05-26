@@ -76,6 +76,8 @@ export default function ReferansVerilerPage() {
   // Inline editor
   const [editor, setEditor] = useState<EditorState>(null);
   const [editorSaving, setEditorSaving] = useState(false);
+  const [editorSearch, setEditorSearch] = useState("");
+  const [editorVisibleLimit, setEditorVisibleLimit] = useState(100);
 
   const refresh = useCallback(async () => {
     if (!canView) return;
@@ -221,9 +223,48 @@ export default function ReferansVerilerPage() {
       fields: [...source.fields],
       records: source.records.map((r) => ({ ...r })),
     });
+    setEditorSearch("");
+    setEditorVisibleLimit(100);
   };
 
-  const closeEditor = () => setEditor(null);
+  const closeEditor = () => {
+    setEditor(null);
+    setEditorSearch("");
+    setEditorVisibleLimit(100);
+  };
+
+  /**
+   * Filtrelenmiş + sayfalı kayıtlar.
+   * 1000+ kayıtlık dosyalarda tüm satırları render etmek tarayıcıyı kasar;
+   * arama input'u ile süzme + max 100 satır göster + "daha fazla yükle" butonu.
+   */
+  const editorVisibleRecords = useMemo(() => {
+    if (!editor) return { rows: [] as Array<{ record: Record<string, string>; originalIndex: number }>, total: 0 };
+    const q = editorSearch.trim().toLocaleLowerCase("tr");
+    let filteredIndices: number[];
+    if (!q) {
+      filteredIndices = editor.records.map((_, i) => i);
+    } else {
+      filteredIndices = [];
+      for (let i = 0; i < editor.records.length; i += 1) {
+        const rec = editor.records[i];
+        let match = false;
+        for (const field of editor.fields) {
+          const v = String(rec[field] ?? "").toLocaleLowerCase("tr");
+          if (v.includes(q)) {
+            match = true;
+            break;
+          }
+        }
+        if (match) filteredIndices.push(i);
+      }
+    }
+    const visible = filteredIndices.slice(0, editorVisibleLimit);
+    return {
+      rows: visible.map((originalIndex) => ({ record: editor.records[originalIndex], originalIndex })),
+      total: filteredIndices.length,
+    };
+  }, [editor, editorSearch, editorVisibleLimit]);
 
   const updateEditorRecord = (index: number, field: string, value: string) => {
     setEditor((curr) => {
@@ -371,7 +412,16 @@ export default function ReferansVerilerPage() {
                   className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
                 />
               </div>
-              {fileName && <p className="text-xs text-slate-500">{fileName} · {records.length} kayıt · {fields.length} alan</p>}
+              {fileName && (
+                <p className="text-xs text-slate-500">
+                  {fileName} · {records.length.toLocaleString("tr-TR")} kayıt · {fields.length} alan
+                  {records.length >= 1000 && (
+                    <span className="ml-1 text-amber-600 dark:text-amber-400">
+                      · büyük dosya — canlı tabloda dropdown otomatik arama-ile-filtre moduna geçer
+                    </span>
+                  )}
+                </p>
+              )}
             </div>
 
             <div className="space-y-3">
@@ -592,15 +642,40 @@ export default function ReferansVerilerPage() {
                 </label>
               </div>
 
-              {/* Kayıtlar tablosu */}
-              <div className="flex items-center justify-between gap-2">
+              {/* Kayıtlar — arama + sayfalı liste */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                  Kayıtlar ({editor.records.length})
+                  Kayıtlar ({editor.records.length}{editorSearch && ` · ${editorVisibleRecords.total} eşleşme`})
                 </p>
-                <Button type="button" variant="outline" size="sm" onClick={addEditorRow}>
-                  <Plus className="mr-1 h-3.5 w-3.5" />
-                  Satır ekle
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" aria-hidden />
+                    <input
+                      type="text"
+                      value={editorSearch}
+                      onChange={(e) => {
+                        setEditorSearch(e.target.value);
+                        setEditorVisibleLimit(100);
+                      }}
+                      placeholder="Kayıtlarda ara..."
+                      className="w-56 rounded border border-slate-200 bg-white py-1 pl-6 pr-6 text-xs dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                    />
+                    {editorSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setEditorSearch("")}
+                        className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-600"
+                        title="Temizle"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={addEditorRow}>
+                    <Plus className="mr-1 h-3.5 w-3.5" />
+                    Satır ekle
+                  </Button>
+                </div>
               </div>
               <div className="max-h-80 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
                 <table className="w-full text-xs">
@@ -617,7 +692,7 @@ export default function ReferansVerilerPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {editor.records.map((rec, idx) => (
+                    {editorVisibleRecords.rows.map(({ record: rec, originalIndex: idx }) => (
                       <tr key={idx} className={cn("border-t border-slate-100 dark:border-slate-700/50", idx % 2 === 1 && "bg-slate-50/40 dark:bg-slate-900/20")}>
                         <td className="px-2 py-1 text-[10px] text-slate-400">{idx + 1}</td>
                         {editor.fields.map((f) => (
@@ -641,9 +716,31 @@ export default function ReferansVerilerPage() {
                         </td>
                       </tr>
                     ))}
+                    {editorVisibleRecords.total === 0 && (
+                      <tr>
+                        <td colSpan={editor.fields.length + 2} className="px-3 py-4 text-center text-slate-500">
+                          {editorSearch ? "Eşleşen kayıt yok." : "Kayıt yok."}
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
+              {editorVisibleRecords.total > editorVisibleRecords.rows.length && (
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/40">
+                  <span className="text-slate-500 dark:text-slate-400">
+                    {editorVisibleRecords.rows.length} / {editorVisibleRecords.total} kayıt gösteriliyor
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditorVisibleLimit((curr) => curr + 200)}
+                  >
+                    Daha fazla yükle (+200)
+                  </Button>
+                </div>
+              )}
             </div>
           )}
 
