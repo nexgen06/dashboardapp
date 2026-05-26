@@ -35,10 +35,12 @@ import {
   listRecentAutomationLogs,
   listAutomationRules,
   ruleMatchesTask,
+  runAutomationRuleNow,
   saveAutomationRule,
   type AutomationLog,
   type AutomationActionType,
   type AutomationCondition,
+  type AutomationConditionLogic,
   type AutomationConditionOperator,
   type AutomationRule,
 } from "@/lib/automationRules";
@@ -149,12 +151,16 @@ export default function OtomasyonMerkeziPage() {
     name: "Geciken görev riski",
     projectId: "",
     enabled: true,
+    triggerType: "row_saved" as AutomationRule["triggerType"],
+    conditionLogic: "and" as AutomationConditionLogic,
+    priority: 0,
     conditions: [
       defaultCondition({ field: "due_date", op: "date_before_today" }),
       defaultCondition({ field: "status", op: "status_not_done" }),
     ] as DraftCondition[],
     actions: [defaultAction({ actionType: "set_risk", templateName: "Risk", optionValue: "critical" })] as DraftAction[],
   });
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(true);
 
   const refresh = useCallback(async () => {
@@ -184,10 +190,11 @@ export default function OtomasyonMerkeziPage() {
     void refresh();
   }, [refresh]);
 
-  const draftRule = useMemo<Pick<AutomationRule, "conditions" | "projectId">>(() => ({
+  const draftRule = useMemo<Pick<AutomationRule, "conditions" | "projectId" | "conditionLogic">>(() => ({
     projectId: form.projectId || null,
+    conditionLogic: form.conditionLogic,
     conditions: form.conditions.map(({ field, op, value }) => ({ field, op, value })),
-  }), [form.conditions, form.projectId]);
+  }), [form.conditions, form.conditionLogic, form.projectId]);
   const previewTasks = useMemo(
     () => tasks.filter((task) => ruleMatchesTask(draftRule, task, { rowChipValues, catalog })),
     [catalog, draftRule, rowChipValues, tasks]
@@ -278,9 +285,13 @@ export default function OtomasyonMerkeziPage() {
     }
     try {
       await saveAutomationRule({
+        id: editingRuleId ?? undefined,
         name: form.name,
         projectId: form.projectId || null,
         enabled: form.enabled,
+        triggerType: form.triggerType,
+        conditionLogic: form.conditionLogic,
+        priority: form.priority,
         conditions: draftRule.conditions,
         actions: form.actions.map((action, index) => ({
           actionType: action.actionType,
@@ -297,10 +308,81 @@ export default function OtomasyonMerkeziPage() {
                 : { templateName: action.templateName, optionValue: action.optionValue },
         })),
       });
-      toast.success("Otomasyon kuralı kaydedildi");
+      toast.success(editingRuleId ? "Kural güncellendi" : "Otomasyon kuralı kaydedildi");
+      setEditingRuleId(null);
       await refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Kural kaydedilemedi.");
+    }
+  };
+
+  /** Mevcut bir kuralı düzenleme moduna al — form alanlarını kuralın değerleriyle doldurur. */
+  const handleEditRule = (rule: AutomationRule) => {
+    setEditingRuleId(rule.id);
+    setForm({
+      name: rule.name,
+      projectId: rule.projectId ?? "",
+      enabled: rule.enabled,
+      triggerType: rule.triggerType ?? "row_saved",
+      conditionLogic: rule.conditionLogic ?? "and",
+      priority: rule.priority ?? 0,
+      conditions: rule.conditions.map((c) => defaultCondition({ field: c.field, op: c.op, value: c.value })),
+      actions: rule.actions.map((a) => {
+        const payload = a.payload ?? {};
+        return defaultAction({
+          actionType: a.actionType,
+          templateName: String(payload.templateName ?? "Risk"),
+          optionValue: String(payload.optionValue ?? payload.optionLabel ?? ""),
+          rowColor: String(payload.rowColor ?? payload.color ?? "red"),
+          title: String(payload.title ?? "Otomasyon bildirimi"),
+          body: String(payload.body ?? payload.reason ?? payload.message ?? ""),
+        });
+      }),
+    });
+    setPreviewOpen(true);
+    // Sayfa başına scroll — form üstte
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingRuleId(null);
+    setForm({
+      name: "Yeni kural",
+      projectId: "",
+      enabled: true,
+      triggerType: "row_saved",
+      conditionLogic: "and",
+      priority: 0,
+      conditions: [defaultCondition({ field: "due_date", op: "date_before_today" })],
+      actions: [defaultAction()],
+    });
+  };
+
+  const [runningRuleId, setRunningRuleId] = useState<string | null>(null);
+
+  const handleRunRule = async (rule: AutomationRule) => {
+    const matchCount = tasks.filter((task) => ruleMatchesTask(rule, task, { rowChipValues, catalog })).length;
+    if (matchCount === 0) {
+      toast.info("Bu kural mevcut veride hiç satıra uymuyor — çalıştırma atlandı.");
+      return;
+    }
+    const ok = await confirm({
+      title: "Kuralı şimdi çalıştır?",
+      message: `"${rule.name}" kuralı ${matchCount} satıra uygulanacak. Aksiyonlar (çip atama / renklendirme / kilit / bildirim) hemen tetiklenir. Devam edilsin mi?`,
+      confirmLabel: "Çalıştır",
+    });
+    if (!ok) return;
+    setRunningRuleId(rule.id);
+    try {
+      const result = await runAutomationRuleNow(rule, tasks, catalog);
+      toast.success(`Kural çalıştırıldı: ${result.matched} eşleşme, ${result.applied} aksiyon uygulandı.`);
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Kural çalıştırılamadı.");
+    } finally {
+      setRunningRuleId(null);
     }
   };
 
@@ -436,7 +518,18 @@ export default function OtomasyonMerkeziPage() {
 
       {canManage && (
         <form onSubmit={saveRule} className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
-          <div className="grid gap-3 lg:grid-cols-[1.3fr_1fr_auto]">
+          {editingRuleId && (
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs dark:border-blue-700 dark:bg-blue-950/30">
+              <span className="font-medium text-blue-800 dark:text-blue-200">
+                Düzenleme modu — değişiklikler kaydedilince mevcut kurala uygulanır.
+              </span>
+              <Button type="button" variant="ghost" size="sm" onClick={handleCancelEdit}>
+                <X className="mr-1 h-3.5 w-3.5" />
+                İptal
+              </Button>
+            </div>
+          )}
+          <div className="grid gap-3 lg:grid-cols-[1.3fr_1fr_1fr_auto_auto]">
             <input
               value={form.name}
               onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
@@ -451,6 +544,26 @@ export default function OtomasyonMerkeziPage() {
               <option value="">Tüm projeler</option>
               {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
             </select>
+            <select
+              value={form.triggerType}
+              onChange={(e) => setForm((p) => ({ ...p, triggerType: e.target.value as AutomationRule["triggerType"] }))}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+              title="Kural ne zaman tetiklenecek?"
+            >
+              <option value="row_saved">Satır kaydedildiğinde</option>
+              <option value="status_changed">Durum değiştiğinde</option>
+              <option value="manual">Sadece manuel (Şimdi çalıştır)</option>
+              <option value="scheduled">Planlanmış (yakında)</option>
+            </select>
+            <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-600 dark:text-slate-300" title="Öncelik — küçük sayı önce çalışır">
+              <span className="text-xs text-slate-400">P</span>
+              <input
+                type="number"
+                value={form.priority}
+                onChange={(e) => setForm((p) => ({ ...p, priority: Number(e.target.value) || 0 }))}
+                className="w-12 bg-transparent text-sm focus:outline-none"
+              />
+            </label>
             <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-600 dark:text-slate-300">
               <input type="checkbox" checked={form.enabled} onChange={(e) => setForm((p) => ({ ...p, enabled: e.target.checked }))} />
               Aktif
@@ -458,15 +571,47 @@ export default function OtomasyonMerkeziPage() {
           </div>
 
           <section className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
-            <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
                 <ListChecks className="h-4 w-4" />
                 Eğer
               </h2>
-              <Button type="button" size="sm" variant="outline" onClick={addCondition}>
-                <Plus className="mr-1.5 h-3.5 w-3.5" />
-                Koşul ekle
-              </Button>
+              <div className="flex items-center gap-2">
+                {/* Logic toggle: AND / OR */}
+                <div
+                  className="inline-flex overflow-hidden rounded-full border border-slate-200 text-[11px] dark:border-slate-600"
+                  role="group"
+                  aria-label="Koşul birleştirme mantığı"
+                >
+                  {(["and", "or"] as AutomationConditionLogic[]).map((logic) => {
+                    const active = form.conditionLogic === logic;
+                    return (
+                      <button
+                        key={logic}
+                        type="button"
+                        onClick={() => setForm((p) => ({ ...p, conditionLogic: logic }))}
+                        className={cn(
+                          "px-2.5 py-1 font-semibold uppercase transition-colors",
+                          active
+                            ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                            : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
+                        )}
+                        title={
+                          logic === "and"
+                            ? "Tüm koşullar geçerli olmalı"
+                            : "Herhangi bir koşul yeterli"
+                        }
+                      >
+                        {logic === "and" ? "Hepsi" : "Herhangi"}
+                      </button>
+                    );
+                  })}
+                </div>
+                <Button type="button" size="sm" variant="outline" onClick={addCondition}>
+                  <Plus className="mr-1.5 h-3.5 w-3.5" />
+                  Koşul ekle
+                </Button>
+              </div>
             </div>
             <div className="space-y-2">
               {form.conditions.map((condition, index) => {
@@ -474,7 +619,9 @@ export default function OtomasyonMerkeziPage() {
                 const needsValue = operator?.needsValue === true;
                 return (
                   <div key={condition.id} className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50/60 p-2 dark:border-slate-700 dark:bg-slate-900/30 lg:grid-cols-[auto_1fr_1fr_1fr_auto]">
-                    <span className="flex items-center text-xs font-semibold uppercase text-slate-400">{index === 0 ? "Eğer" : "Ve"}</span>
+                    <span className="flex items-center text-xs font-semibold uppercase text-slate-400">
+                      {index === 0 ? "Eğer" : form.conditionLogic === "or" ? "Veya" : "Ve"}
+                    </span>
                     <input
                       value={condition.field}
                       onChange={(e) => updateCondition(condition.id, { field: e.target.value })}
@@ -616,8 +763,8 @@ export default function OtomasyonMerkeziPage() {
                 {previewTasks.length === 0 ? (
                   <p className="text-sm text-slate-500 dark:text-slate-400">Bu kural mevcut veride satır eşleştirmiyor.</p>
                 ) : (
-                  <div className="space-y-2">
-                    {previewTasks.slice(0, 8).map((task) => {
+                  <div className="max-h-72 space-y-2 overflow-y-auto">
+                    {previewTasks.map((task) => {
                       const project = task.project_id ? projects.find((item) => item.id === task.project_id) : null;
                       return (
                         <div key={task.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">
@@ -628,7 +775,6 @@ export default function OtomasyonMerkeziPage() {
                         </div>
                       );
                     })}
-                    {previewTasks.length > 8 && <p className="text-xs text-slate-500">+{previewTasks.length - 8} satır daha</p>}
                   </div>
                 )}
               </div>
@@ -640,7 +786,10 @@ export default function OtomasyonMerkeziPage() {
               <Bell className="h-3.5 w-3.5" />
               Bildirim aksiyonu merkezi bildirim kutusuna kayıt üretir; SQL köprüsü uygulanmadıysa otomasyon loglarında uyarı görünür.
             </p>
-            <Button type="submit"><Plus className="mr-2 h-4 w-4" /> Kuralı kaydet</Button>
+            <Button type="submit">
+              <Plus className="mr-2 h-4 w-4" />
+              {editingRuleId ? "Kuralı güncelle" : "Kuralı kaydet"}
+            </Button>
           </div>
         </form>
       )}
@@ -662,11 +811,32 @@ export default function OtomasyonMerkeziPage() {
                       <p className="font-medium text-slate-900 dark:text-slate-100">{rule.name}</p>
                       <Badge variant={rule.enabled ? "default" : "outline"}>{rule.enabled ? "Aktif" : "Pasif"}</Badge>
                       <Badge variant="outline">{project?.name ?? "Tüm projeler"}</Badge>
+                      {rule.conditionLogic === "or" && (
+                        <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
+                          Herhangi
+                        </Badge>
+                      )}
+                      <Badge variant="outline" className="text-[10px] text-slate-500" title="Çalışma önceliği — küçük sayı önce">
+                        P{rule.priority ?? 0}
+                      </Badge>
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] text-slate-500"
+                        title="Tetikleyici"
+                      >
+                        {rule.triggerType === "row_saved"
+                          ? "Satır kaydında"
+                          : rule.triggerType === "status_changed"
+                            ? "Durum değişiminde"
+                            : rule.triggerType === "manual"
+                              ? "Manuel"
+                              : "Planlı"}
+                      </Badge>
                     </div>
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {rule.conditions.map((condition, index) => (
                         <Badge key={`${rule.id}-condition-${index}`} variant="outline" className="bg-slate-50 text-slate-600 dark:bg-slate-900 dark:text-slate-300">
-                          {index === 0 ? "Eğer" : "Ve"} {condition.field} {operatorLabel(condition.op)} {condition.value ? condition.value : ""}
+                          {index === 0 ? "Eğer" : rule.conditionLogic === "or" ? "Veya" : "Ve"} {condition.field} {operatorLabel(condition.op)} {condition.value ? condition.value : ""}
                         </Badge>
                       ))}
                     </div>
@@ -683,6 +853,31 @@ export default function OtomasyonMerkeziPage() {
                   </div>
                   {canManage && (
                     <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleRunRule(rule)}
+                        disabled={runningRuleId === rule.id}
+                        title="Bu kuralı şimdi tüm satırlara uygula"
+                        className="text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-900/30"
+                      >
+                        {runningRuleId === rule.id ? (
+                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Play className="mr-1 h-3.5 w-3.5" />
+                        )}
+                        Şimdi çalıştır
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleEditRule(rule)}
+                        title="Bu kuralı düzenle"
+                      >
+                        Düzenle
+                      </Button>
                       <Button
                         type="button"
                         variant="ghost"

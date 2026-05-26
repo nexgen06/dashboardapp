@@ -29,6 +29,13 @@ export type AutomationCondition = {
   value?: string;
 };
 
+/**
+ * Kuralın koşullarını birleştirme mantığı:
+ *   "and" → tüm koşullar geçerli olmalı (varsayılan)
+ *   "or"  → herhangi bir koşul geçerliyse kural uygular
+ */
+export type AutomationConditionLogic = "and" | "or";
+
 export type AutomationActionType = "assign_chip" | "notify" | "lock_row" | "set_risk" | "color_row" | "log_only";
 
 export type AutomationAction = {
@@ -44,8 +51,11 @@ export type AutomationRule = {
   projectId: string | null;
   name: string;
   enabled: boolean;
-  triggerType: "row_saved" | "scheduled" | "manual";
+  triggerType: "row_saved" | "scheduled" | "manual" | "status_changed";
+  conditionLogic: AutomationConditionLogic;
   conditions: AutomationCondition[];
+  /** Kural önceliği: küçük sayılar önce çalışır (0 varsayılan). */
+  priority: number;
   createdAt: string;
   updatedAt: string;
   actions: AutomationAction[];
@@ -66,7 +76,9 @@ type RuleRow = {
   name: string;
   enabled: boolean;
   trigger_type: AutomationRule["triggerType"];
+  condition_logic: AutomationConditionLogic | null;
   conditions: AutomationCondition[] | null;
+  priority: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -106,7 +118,9 @@ function mapRule(row: RuleRow, actions: AutomationAction[]): AutomationRule {
     name: row.name,
     enabled: row.enabled,
     triggerType: row.trigger_type,
+    conditionLogic: (row.condition_logic ?? "and") as AutomationConditionLogic,
     conditions: Array.isArray(row.conditions) ? row.conditions : [],
+    priority: Number.isFinite(row.priority) ? Number(row.priority) : 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     actions: actions.filter((action) => action.ruleId === row.id).sort((a, b) => a.sortOrder - b.sortOrder),
@@ -126,7 +140,8 @@ function mapAction(row: ActionRow): AutomationAction {
 export async function listAutomationRules(projectIds: string[] = []): Promise<AutomationRule[]> {
   const rulesQuery = supabase
     .from("automation_rules")
-    .select("id,project_id,name,enabled,trigger_type,conditions,created_at,updated_at")
+    .select("id,project_id,name,enabled,trigger_type,condition_logic,conditions,priority,created_at,updated_at")
+    .order("priority", { ascending: true })
     .order("updated_at", { ascending: false });
   const filteredRulesQuery = projectIds.length > 0
     ? rulesQuery.or(`project_id.is.null,project_id.in.(${projectIds.join(",")})`)
@@ -150,28 +165,46 @@ export async function saveAutomationRule(input: {
   name: string;
   enabled: boolean;
   triggerType?: AutomationRule["triggerType"];
+  conditionLogic?: AutomationConditionLogic;
   conditions: AutomationCondition[];
+  priority?: number;
   actions: Array<{ actionType: AutomationActionType; payload: Record<string, unknown>; sortOrder?: number }>;
 }): Promise<void> {
-  const rulePayload = {
+  const rulePayload: Record<string, unknown> = {
     project_id: input.projectId ?? null,
     name: input.name.trim(),
     enabled: input.enabled,
     trigger_type: input.triggerType ?? "row_saved",
+    condition_logic: input.conditionLogic ?? "and",
     conditions: input.conditions,
+    priority: Number.isFinite(input.priority) ? Number(input.priority) : 0,
   };
-  const ruleRes = input.id
-    ? await supabase
-        .from("automation_rules")
-        .update(rulePayload)
-        .eq("id", input.id)
-        .select("id")
-        .single()
-    : await supabase
-        .from("automation_rules")
-        .insert(rulePayload)
-        .select("id")
-        .single();
+  const performWrite = async (payload: Record<string, unknown>) => {
+    return input.id
+      ? await supabase
+          .from("automation_rules")
+          .update(payload)
+          .eq("id", input.id)
+          .select("id")
+          .single()
+      : await supabase
+          .from("automation_rules")
+          .insert(payload)
+          .select("id")
+          .single();
+  };
+  let ruleRes = await performWrite(rulePayload);
+  // Yeni kolonlar (condition_logic, priority) DB'de yoksa retry — eski Supabase ortamı için
+  if (
+    ruleRes.error &&
+    (ruleRes.error.code === "42703" ||
+      /condition_logic|priority/i.test(String(ruleRes.error.message ?? "")))
+  ) {
+    const fallback = { ...rulePayload };
+    delete fallback.condition_logic;
+    delete fallback.priority;
+    ruleRes = await performWrite(fallback);
+  }
   if (ruleRes.error) throw friendlyAutomationError(ruleRes.error);
   const ruleId = String(ruleRes.data.id);
   const del = await supabase.from("automation_actions").delete().eq("rule_id", ruleId);
@@ -199,26 +232,37 @@ export async function deleteAutomationRule(id: string): Promise<void> {
  * Yeni kural pasif (enabled=false) olarak başlar — kullanıcı önce gözden geçirip aktif etsin.
  */
 export async function duplicateAutomationRule(id: string): Promise<string> {
-  // 1) Kaynak kural
+  // 1) Kaynak kural — eski sütun seti ile de çalışacak şekilde geniş select
   const { data: srcRule, error: ruleErr } = await supabase
     .from("automation_rules")
-    .select("name,project_id,trigger_type,conditions")
+    .select("name,project_id,trigger_type,conditions,condition_logic,priority")
     .eq("id", id)
     .single();
   if (ruleErr || !srcRule) throw friendlyAutomationError(ruleErr ?? new Error("Kaynak kural bulunamadı"));
 
   // 2) Yeni kural (pasif)
-  const { data: created, error: createErr } = await supabase
+  const newRulePayload: Record<string, unknown> = {
+    name: `${srcRule.name} (kopya)`,
+    project_id: srcRule.project_id,
+    trigger_type: srcRule.trigger_type,
+    enabled: false,
+    conditions: srcRule.conditions ?? [],
+  };
+  if ("condition_logic" in srcRule) newRulePayload.condition_logic = (srcRule as Record<string, unknown>).condition_logic ?? "and";
+  if ("priority" in srcRule) newRulePayload.priority = (srcRule as Record<string, unknown>).priority ?? 0;
+  let { data: created, error: createErr } = await supabase
     .from("automation_rules")
-    .insert({
-      name: `${srcRule.name} (kopya)`,
-      project_id: srcRule.project_id,
-      trigger_type: srcRule.trigger_type,
-      enabled: false,
-      conditions: srcRule.conditions ?? [],
-    })
+    .insert(newRulePayload)
     .select("id")
     .single();
+  if (createErr && (createErr.code === "42703" || /condition_logic|priority/i.test(createErr.message ?? ""))) {
+    const fallback = { ...newRulePayload };
+    delete fallback.condition_logic;
+    delete fallback.priority;
+    const retry = await supabase.from("automation_rules").insert(fallback).select("id").single();
+    created = retry.data;
+    createErr = retry.error;
+  }
   if (createErr || !created) throw friendlyAutomationError(createErr ?? new Error("Kural kopyalanamadı"));
   const newId = String(created.id);
 
@@ -323,33 +367,44 @@ function isBeforeToday(value: string): boolean {
   return d < today;
 }
 
+function evaluateCondition(
+  condition: AutomationCondition,
+  task: Task,
+  context?: { rowChipValues?: RowChipValue[]; catalog?: ChipCatalog }
+): boolean {
+  const values = taskConditionValues(task, condition.field, context?.rowChipValues, context?.catalog);
+  const raw = values[0] ?? "";
+  const target = String(condition.value ?? "").trim();
+  if (condition.op === "is_empty") return values.every((value) => value === "");
+  if (condition.op === "is_not_empty") return values.some((value) => value !== "");
+  if (condition.op === "equals") return values.some((value) => normalizeConditionText(value) === normalizeConditionText(target));
+  if (condition.op === "not_equals") return values.every((value) => normalizeConditionText(value) !== normalizeConditionText(target));
+  if (condition.op === "date_before_today") return values.some(isBeforeToday);
+  if (condition.op === "date_today") return values.some(isToday);
+  if (condition.op === "number_gt") return values.some((value) => Number(value.replace(",", ".")) > Number(target.replace(",", ".")));
+  if (condition.op === "number_lt") return values.some((value) => Number(value.replace(",", ".")) < Number(target.replace(",", ".")));
+  if (condition.op === "updated_before_days") {
+    if (!raw) return false;
+    const d = new Date(raw).getTime();
+    const days = Number(target || "7");
+    return Number.isFinite(d) && Date.now() - d > days * 24 * 60 * 60 * 1000;
+  }
+  if (condition.op === "status_not_done") return !isStatusDone(task.status);
+  return false;
+}
+
 export function ruleMatchesTask(
-  rule: Pick<AutomationRule, "conditions" | "projectId">,
+  rule: Pick<AutomationRule, "conditions" | "projectId"> & { conditionLogic?: AutomationConditionLogic },
   task: Task,
   context?: { rowChipValues?: RowChipValue[]; catalog?: ChipCatalog }
 ): boolean {
   if (rule.projectId && String(task.project_id ?? "") !== rule.projectId) return false;
-  return rule.conditions.every((condition) => {
-    const values = taskConditionValues(task, condition.field, context?.rowChipValues, context?.catalog);
-    const raw = values[0] ?? "";
-    const target = String(condition.value ?? "").trim();
-    if (condition.op === "is_empty") return values.every((value) => value === "");
-    if (condition.op === "is_not_empty") return values.some((value) => value !== "");
-    if (condition.op === "equals") return values.some((value) => normalizeConditionText(value) === normalizeConditionText(target));
-    if (condition.op === "not_equals") return values.every((value) => normalizeConditionText(value) !== normalizeConditionText(target));
-    if (condition.op === "date_before_today") return values.some(isBeforeToday);
-    if (condition.op === "date_today") return values.some(isToday);
-    if (condition.op === "number_gt") return values.some((value) => Number(value.replace(",", ".")) > Number(target.replace(",", ".")));
-    if (condition.op === "number_lt") return values.some((value) => Number(value.replace(",", ".")) < Number(target.replace(",", ".")));
-    if (condition.op === "updated_before_days") {
-      if (!raw) return false;
-      const d = new Date(raw).getTime();
-      const days = Number(target || "7");
-      return Number.isFinite(d) && Date.now() - d > days * 24 * 60 * 60 * 1000;
-    }
-    if (condition.op === "status_not_done") return !isStatusDone(task.status);
-    return false;
-  });
+  if (rule.conditions.length === 0) return true;
+  const logic = rule.conditionLogic ?? "and";
+  if (logic === "or") {
+    return rule.conditions.some((condition) => evaluateCondition(condition, task, context));
+  }
+  return rule.conditions.every((condition) => evaluateCondition(condition, task, context));
 }
 
 export function countRuleMatches(rule: Pick<AutomationRule, "conditions" | "projectId">, tasks: Task[]): number {
@@ -412,6 +467,28 @@ const AUTOMATION_ROW_COLORS = new Set<AutomationRowColor>(["red", "amber", "emer
 function normalizeRowColor(value: unknown): AutomationRowColor | null {
   const color = String(value ?? "").trim().toLowerCase();
   return AUTOMATION_ROW_COLORS.has(color as AutomationRowColor) ? color as AutomationRowColor : null;
+}
+
+/**
+ * Tek bir kuralı verilen görev listesi üzerinde manuel çalıştırır.
+ * "Bu kuralı şimdi uygula" butonu için.
+ * Kural pasif olsa bile çalıştırılır — kullanıcının niyeti açıktır.
+ * Önce sanal eşleştirme yapılır (matches sayısı), sonra apply.
+ */
+export async function runAutomationRuleNow(
+  rule: AutomationRule,
+  tasks: Task[],
+  catalog?: ChipCatalog
+): Promise<{ matched: number; applied: number }> {
+  // Sadece bu kuralı uygula; rule.enabled false olsa bile çalıştır (forced)
+  const forced: AutomationRule = { ...rule, enabled: true };
+  const effectiveCatalog =
+    catalog ?? (await listChipCatalog(Array.from(new Set(tasks.map((t) => String(t.project_id ?? "")).filter(Boolean)))));
+  const currentRows = await listRowChipValues(tasks.map((t) => t.id));
+  const matched = tasks.filter((t) => ruleMatchesTask(forced, t, { rowChipValues: currentRows, catalog: effectiveCatalog }));
+  if (matched.length === 0) return { matched: 0, applied: 0 };
+  const applied = await applyAutomationRulesForTasks(matched, [forced], effectiveCatalog);
+  return { matched: matched.length, applied };
 }
 
 export async function applyAutomationRulesForTasks(tasks: Task[], rules: AutomationRule[], catalog?: ChipCatalog): Promise<number> {
