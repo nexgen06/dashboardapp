@@ -328,10 +328,11 @@ export function useTasksWithRealtime() {
       if ("workflow_submitted_at" in (patch ?? {})) payload.workflow_submitted_at = patch?.workflow_submitted_at ?? null;
       if ("workflow_reviewed_at" in (patch ?? {})) payload.workflow_reviewed_at = patch?.workflow_reviewed_at ?? null;
       if ("workflow_reviewed_by" in (patch ?? {})) payload.workflow_reviewed_by = patch?.workflow_reviewed_by ?? null;
-      const { error: updateError } = await supabase
+      const { data: updatedRows, error: updateError } = await supabase
         .from("tasks")
         .update(payload)
-        .eq("id", taskId);
+        .eq("id", taskId)
+        .select("id");
 
       if (updateError) {
         console.error("[Tasks] Update failed:", updateError);
@@ -339,6 +340,17 @@ export function useTasksWithRealtime() {
           .filter((x) => x != null && String(x).trim() !== "");
         await fetchTasks();
         return { ok: false, message: parts.length > 0 ? parts.join(" — ") : "Güncelleme başarısız" };
+      }
+
+      // Sessiz RLS bloğunu yakala: update hatasız döner ama 0 satır etkilenirse
+      // yetki olmamış demektir. Optimistic state ile DB'yi senkronla.
+      if (!updatedRows || updatedRows.length === 0) {
+        console.warn("[Tasks] Update affected 0 rows — RLS may have blocked it:", taskId);
+        await fetchTasks();
+        return {
+          ok: false,
+          message: "Bu satırı güncelleme yetkiniz yok (RLS engelledi).",
+        };
       }
 
       if (isSupabaseConfigured() && patch.status !== undefined && patch.status !== null) {

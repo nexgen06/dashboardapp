@@ -40,6 +40,10 @@ type PromptOptions = {
   confirmLabel?: string;
   /** Boş bırakılırsa onaylanamaz. Varsayılan: true. */
   required?: boolean;
+  /** Çok satırlı metin girişi (textarea) gösterir. Varsayılan: false. */
+  multiline?: boolean;
+  /** multiline true ise textarea satır yüksekliği. Varsayılan: 4. */
+  rows?: number;
 };
 
 type ConfirmFn = (opts: ConfirmOptions) => Promise<boolean>;
@@ -170,14 +174,34 @@ export function ModalsProvider({ children }: { children: React.ReactNode }) {
               }}
               className="py-1"
             >
-              <input
-                type="text"
-                value={promptValue}
-                onChange={(e) => setPromptValue(e.target.value)}
-                placeholder={promptState?.placeholder ?? ""}
-                autoFocus
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
-              />
+              {promptState?.multiline ? (
+                <textarea
+                  value={promptValue}
+                  onChange={(e) => setPromptValue(e.target.value)}
+                  placeholder={promptState?.placeholder ?? ""}
+                  rows={promptState?.rows ?? 4}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    // Ctrl/Cmd+Enter ile gönder
+                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                      e.preventDefault();
+                      const val = promptValue.trim();
+                      if (promptState?.required !== false && !val) return;
+                      handlePromptResult(val);
+                    }
+                  }}
+                  className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                />
+              ) : (
+                <input
+                  type="text"
+                  value={promptValue}
+                  onChange={(e) => setPromptValue(e.target.value)}
+                  placeholder={promptState?.placeholder ?? ""}
+                  autoFocus
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                />
+              )}
               <DialogFooter className="mt-4">
                 <Button
                   type="button"

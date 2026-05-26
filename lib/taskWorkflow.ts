@@ -19,7 +19,7 @@ export const WORKFLOW_STATUS_CLASS: Record<TaskWorkflowStatus, string> = {
   rejected: "border-red-200 bg-red-50 text-red-800 dark:!border-red-400/80 dark:!bg-red-950 dark:!text-red-100 dark:shadow-[0_0_0_1px_rgba(248,113,113,0.2)]",
 };
 
-export type TaskWorkflowAction = "submit" | "approve" | "request_revision" | "reject" | "reset";
+export type TaskWorkflowAction = "submit" | "approve" | "request_revision" | "reject" | "reset" | "unlock" | "unlock_request";
 
 export const WORKFLOW_ACTION_LABELS: Record<TaskWorkflowAction, string> = {
   submit: "Kontrole gönder",
@@ -27,6 +27,8 @@ export const WORKFLOW_ACTION_LABELS: Record<TaskWorkflowAction, string> = {
   request_revision: "Revize iste",
   reject: "Reddet",
   reset: "Taslağa al",
+  unlock: "Kilidi aç",
+  unlock_request: "Kilit açma talep et",
 };
 
 export function normalizeWorkflowStatus(status: Task["workflow_status"]): TaskWorkflowStatus {
@@ -38,7 +40,26 @@ export function nextWorkflowStatus(action: TaskWorkflowAction): TaskWorkflowStat
   if (action === "approve") return "approved";
   if (action === "request_revision") return "revision_requested";
   if (action === "reject") return "rejected";
+  // reset, unlock → draft
   return "draft";
+}
+
+/**
+ * Görev satırı, mevcut kullanıcı için (workflow onay sonrası) kilitli mi?
+ * Kilitli = proje workflow + lock_on_approval açık + status 'approved' +
+ *           kullanıcı yetkili değil (review yetkisi yok).
+ */
+export function isTaskLockedForUser(input: {
+  workflowStatus: TaskWorkflowStatus;
+  projectWorkflowEnabled: boolean;
+  projectLockOnApproval: boolean;
+  isReviewer: boolean;
+}): boolean {
+  if (!input.projectWorkflowEnabled) return false;
+  if (!input.projectLockOnApproval) return false;
+  if (input.workflowStatus !== "approved") return false;
+  if (input.isReviewer) return false;
+  return true;
 }
 
 export async function logTaskWorkflowEvent(input: {

@@ -94,6 +94,8 @@ export type NewProjectSubmitData = {
   wipInProgressLimit?: number | null;
   /** Görev satırları için onay workflow sistemi. */
   workflowEnabled?: boolean;
+  /** Onaylanan satırları kilitle (yetkili olmayanlar düzenleyemez). workflowEnabled gerekli. */
+  lockOnApproval?: boolean;
   /** Yeni proje + dosya: atanan e-posta listesine round-robin (en az 2 e-posta). */
   importRoundRobin?: boolean;
   importAssignmentMode?: ImportAssignmentMode;
@@ -378,6 +380,7 @@ function ProjectFormModal({
   const [subtitleColumns, setSubtitleColumns] = useState<string[]>([]);
   const [wipInProgressLimit, setWipInProgressLimit] = useState<string>("");
   const [workflowEnabled, setWorkflowEnabled] = useState(false);
+  const [lockOnApproval, setLockOnApproval] = useState(false);
   const [directoryUsers, setDirectoryUsers] = useState<DirectoryUserProfile[]>([]);
   const [memberPermissions, setMemberPermissions] = useState<Record<string, ProjectMemberPermission>>({});
   const [permissionsLoading, setPermissionsLoading] = useState(false);
@@ -459,6 +462,7 @@ function ProjectFormModal({
           : ""
       );
       setWorkflowEnabled(project.workflow_enabled === true);
+      setLockOnApproval(project.lock_on_approval === true);
       setStep(1);
     } else if (open && !project) {
       setName("");
@@ -838,6 +842,7 @@ function ProjectFormModal({
           return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
         })(),
         workflowEnabled,
+        lockOnApproval: workflowEnabled ? lockOnApproval : false,
         selectedImportColumns:
           !isEdit && importFile && importPreview
             ? importPreview.headers.filter((h) =>
@@ -973,7 +978,11 @@ function ProjectFormModal({
             type="checkbox"
             className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
             checked={workflowEnabled}
-            onChange={(e) => setWorkflowEnabled(e.target.checked)}
+            onChange={(e) => {
+              const v = e.target.checked;
+              setWorkflowEnabled(v);
+              if (!v) setLockOnApproval(false);
+            }}
           />
           <span className="text-sm text-slate-800 dark:text-slate-200">
             <span className="font-medium">Onay workflow sistemi</span>
@@ -982,6 +991,23 @@ function ProjectFormModal({
             </span>
           </span>
         </label>
+        {workflowEnabled && (
+          <label className="mt-3 flex cursor-pointer items-start gap-2 border-t border-violet-200 pt-3 dark:border-violet-800/60">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+              checked={lockOnApproval}
+              onChange={(e) => setLockOnApproval(e.target.checked)}
+            />
+            <span className="text-sm text-slate-800 dark:text-slate-200">
+              <span className="font-medium">Onaylanan satırları kilitle</span>
+              <span className="mt-1 block text-xs font-normal text-slate-600 dark:text-slate-400">
+                Onay verilen satır salt-okunur olur. Sadece admin, proje sahibi veya proje yetkilisi
+                &quot;Kilidi aç&quot; aksiyonuyla tekrar düzenlemeye açabilir.
+              </span>
+            </span>
+          </label>
+        )}
       </div>
     </div>
   );
@@ -2494,6 +2520,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
           subtitle_columns: data.subtitleColumns ?? null,
           wip_in_progress_limit: data.wipInProgressLimit ?? null,
           workflow_enabled: data.workflowEnabled ?? false,
+          lock_on_approval: (data.workflowEnabled ?? false) ? (data.lockOnApproval ?? false) : false,
           ...(isAdmin
             ? { strict_assignee_visibility: data.strictAssigneeVisibility ?? false }
             : {}),
@@ -2579,6 +2606,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
         subtitle_columns: data.subtitleColumns ?? null,
         wip_in_progress_limit: data.wipInProgressLimit ?? null,
         workflow_enabled: data.workflowEnabled ?? false,
+        lock_on_approval: (data.workflowEnabled ?? false) ? (data.lockOnApproval ?? false) : false,
       });
       if (projectId) {
         await ensureSmartChipBindings(projectId, data.smartChipColumns);

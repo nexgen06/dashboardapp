@@ -7,8 +7,9 @@ import { TasksTable } from "@/components/TasksTable";
 import { TasksKanban } from "@/components/TasksKanban";
 import { TasksGantt } from "@/components/TasksGantt";
 import { TasksCalendar } from "@/components/TasksCalendar";
+import { TasksRiskView } from "@/components/TasksRiskView";
 import { GorevOzeti } from "@/components/GorevOzeti";
-import { Shield, Loader2, Table2, Columns3, GanttChart, CalendarDays, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Shield, Loader2, Table2, Columns3, GanttChart, CalendarDays, PanelLeftClose, PanelLeftOpen, ShieldAlert } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Section } from "@/components/ui/section";
@@ -126,6 +127,10 @@ export default function CanliTabloPage() {
         <TabsTrigger value="calendar" className="h-7 gap-1.5 rounded-md px-2.5 text-xs data-[state=active]:bg-white data-[state=active]:text-slate-950 dark:data-[state=active]:bg-slate-950 dark:data-[state=active]:text-slate-100">
           <CalendarDays className="h-3.5 w-3.5" aria-hidden />
           Takvim
+        </TabsTrigger>
+        <TabsTrigger value="risk" className="h-7 gap-1.5 rounded-md px-2.5 text-xs data-[state=active]:bg-white data-[state=active]:text-slate-950 dark:data-[state=active]:bg-slate-950 dark:data-[state=active]:text-slate-100">
+          <ShieldAlert className="h-3.5 w-3.5" aria-hidden />
+          Risk
         </TabsTrigger>
       </TabsList>
     </div>
@@ -286,6 +291,12 @@ export default function CanliTabloPage() {
               className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
             >
               <TasksCalendar projectFilter={projectFilter} />
+            </TabsContent>
+            <TabsContent
+              value="risk"
+              className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
+            >
+              <TasksRiskView projectFilter={projectFilter} />
             </TabsContent>
           </Tabs>
         </Section>
