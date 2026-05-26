@@ -67,6 +67,8 @@ declare
   proj_subtitle_columns text[];
   actor_email text;
   actor_display text;
+  actor_full_name text;
+  actor_nickname text;
   submitter_email text;
   notif_title text;
   notif_body text;
@@ -137,13 +139,32 @@ begin
     raise exception 'not allowed';
   end if;
 
-  -- Aktör (aksiyonu yapan) e-postası.
+  -- Aktör (aksiyonu yapan) e-postası + görünür ad.
+  -- Öncelik: profile.nickname → profile.full_name → email localpart → 'Bir kullanıcı'
   select lower(trim(coalesce(u.email, '')))
     into actor_email
   from auth.users u
   where u.id = auth.uid();
 
-  actor_display := coalesce(nullif(actor_email, ''), 'Bir kullanıcı');
+  -- Profil tablosunu denemeden önce sütunların varlığını kontrol etmek riskli;
+  -- doğrudan select; profile yoksa null döner.
+  begin
+    select nullif(trim(p.nickname), ''), nullif(trim(p.full_name), '')
+      into actor_nickname, actor_full_name
+    from public.profiles p
+    where p.id = auth.uid()
+    limit 1;
+  exception when others then
+    actor_nickname := null;
+    actor_full_name := null;
+  end;
+
+  actor_display := coalesce(
+    actor_nickname,
+    actor_full_name,
+    nullif(split_part(actor_email, '@', 1), ''),
+    'Bir kullanıcı'
+  );
 
   -- Başlık aksiyona göre — kim ne yaptı.
   if p_action = 'submit' then
@@ -228,6 +249,7 @@ begin
           'action', p_action,
           'to_status', p_to_status,
           'actor_email', actor_email,
+          'actor_display_name', actor_display,
           'note', p_note
         )
       from recipients r
@@ -291,6 +313,7 @@ begin
           'action', p_action,
           'to_status', p_to_status,
           'actor_email', actor_email,
+          'actor_display_name', actor_display,
           'note', p_note
         )
       from recipients r
