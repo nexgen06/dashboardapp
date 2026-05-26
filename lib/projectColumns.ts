@@ -22,8 +22,18 @@ export type ProjectColumnType =
 export type ProjectColumnConfig = {
   /** select / multi_select: önceden tanımlı seçenekler */
   options?: string[];
-  /** JSON gibi dış referans kaynaklardan seçenek üretildiğinde kısa metadata */
+  /** JSON / CSV gibi dış referans kaynaklardan seçenek üretildiğinde metadata.
+   *
+   * Strateji:
+   *  - sourceId: tercih edilen ID — canlı bağlantı; kaynak düzenlenirse sütun otomatik güncellenir
+   *  - sourceName: insan-okuyucu fallback (eski kayıtlarda da var)
+   *  - records: snapshot (eski şema); sourceId yoksa fallback olarak kullanılır
+   *
+   * Render önceliği: sourceId → referenceSources lookup → live records
+   *                  yoksa records snapshot fallback
+   */
   reference?: {
+    sourceId?: string;
     sourceName: string;
     labelField: string;
     valueField?: string;

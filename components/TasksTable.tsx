@@ -109,6 +109,7 @@ import { listSavedViews, type SavedView, type SavedViewConfig } from "@/lib/save
 import { urgentPrioritySetFromCsv, isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
 import { canEditTaskRow } from "@/lib/taskRowPermissions";
 import { listProjectColumns, type ProjectColumn } from "@/lib/projectColumns";
+import { listReferenceSources, type ReferenceSource } from "@/lib/referenceSources";
 import {
   buildChipValueResolver,
   getChipOptionsForColumn,
@@ -2227,6 +2228,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const [removeExtraColumnKey, setRemoveExtraColumnKey] = useState<string | null>(null);
   const [removingExtraColumn, setRemovingExtraColumn] = useState(false);
   const [projectColumnsByProjectId, setProjectColumnsByProjectId] = useState<Record<string, ProjectColumn[]>>({});
+  /** Referans kaynakları — extra column dropdown'ları için canlı veri kaynağı (config.reference.sourceId ile lookup). */
+  const [referenceSources, setReferenceSources] = useState<ReferenceSource[]>([]);
   const [projectPermissionsByProjectId, setProjectPermissionsByProjectId] = useState<Record<string, ProjectMemberPermission>>({});
   const [projectPermissionsAvailable, setProjectPermissionsAvailable] = useState(false);
   const [chipCatalog, setChipCatalog] = useState<ChipCatalog>(EMPTY_CHIP_CATALOG);
@@ -2315,6 +2318,23 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       cancelled = true;
     };
   }, [projects]);
+
+  /** Referans kaynaklarını yükle (extra column dropdown'larında canlı bağlantı için). */
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const refs = await listReferenceSources();
+        if (!cancelled) setReferenceSources(refs);
+      } catch {
+        // Sessiz başarısızlık — tablo yoksa boş referans listesi
+        if (!cancelled) setReferenceSources([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const projectIds = useMemo(
     () => Array.from(new Set(projects.map((project) => String(project.id ?? "")).filter(Boolean))),
@@ -4307,7 +4327,14 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
               .find((col) => col.key.trim().toLocaleLowerCase("tr") === normalizedExtraKey) ??
             null;
           const typedReference = typedColumn?.config.reference;
-          const typedRecords = typedReference?.records ?? [];
+          // Canlı bağlantı: sourceId varsa referenceSources'tan en güncel kayıtları al;
+          // yoksa eski snapshot (config.reference.records) fallback.
+          const liveReferenceSource = typedReference?.sourceId
+            ? referenceSources.find((s) => s.id === typedReference.sourceId)
+            : null;
+          const typedRecords = liveReferenceSource
+            ? liveReferenceSource.records
+            : typedReference?.records ?? [];
           const filteredReferenceRecords =
             typedReference?.labelField && typedRecords.length > 0
               ? typedRecords.filter((record) => {

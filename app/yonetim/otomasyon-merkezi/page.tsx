@@ -45,6 +45,7 @@ import {
   type AutomationRule,
 } from "@/lib/automationRules";
 import { listChipCatalog, listRowChipValues, type ChipCatalog, type RowChipValue } from "@/lib/chipSystem";
+import { listReferenceSources, type ReferenceSource } from "@/lib/referenceSources";
 import { getTaskDisplayLabel } from "@/lib/taskDisplayLabel";
 import { getRelativeTime } from "@/lib/relativeTime";
 import { cn } from "@/lib/utils";
@@ -143,6 +144,7 @@ export default function OtomasyonMerkeziPage() {
   const [logs, setLogs] = useState<AutomationLog[]>([]);
   const [catalog, setCatalog] = useState<ChipCatalog>({ templates: [], options: [], bindings: [] });
   const [rowChipValues, setRowChipValues] = useState<RowChipValue[]>([]);
+  const [referenceSources, setReferenceSources] = useState<ReferenceSource[]>([]);
   const [loading, setLoading] = useState(false);
   const [logStatusFilter, setLogStatusFilter] = useState<AutomationLog["status"] | "all">("all");
   const [logRuleFilter, setLogRuleFilter] = useState("all");
@@ -169,16 +171,18 @@ export default function OtomasyonMerkeziPage() {
     try {
       const projectIds = projects.map((project) => project.id);
       const taskIds = tasks.map((task) => task.id);
-      const [nextRules, nextCatalog, nextLogs, nextRowChipValues] = await Promise.all([
+      const [nextRules, nextCatalog, nextLogs, nextRowChipValues, nextRefs] = await Promise.all([
         listAutomationRules(projectIds),
         listChipCatalog(projectIds),
         listRecentAutomationLogs(),
         taskIds.length > 0 ? listRowChipValues(taskIds) : Promise.resolve([]),
+        listReferenceSources().catch(() => [] as ReferenceSource[]),
       ]);
       setRules(nextRules);
       setCatalog(nextCatalog);
       setLogs(nextLogs);
       setRowChipValues(nextRowChipValues);
+      setReferenceSources(nextRefs);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Otomasyonlar yüklenemedi.");
     } finally {
@@ -215,6 +219,34 @@ export default function OtomasyonMerkeziPage() {
   const hasAnyNotifyAction = useMemo(
     () => rules.some((rule) => rule.actions.some((action) => action.actionType === "notify")),
     [rules]
+  );
+
+  /**
+   * Koşul "değer" inputu için referans önerisi:
+   * Field adı bir referans kaynağının adı veya kategorisi ile eşleşiyorsa,
+   * o kaynağın labelField değerleri öneri olarak listelenir.
+   * Türkçe normalize edilmiş eşleşme.
+   */
+  const findReferenceForField = useCallback(
+    (field: string): ReferenceSource | null => {
+      const f = field.trim().toLocaleLowerCase("tr");
+      if (!f) return null;
+      // 1) name tam eşleşme
+      const byName = referenceSources.find((s) => s.name.trim().toLocaleLowerCase("tr") === f);
+      if (byName) return byName;
+      // 2) name içeriyor (ör. field "Şehir", source "Şehir Listesi")
+      const byNameLike = referenceSources.find((s) => {
+        const n = s.name.trim().toLocaleLowerCase("tr");
+        return n.includes(f) || f.includes(n);
+      });
+      if (byNameLike) return byNameLike;
+      // 3) Kategori eşleşmesi
+      const byCategory = referenceSources.find(
+        (s) => s.category && s.category.trim().toLocaleLowerCase("tr") === f
+      );
+      return byCategory ?? null;
+    },
+    [referenceSources]
   );
 
   /**
@@ -704,6 +736,18 @@ export default function OtomasyonMerkeziPage() {
               {form.conditions.map((condition, index) => {
                 const operator = operators.find((item) => item.value === condition.op);
                 const needsValue = operator?.needsValue === true;
+                // Bu koşul field'ı bir referans kaynağıyla eşleşiyor mu?
+                const matchedRef = needsValue ? findReferenceForField(condition.field) : null;
+                const refLabels = matchedRef?.labelField
+                  ? Array.from(
+                      new Set(
+                        matchedRef.records
+                          .map((r) => String(r[matchedRef.labelField!] ?? "").trim())
+                          .filter(Boolean)
+                      )
+                    ).slice(0, 200) // Performans — datalist 200'den fazla item taşımasın
+                  : [];
+                const valueDatalistId = matchedRef ? `ref-values-${condition.id}` : undefined;
                 return (
                   <div key={condition.id} className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50/60 p-2 dark:border-slate-700 dark:bg-slate-900/30 lg:grid-cols-[auto_1fr_1fr_1fr_auto]">
                     <span className="flex items-center text-xs font-semibold uppercase text-slate-400">
@@ -723,13 +767,28 @@ export default function OtomasyonMerkeziPage() {
                     >
                       {operators.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                     </select>
-                    <input
-                      value={condition.value ?? ""}
-                      onChange={(e) => updateCondition(condition.id, { value: e.target.value })}
-                      disabled={!needsValue}
-                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:disabled:bg-slate-800"
-                      placeholder={needsValue ? "Değer" : "Değer gerekmez"}
-                    />
+                    <div className="flex flex-col gap-0.5">
+                      <input
+                        value={condition.value ?? ""}
+                        onChange={(e) => updateCondition(condition.id, { value: e.target.value })}
+                        disabled={!needsValue}
+                        list={valueDatalistId}
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:disabled:bg-slate-800"
+                        placeholder={needsValue ? (matchedRef ? `${matchedRef.name} kaynağından seç` : "Değer") : "Değer gerekmez"}
+                      />
+                      {valueDatalistId && refLabels.length > 0 && (
+                        <>
+                          <datalist id={valueDatalistId}>
+                            {refLabels.map((label) => (
+                              <option key={label} value={label} />
+                            ))}
+                          </datalist>
+                          <span className="px-1 text-[10px] text-violet-600 dark:text-violet-300">
+                            🔗 {matchedRef!.name} ({refLabels.length}{refLabels.length === 200 ? "+" : ""} kayıt)
+                          </span>
+                        </>
+                      )}
+                    </div>
                     <Button type="button" variant="ghost" size="icon" onClick={() => removeCondition(condition.id)} disabled={form.conditions.length <= 1}>
                       <X className="h-4 w-4" />
                     </Button>
