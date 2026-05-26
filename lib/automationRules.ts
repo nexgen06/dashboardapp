@@ -194,6 +194,50 @@ export async function deleteAutomationRule(id: string): Promise<void> {
   if (error) throw friendlyAutomationError(error);
 }
 
+/**
+ * Bir otomasyon kuralını (koşul + tüm aksiyonlarıyla) kopyalar.
+ * Yeni kural pasif (enabled=false) olarak başlar — kullanıcı önce gözden geçirip aktif etsin.
+ */
+export async function duplicateAutomationRule(id: string): Promise<string> {
+  // 1) Kaynak kural
+  const { data: srcRule, error: ruleErr } = await supabase
+    .from("automation_rules")
+    .select("name,project_id,trigger_type,conditions")
+    .eq("id", id)
+    .single();
+  if (ruleErr || !srcRule) throw friendlyAutomationError(ruleErr ?? new Error("Kaynak kural bulunamadı"));
+
+  // 2) Yeni kural (pasif)
+  const { data: created, error: createErr } = await supabase
+    .from("automation_rules")
+    .insert({
+      name: `${srcRule.name} (kopya)`,
+      project_id: srcRule.project_id,
+      trigger_type: srcRule.trigger_type,
+      enabled: false,
+      conditions: srcRule.conditions ?? [],
+    })
+    .select("id")
+    .single();
+  if (createErr || !created) throw friendlyAutomationError(createErr ?? new Error("Kural kopyalanamadı"));
+  const newId = String(created.id);
+
+  // 3) Aksiyonları çek + yeni kurala ekle
+  const { data: srcActions, error: actErr } = await supabase
+    .from("automation_actions")
+    .select("action_type,payload,sort_order")
+    .eq("rule_id", id)
+    .order("sort_order", { ascending: true });
+  if (actErr) throw friendlyAutomationError(actErr);
+  if (srcActions && srcActions.length > 0) {
+    const { error: insErr } = await supabase
+      .from("automation_actions")
+      .insert(srcActions.map((a) => ({ ...a, rule_id: newId })));
+    if (insErr) throw friendlyAutomationError(insErr);
+  }
+  return newId;
+}
+
 export async function listAutomationLogs(taskId: string): Promise<AutomationLog[]> {
   const { data, error } = await supabase
     .from("automation_logs")

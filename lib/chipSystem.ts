@@ -305,6 +305,172 @@ export async function deleteTableChipBinding(id: string): Promise<void> {
   if (error) throw friendlyChipError(error);
 }
 
+export async function updateChipTemplate(
+  id: string,
+  patch: Partial<{
+    name: string;
+    category: ChipCategory;
+    description: string | null;
+    icon: string | null;
+    color: string;
+    managerOnly: boolean;
+  }>
+): Promise<void> {
+  const payload: Record<string, unknown> = {};
+  if (patch.name !== undefined) payload.name = patch.name.trim();
+  if (patch.category !== undefined) payload.category = patch.category;
+  if (patch.description !== undefined) payload.description = patch.description?.trim() || null;
+  if (patch.icon !== undefined) payload.icon = patch.icon?.trim() || null;
+  if (patch.color !== undefined) payload.color = patch.color;
+  if (patch.managerOnly !== undefined) payload.manager_only = patch.managerOnly;
+  if (Object.keys(payload).length === 0) return;
+  const { error } = await supabase.from("chip_templates").update(payload).eq("id", id);
+  if (error) throw friendlyChipError(error);
+}
+
+export async function deleteChipTemplate(id: string): Promise<void> {
+  // Bağlı opsiyonlar + binding'ler cascade ile silinir (DB schema'da on delete cascade).
+  const { error } = await supabase.from("chip_templates").delete().eq("id", id);
+  if (error) throw friendlyChipError(error);
+}
+
+export async function updateChipOption(
+  id: string,
+  patch: Partial<{ label: string; value: string; color: string; icon: string | null; sortOrder: number; isTerminal: boolean }>
+): Promise<void> {
+  const payload: Record<string, unknown> = {};
+  if (patch.label !== undefined) payload.label = patch.label.trim();
+  if (patch.value !== undefined) payload.value = patch.value.trim();
+  if (patch.color !== undefined) payload.color = patch.color;
+  if (patch.icon !== undefined) payload.icon = patch.icon?.trim() || null;
+  if (patch.sortOrder !== undefined) payload.sort_order = patch.sortOrder;
+  if (patch.isTerminal !== undefined) payload.is_terminal = patch.isTerminal;
+  if (Object.keys(payload).length === 0) return;
+  const { error } = await supabase.from("chip_options").update(payload).eq("id", id);
+  if (error) throw friendlyChipError(error);
+}
+
+export async function deleteChipOption(id: string): Promise<void> {
+  const { error } = await supabase.from("chip_options").delete().eq("id", id);
+  if (error) throw friendlyChipError(error);
+}
+
+/**
+ * Seçenekleri verilen ID sırasına göre yeniden sıralar.
+ * Her seçeneğin sort_order'ı dizideki index ile günceller.
+ */
+export async function reorderChipOptions(orderedIds: string[]): Promise<void> {
+  if (orderedIds.length === 0) return;
+  // Sıra ile tek tek update — küçük listeler için yeterli (her şablon <50 seçenek).
+  for (let i = 0; i < orderedIds.length; i += 1) {
+    const { error } = await supabase
+      .from("chip_options")
+      .update({ sort_order: i })
+      .eq("id", orderedIds[i]);
+    if (error) throw friendlyChipError(error);
+  }
+}
+
+/**
+ * Bir şablonu (seçenekleriyle birlikte) kopyalar.
+ * Yeni şablonun adı "<orijinal> (kopya)" olur, is_system=false ile başlar.
+ */
+export async function duplicateChipTemplate(sourceId: string): Promise<string> {
+  // 1) Kaynak şablonu çek
+  const { data: src, error: srcErr } = await supabase
+    .from("chip_templates")
+    .select("name,category,description,icon,color,manager_only")
+    .eq("id", sourceId)
+    .single();
+  if (srcErr || !src) throw friendlyChipError(srcErr ?? new Error("Kaynak şablon bulunamadı"));
+
+  // 2) Yeni şablon oluştur
+  const { data: created, error: createErr } = await supabase
+    .from("chip_templates")
+    .insert({
+      name: `${src.name} (kopya)`,
+      category: src.category,
+      description: src.description,
+      icon: src.icon,
+      color: src.color,
+      manager_only: src.manager_only,
+      is_system: false,
+    })
+    .select("id")
+    .single();
+  if (createErr || !created) throw friendlyChipError(createErr ?? new Error("Şablon kopyalanamadı"));
+  const newId = String(created.id);
+
+  // 3) Kaynak seçenekleri çek + yeni şablona ekle
+  const { data: opts, error: optsErr } = await supabase
+    .from("chip_options")
+    .select("label,value,color,icon,sort_order,is_terminal")
+    .eq("template_id", sourceId)
+    .order("sort_order", { ascending: true });
+  if (optsErr) throw friendlyChipError(optsErr);
+  if (opts && opts.length > 0) {
+    const { error: insErr } = await supabase
+      .from("chip_options")
+      .insert(opts.map((o) => ({ ...o, template_id: newId })));
+    if (insErr) throw friendlyChipError(insErr);
+  }
+  return newId;
+}
+
+/**
+ * Bir projenin tüm çip bağlamalarını başka projeye kopyalar.
+ * Hedef projede zaten aynı (columnKey, templateId) varsa atlanır (idempotent).
+ * Geri: kopyalanan + atlanan sayıları.
+ */
+export async function copyChipBindingsBetweenProjects(input: {
+  sourceProjectId: string;
+  targetProjectId: string;
+}): Promise<{ copied: number; skipped: number }> {
+  if (input.sourceProjectId === input.targetProjectId) {
+    return { copied: 0, skipped: 0 };
+  }
+  const { data: src, error: srcErr } = await supabase
+    .from("table_chip_bindings")
+    .select("column_key,template_id,allow_multiple,required")
+    .eq("project_id", input.sourceProjectId);
+  if (srcErr) throw friendlyChipError(srcErr);
+  const { data: existing, error: tgtErr } = await supabase
+    .from("table_chip_bindings")
+    .select("column_key,template_id")
+    .eq("project_id", input.targetProjectId);
+  if (tgtErr) throw friendlyChipError(tgtErr);
+  const existingKeys = new Set(
+    (existing ?? []).map((b) => `${String(b.column_key).trim().toLowerCase()}::${b.template_id}`)
+  );
+  const toInsert: Array<{
+    project_id: string;
+    column_key: string;
+    template_id: string;
+    allow_multiple: boolean;
+    required: boolean;
+  }> = [];
+  let skipped = 0;
+  for (const row of src ?? []) {
+    const key = `${String(row.column_key).trim().toLowerCase()}::${row.template_id}`;
+    if (existingKeys.has(key)) {
+      skipped += 1;
+      continue;
+    }
+    toInsert.push({
+      project_id: input.targetProjectId,
+      column_key: row.column_key,
+      template_id: row.template_id,
+      allow_multiple: row.allow_multiple,
+      required: row.required,
+    });
+  }
+  if (toInsert.length > 0) {
+    const { error: insErr } = await supabase.from("table_chip_bindings").insert(toInsert);
+    if (insErr) throw friendlyChipError(insErr);
+  }
+  return { copied: toInsert.length, skipped };
+}
+
 export async function setRowChipValue(input: {
   taskId: string;
   templateId: string;
