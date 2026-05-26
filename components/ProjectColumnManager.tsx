@@ -237,17 +237,19 @@ export function ProjectColumnManager({ projectId, observedKeys, sampleValuesByKe
           ...col.config,
           options,
           reference: {
+            sourceId: source.id, // canlı bağlantı — kaynak düzenlenirse sütun otomatik günceller
             sourceName: source.name,
             labelField: source.labelField,
             valueField: source.keyField ?? undefined,
             fields: source.fields,
             recordCount: source.recordCount,
-            records: source.records,
+            // records embedded edilmez — sourceId ile canlı çekilir.
+            // Eski snapshot fallback gerekirse buraya ekleyebilirsiniz.
           },
         },
       });
       await refresh();
-      toast.success(`${source.name} kaynağı sütuna bağlandı`);
+      toast.success(`${source.name} kaynağı sütuna bağlandı (canlı)`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Kayıtlı kaynak bağlanamadı.");
     } finally {
