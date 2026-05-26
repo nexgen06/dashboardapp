@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
+  AlertTriangle,
   Bell,
   Bot,
   CheckCircle2,
+  Copy,
   Eye,
   ExternalLink,
   Filter,
+  Info,
   ListChecks,
   Loader2,
   Play,
@@ -25,8 +28,10 @@ import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/modals";
 import {
   deleteAutomationRule,
+  duplicateAutomationRule,
   listRecentAutomationLogs,
   listAutomationRules,
   ruleMatchesTask,
@@ -129,6 +134,7 @@ export default function OtomasyonMerkeziPage() {
   const { projects } = useProjects();
   const { tasks } = useTasksWithRealtime();
   const toast = useToast();
+  const confirm = useConfirm();
   const canView = hasPermission("automation.view") || hasPermission("userManagement.view");
   const canManage = hasPermission("automation.manage") || user?.roleId === "admin" || user?.roleId === "project_manager";
   const [rules, setRules] = useState<AutomationRule[]>([]);
@@ -189,6 +195,21 @@ export default function OtomasyonMerkeziPage() {
   const previewCount = previewTasks.length;
   const taskById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
   const ruleById = useMemo(() => new Map(rules.map((rule) => [rule.id, rule])), [rules]);
+  // RPC eksikliği tespiti: loglarda "create_automation_notification" hatası varsa
+  // veya kural notify aksiyonu içeriyor ama Bildirim başarısız oluyorsa banner göster.
+  const notifyRpcMissing = useMemo(() => {
+    return logs.some(
+      (log) =>
+        log.status === "failed" &&
+        (log.message ?? "").toLowerCase().includes("create_automation_notification")
+    );
+  }, [logs]);
+
+  const hasAnyNotifyAction = useMemo(
+    () => rules.some((rule) => rule.actions.some((action) => action.actionType === "notify")),
+    [rules]
+  );
+
   const filteredLogs = useMemo(() => {
     return logs.filter((log) => {
       if (logStatusFilter !== "all" && log.status !== logStatusFilter) return false;
@@ -283,6 +304,33 @@ export default function OtomasyonMerkeziPage() {
     }
   };
 
+  const handleDuplicateRule = async (rule: AutomationRule) => {
+    try {
+      await duplicateAutomationRule(rule.id);
+      toast.success(`"${rule.name}" kopyalandı (pasif olarak)`);
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Kural kopyalanamadı.");
+    }
+  };
+
+  const handleDeleteRule = async (rule: AutomationRule) => {
+    const ok = await confirm({
+      title: "Kuralı sil?",
+      message: `"${rule.name}" kuralı, tüm aksiyonları ve log geçmişi silinecek. Geri alınamaz.`,
+      variant: "destructive",
+      confirmLabel: "Evet, sil",
+    });
+    if (!ok) return;
+    try {
+      await deleteAutomationRule(rule.id);
+      toast.success("Kural silindi");
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Kural silinemedi.");
+    }
+  };
+
   const seedPreset = (kind: "risk" | "payment" | "stale" | "document" | "approval") => {
     const presets = {
       risk: {
@@ -351,6 +399,32 @@ export default function OtomasyonMerkeziPage() {
           Yenile
         </Button>
       </div>
+
+      {/* RPC eksikliği bildirim banner */}
+      {notifyRpcMissing && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950/30">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+          <div className="min-w-0 flex-1 text-sm">
+            <p className="font-semibold text-amber-900 dark:text-amber-100">
+              Bildirim aksiyonları çalışmıyor
+            </p>
+            <p className="mt-0.5 text-xs text-amber-800/90 dark:text-amber-200/80">
+              <code className="font-mono">create_automation_notification</code> RPC veritabanında bulunamadı.
+              Notify tipi aksiyon içeren kurallar bildirim üretmeyecek.{" "}
+              <code className="font-mono">scripts/automation-notifications.sql</code> dosyasını
+              Supabase SQL Editor&apos;da çalıştırın.
+            </p>
+          </div>
+        </div>
+      )}
+      {!notifyRpcMissing && hasAnyNotifyAction && (
+        <div className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50/50 p-2.5 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-400">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span>
+            Bildirim aksiyonu içeren kurallar, satır kaydedildiğinde admin/proje yetkilisi/atanan kullanıcıya merkezi bildirim üretir.
+          </span>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" size="sm" onClick={() => seedPreset("risk")}>Geciken görev riski</Button>
@@ -608,9 +682,28 @@ export default function OtomasyonMerkeziPage() {
                     </p>
                   </div>
                   {canManage && (
-                    <Button type="button" variant="ghost" size="icon" className="text-red-500" onClick={() => void deleteAutomationRule(rule.id).then(refresh)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-slate-500 hover:text-blue-600"
+                        onClick={() => void handleDuplicateRule(rule)}
+                        title="Kuralı kopyala (pasif olarak)"
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-slate-500 hover:text-red-600"
+                        onClick={() => void handleDeleteRule(rule)}
+                        title="Kuralı sil"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   )}
                 </div>
               );
