@@ -217,6 +217,69 @@ export default function OtomasyonMerkeziPage() {
     [rules]
   );
 
+  /**
+   * Koşul "alan" inputu için dinamik öneri listesi.
+   * Kategoriler:
+   *   1. Standart: content, status, assignee, priority, due_date, updated_at
+   *   2. Proje ek kolonları: projects.extra_column_keys + chip bindings
+   *   3. Gözlemlenen: tasks.extra_data anahtarlarında geçen (önceki ikisinde yoksa)
+   *
+   * form.projectId boşsa tüm projelerin alanları, doluysa sadece o projeninkiler.
+   */
+  const availableFields = useMemo(() => {
+    const standard: Array<{ value: string; label: string }> = [
+      { value: "content", label: "İçerik (content)" },
+      { value: "status", label: "Durum (status)" },
+      { value: "assignee", label: "Atanan (assignee)" },
+      { value: "priority", label: "Öncelik (priority)" },
+      { value: "due_date", label: "Son tarih (due_date)" },
+      { value: "updated_at", label: "Güncellenme (updated_at)" },
+    ];
+    const standardSet = new Set(standard.map((s) => s.value));
+    const fromProjectKeys = new Set<string>();
+    const fromChips = new Set<string>();
+    const fromTasks = new Set<string>();
+
+    const scopedProjects = form.projectId
+      ? projects.filter((p) => p.id === form.projectId)
+      : projects;
+    for (const project of scopedProjects) {
+      for (const key of project.extra_column_keys ?? []) {
+        const k = String(key ?? "").trim();
+        if (k && !standardSet.has(k)) fromProjectKeys.add(k);
+      }
+    }
+
+    for (const binding of catalog.bindings) {
+      if (form.projectId && binding.projectId !== form.projectId) continue;
+      const k = (binding.columnKey ?? "").trim();
+      if (k && !standardSet.has(k)) fromChips.add(k);
+    }
+
+    const scopedTasks = form.projectId
+      ? tasks.filter((t) => String(t.project_id ?? "") === form.projectId)
+      : tasks;
+    for (const task of scopedTasks) {
+      if (!task.extra_data) continue;
+      for (const k of Object.keys(task.extra_data)) {
+        const key = k.trim();
+        if (!key || standardSet.has(key)) continue;
+        if (!fromProjectKeys.has(key) && !fromChips.has(key)) fromTasks.add(key);
+      }
+    }
+
+    const combinedExtras = new Set<string>();
+    fromProjectKeys.forEach((k) => combinedExtras.add(k));
+    fromChips.forEach((k) => combinedExtras.add(k));
+    const extras = Array.from(combinedExtras).sort((a, b) =>
+      a.localeCompare(b, "tr", { sensitivity: "base" })
+    );
+    const observed = Array.from(fromTasks).sort((a, b) =>
+      a.localeCompare(b, "tr", { sensitivity: "base" })
+    );
+    return { standard, extras, observed };
+  }, [catalog.bindings, form.projectId, projects, tasks]);
+
   const filteredLogs = useMemo(() => {
     return logs.filter((log) => {
       if (logStatusFilter !== "all" && log.status !== logStatusFilter) return false;
@@ -518,6 +581,20 @@ export default function OtomasyonMerkeziPage() {
 
       {canManage && (
         <form onSubmit={saveRule} className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
+          {/* Tek datalist — tüm koşul input'ları aynı öneri listesini kullanır.
+              Kategoriler optgroup ile ayrıştırılır. */}
+          <datalist id="automation-field-suggestions">
+            {availableFields.standard.map((f) => (
+              <option key={`std-${f.value}`} value={f.value}>{f.label}</option>
+            ))}
+            {availableFields.extras.map((f) => (
+              <option key={`ext-${f}`} value={f}>{f} (proje kolonu)</option>
+            ))}
+            {availableFields.observed.map((f) => (
+              <option key={`obs-${f}`} value={f}>{f} (görev verisinden)</option>
+            ))}
+          </datalist>
+
           {editingRuleId && (
             <div className="flex items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs dark:border-blue-700 dark:bg-blue-950/30">
               <span className="font-medium text-blue-800 dark:text-blue-200">
@@ -613,6 +690,16 @@ export default function OtomasyonMerkeziPage() {
                 </Button>
               </div>
             </div>
+            <p className="mb-2 text-[11px] text-slate-500 dark:text-slate-400">
+              Alan kutusuna tıklayınca {availableFields.standard.length} standart
+              {availableFields.extras.length > 0 && ` + ${availableFields.extras.length} proje kolonu`}
+              {availableFields.observed.length > 0 && ` + ${availableFields.observed.length} görev verisi`} alanı önerilir.
+              {form.projectId
+                ? " Sadece seçili projedeki alanlar listelenir."
+                : " Tüm projelerdeki alanlar dahildir."}
+              {" "}
+              Listelenmeyen bir alanı elle de yazabilirsiniz.
+            </p>
             <div className="space-y-2">
               {form.conditions.map((condition, index) => {
                 const operator = operators.find((item) => item.value === condition.op);
@@ -625,8 +712,9 @@ export default function OtomasyonMerkeziPage() {
                     <input
                       value={condition.field}
                       onChange={(e) => updateCondition(condition.id, { field: e.target.value })}
+                      list="automation-field-suggestions"
                       className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-                      placeholder="Alan: due_date, status, Ödeme Tarihi..."
+                      placeholder="Alan adı — listeden seç veya yaz"
                     />
                     <select
                       value={condition.op}
