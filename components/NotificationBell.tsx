@@ -743,7 +743,7 @@ export function NotificationBell({ summary }: { summary: NotificationSummary }) 
       <DropdownMenuContent
         align="end"
         sideOffset={8}
-        className="w-[440px] max-w-[calc(100vw-1rem)] rounded-xl border-slate-200 bg-white p-0 shadow-xl dark:border-slate-700 dark:bg-slate-800"
+        className="w-[calc(100vw-1rem)] sm:w-[440px] rounded-xl border-slate-200 bg-white p-0 shadow-xl dark:border-slate-700 dark:bg-slate-800"
       >
         <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
           <span className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
