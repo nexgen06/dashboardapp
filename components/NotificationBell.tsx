@@ -87,14 +87,21 @@ const AVATAR_PALETTE = [
   "bg-red-500",
 ];
 
-function getActorInitials(email: string | null | undefined): string {
-  if (!email) return "?";
-  const localPart = String(email).split("@")[0] ?? "";
-  const parts = localPart.split(/[._\-+]/).filter(Boolean);
+/**
+ * Görünen isim veya e-postadan baş harfleri çıkarır.
+ * Örn: "Ahmet Yılmaz" → "AY", "ahmet.yilmaz" → "AY", "ahmet" → "AH"
+ */
+function getActorInitials(displayOrEmail: string | null | undefined): string {
+  if (!displayOrEmail) return "?";
+  const raw = String(displayOrEmail).trim();
+  if (!raw) return "?";
+  const isEmail = raw.includes("@");
+  const source = isEmail ? raw.split("@")[0] : raw;
+  const parts = source.split(/[\s._\-+]+/).filter(Boolean);
   if (parts.length >= 2 && parts[0][0] && parts[1][0]) {
     return (parts[0][0] + parts[1][0]).toUpperCase();
   }
-  return (parts[0] ?? localPart).slice(0, 2).toUpperCase() || "?";
+  return (parts[0] ?? source).slice(0, 2).toUpperCase() || "?";
 }
 
 function getActorColor(email: string | null | undefined): string {
@@ -120,6 +127,33 @@ function getWorkflowAction(item: NotificationSummaryItem): string | null {
 function getActorEmail(item: NotificationSummaryItem): string | null {
   const v = item.payload?.actor_email;
   return typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
+}
+
+/** Görünür ad: payload.actor_display_name → yoksa email localpart → yoksa null */
+function getActorDisplayName(item: NotificationSummaryItem): string | null {
+  const v = item.payload?.actor_display_name;
+  if (typeof v === "string" && v.trim().length > 0) return v.trim();
+  const email = getActorEmail(item);
+  if (!email) return null;
+  const local = email.split("@")[0] ?? "";
+  return local.trim() || null;
+}
+
+/**
+ * Bildirim title'ında geçen uzun e-postayı görünür adla değiştirir.
+ * Eski bildirimler için yedek: title "ornek@firma.com onayladı" ise
+ * "ornek onayladı" haline gelir.
+ */
+function shortenTitle(item: NotificationSummaryItem): string {
+  const title = item.label ?? "";
+  const email = getActorEmail(item);
+  const display = getActorDisplayName(item);
+  if (!email || !display || email === display) return title;
+  // Title içinde e-posta geçiyorsa görünür adla değiştir
+  if (title.includes(email)) {
+    return title.replace(email, display);
+  }
+  return title;
 }
 
 function getTaskId(item: NotificationSummaryItem): string | null {
@@ -238,18 +272,34 @@ const QUICK_ACTION_META: Record<
   },
 };
 
-function ActorAvatar({ email, fallbackIcon }: { email: string | null; fallbackIcon: React.ReactNode }) {
-  if (!email) return <>{fallbackIcon}</>;
+function ActorAvatar({
+  email,
+  displayName,
+  fallbackIcon,
+}: {
+  email: string | null;
+  displayName: string | null;
+  fallbackIcon: React.ReactNode;
+}) {
+  if (!email && !displayName) return <>{fallbackIcon}</>;
+  // Renk için e-posta önceliği (kararlı kimlik); yoksa görünür ad
+  const colorSeed = email ?? displayName ?? "";
+  // Baş harfler için görünür ad önceliği; yoksa email
+  const initialsSeed = displayName ?? email ?? "";
+  // Tooltip: tam ad + e-posta varsa parantezde
+  const tooltip = displayName && email && displayName !== email
+    ? `${displayName} (${email})`
+    : (displayName ?? email ?? "");
   return (
     <span
       className={cn(
         "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white shadow-sm",
-        getActorColor(email)
+        getActorColor(colorSeed)
       )}
-      title={email}
-      aria-label={email}
+      title={tooltip}
+      aria-label={tooltip}
     >
-      {getActorInitials(email)}
+      {getActorInitials(initialsSeed)}
     </span>
   );
 }
@@ -284,6 +334,9 @@ function NotificationRow({
   const canQuickAction = Boolean(onQuickAction && taskId && quickActions.length > 0);
   const expandable = hasBody || isGrouped || canQuickAction;
   const actorEmail = getActorEmail(item);
+  const actorDisplayName = getActorDisplayName(item);
+  const hasActor = Boolean(actorEmail || actorDisplayName);
+  const displayedTitle = shortenTitle(item);
 
   const handleRowClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -328,9 +381,10 @@ function NotificationRow({
       >
         {/* Aktör avatarı (workflow) veya tip ikonu */}
         <div className="relative mt-0.5 shrink-0">
-          {actorEmail ? (
+          {hasActor ? (
             <ActorAvatar
               email={actorEmail}
+              displayName={actorDisplayName}
               fallbackIcon={
                 <span
                   className={cn(
@@ -358,7 +412,7 @@ function NotificationRow({
             </span>
           )}
           {/* Aktör varsa türü gösteren küçük badge alt-sağda */}
-          {actorEmail && (
+          {hasActor && (
             <span
               className={cn(
                 "absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full ring-2 ring-white dark:ring-slate-800",
@@ -392,8 +446,9 @@ function NotificationRow({
                   ? "font-semibold text-slate-900 dark:text-slate-50"
                   : "font-normal text-slate-600 dark:text-slate-400"
               )}
+              title={item.label !== displayedTitle ? item.label : undefined}
             >
-              {item.label}
+              {displayedTitle}
             </span>
             {isGrouped && (
               <span className="ml-1 shrink-0 rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
@@ -467,7 +522,7 @@ function NotificationRow({
                               : "text-slate-500 dark:text-slate-400"
                           )}
                         >
-                          {r.label}
+                          {shortenTitle(r)}
                         </span>
                       </span>
                       {rRelative && (

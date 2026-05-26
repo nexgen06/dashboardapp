@@ -400,7 +400,20 @@ export default function BildirimlerPage() {
                               )}
                             </span>
                             <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                              {item.label}
+                              {(() => {
+                                // Workflow bildirimlerinde title içindeki uzun e-postayı
+                                // payload.actor_display_name ile değiştir.
+                                const email = typeof item.payload?.actor_email === "string"
+                                  ? item.payload.actor_email
+                                  : null;
+                                const display = typeof item.payload?.actor_display_name === "string"
+                                  ? item.payload.actor_display_name
+                                  : email ? email.split("@")[0] : null;
+                                if (email && display && email !== display && item.label.includes(email)) {
+                                  return item.label.replace(email, display);
+                                }
+                                return item.label;
+                              })()}
                             </span>
                             {item.body && (
                               <span className="whitespace-pre-wrap text-xs leading-snug text-slate-600 dark:text-slate-300">
