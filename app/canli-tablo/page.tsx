@@ -64,14 +64,26 @@ export default function CanliTabloPage() {
   const [summaryCollapsed, setSummaryCollapsedState] = useState(false);
   const [activeView, setActiveView] = useState("table");
 
-  // Hydrate summary tercihini localStorage'tan (per-user)
+  // Hydrate summary tercihini localStorage'tan (per-user).
+  // Mobil ekranda default kapalı: özet ekran yüksekliğinin yarısını kaplayıp
+  // tabloyu sıkıştırıyordu. Kullanıcı toggle ile aç.
   useEffect(() => {
-    if (!userId) return;
+    if (typeof window === "undefined") return;
+    const isMobile = window.matchMedia("(max-width: 767px)").matches;
+    if (!userId) {
+      if (isMobile) setSummaryCollapsedState(true);
+      return;
+    }
     try {
       const stored = localStorage.getItem(`dashboardapp.canli-tablo.summaryCollapsed.v1:${userId}`);
-      if (stored === "true") setSummaryCollapsedState(true);
+      if (stored === "true") {
+        setSummaryCollapsedState(true);
+      } else if (stored === null && isMobile) {
+        // Mobilde ilk açılışta özeti kapalı tut (tablo öncelikli)
+        setSummaryCollapsedState(true);
+      }
     } catch {
-      /* localStorage devre dışı — yok say */
+      if (isMobile) setSummaryCollapsedState(true);
     }
   }, [userId]);
 

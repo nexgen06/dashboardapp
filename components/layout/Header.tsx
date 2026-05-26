@@ -156,9 +156,11 @@ export function Header() {
                     aria-hidden
                   />
                 </span>
-                <div className="hidden min-w-0 flex-col items-start text-left sm:flex">
-                  <span className="max-w-[10rem] truncate text-sm font-medium lg:max-w-[14rem]">{displayName}</span>
-                  <span className="max-w-[10rem] truncate text-[11px] font-medium text-emerald-700 dark:text-emerald-300 lg:max-w-[14rem]">
+                <div className="hidden min-w-0 flex-col items-start text-left md:flex">
+                  <span className="max-w-[8rem] truncate text-sm font-medium md:max-w-[10rem] lg:max-w-[14rem]" title={displayName}>
+                    {displayName}
+                  </span>
+                  <span className="max-w-[8rem] truncate text-[11px] font-medium text-emerald-700 dark:text-emerald-300 md:max-w-[10rem] lg:max-w-[14rem]" title={roleLabel}>
                     {roleLabel}
                   </span>
                 </div>
