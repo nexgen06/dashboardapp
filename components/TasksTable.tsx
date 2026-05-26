@@ -17,7 +17,7 @@ import {
   type PaginationState,
 } from "@tanstack/react-table";
 import type { ReactNode } from "react";
-import { useRef, useState, useCallback, useEffect, useMemo, useLayoutEffect, useId } from "react";
+import { useRef, useState, useCallback, useEffect, useMemo, useLayoutEffect, useId, useDeferredValue } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import type { Task } from "@/types/tasks";
@@ -804,33 +804,37 @@ function ReferenceSelectCell({
   const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 260 });
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // Focus durumunu ref'te tut — render'a yansımaz, useEffect tetiklemez.
+  const isFocusedRef = useRef(false);
+  // Önceki value prop'unu hatırla — sadece gerçek değişimde sync yap.
+  const prevValueRef = useRef(value);
 
-  // Debounced query — yazma sırasında her keystroke yerine durduktan 120ms sonra filter çalışır.
-  // 2000+ kayıtlık listede UI kasması azalır.
-  const [debouncedQuery, setDebouncedQuery] = useState(localValue);
+  // value prop değişimi → localValue sync. AMA kullanıcı şu an inputa odaklıysa
+  // sync etme (yazdığı şeyi silmesin, imlecini kaybetmesin).
   useEffect(() => {
+    if (prevValueRef.current === value) return;
+    prevValueRef.current = value;
+    if (isFocusedRef.current) return;
     setLocalValue(value);
   }, [value]);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedQuery(localValue), 120);
-    return () => clearTimeout(timer);
-  }, [localValue]);
 
   const MAX_DROPDOWN = 40;
-  const LARGE_LIST_THRESHOLD = 200; // bu kadar veya daha fazla option varsa "type to search" modu
+  const LARGE_LIST_THRESHOLD = 200;
 
-  const normalizedQuery = debouncedQuery.trim().toLocaleLowerCase("tr");
+  // React 18 useDeferredValue — yazma sırasında düşük öncelikle filter güncellemesi.
+  // Input asla bloklanmaz; filter biraz geç gelir ama focus korunur.
+  const deferredLocalValue = useDeferredValue(localValue);
+  const normalizedQuery = deferredLocalValue.trim().toLocaleLowerCase("tr");
   const isLargeList = options.length >= LARGE_LIST_THRESHOLD;
 
   const filteredOptions = useMemo(() => {
-    // Büyük liste + boş query: kullanıcıyı yazmaya yönlendir, ilk 20'yi göster
     if (isLargeList && !normalizedQuery) {
       return options.slice(0, 20);
     }
     if (!normalizedQuery) {
       return options.slice(0, MAX_DROPDOWN);
     }
-    // Erken bail — yeterli match toplanınca dur (büyük listelerde tarama maliyetini azaltır)
+    // Erken bail — 40 match toplanınca dur
     const out: string[] = [];
     for (const opt of options) {
       if (opt.toLocaleLowerCase("tr").includes(normalizedQuery)) {
@@ -841,16 +845,19 @@ function ReferenceSelectCell({
     return out;
   }, [isLargeList, normalizedQuery, options]);
 
+  // Toplam eşleşme sadece filter sonuçları aksiyon listesini doldururken hesaplanır;
+  // küçük listede ya da yazma yokken atla (performans).
   const totalMatches = useMemo(() => {
     if (!normalizedQuery) return options.length;
-    // Sadece sayım için tam tarama — bu da pahalı ama kullanıcı feedback için lazım
-    // Performans: kısa quer'ide bail yok; sadece hint için
+    if (options.length < LARGE_LIST_THRESHOLD) return filteredOptions.length;
+    // Büyük listede tam tarama yerine "40+" diyebiliriz; ama kullanıcı feedback için
+    // tam sayım faydalı. Düşük öncelikle çalışır (deferredLocalValue zaten geç).
     let count = 0;
     for (const opt of options) {
       if (opt.toLocaleLowerCase("tr").includes(normalizedQuery)) count += 1;
     }
     return count;
-  }, [normalizedQuery, options]);
+  }, [normalizedQuery, options, filteredOptions.length]);
 
   const commitValue = useCallback(
     (nextValue = localValue) => {
@@ -908,14 +915,17 @@ function ReferenceSelectCell({
         type="text"
         value={localValue}
         onFocus={() => {
-          setOpen(true);
+          isFocusedRef.current = true;
+          if (!open) setOpen(true);
           updateMenuPos();
         }}
         onChange={(e) => {
           setLocalValue(e.target.value);
-          setOpen(true);
+          // setOpen sadece kapalıysa — gereksiz state update'ten kaçın
+          if (!open) setOpen(true);
         }}
         onBlur={() => {
+          isFocusedRef.current = false;
           window.setTimeout(() => {
             if (!wrapperRef.current?.contains(document.activeElement)) {
               commitValue();
