@@ -7,7 +7,16 @@ export type NotificationType =
   | "admin_team_done"
   | "chat_unread"
   | "announcement"
-  | "automation";
+  | "automation"
+  | "workflow";
+
+export type WorkflowNotificationAction =
+  | "submit"
+  | "approve"
+  | "request_revision"
+  | "reject"
+  | "unlock"
+  | "unlock_request";
 
 export type CentralNotification = {
   id: string;
@@ -109,6 +118,51 @@ export async function markNotificationTypesRead(types: NotificationType[]): Prom
     return false;
   }
   return true;
+}
+
+export type WorkflowNotifyResult = "ok" | "missing_rpc" | "error";
+
+/**
+ * Workflow (onay akışı) bildirimi üretir. Hedef alıcıları (PM/admin veya gönderen üye)
+ * sunucu tarafındaki RPC seçer; istemci yalnızca aksiyon ve not bilgisini geçer.
+ * Bildirim yazımı başarısız olursa workflow geçişini etkilemez.
+ *
+ * Dönüşler:
+ *   - "ok"          → bildirim(ler) yazıldı
+ *   - "missing_rpc" → migration uygulanmamış (RPC veya tablo yok); UI bunu sessizce yutmalı
+ *   - "error"       → beklenmeyen hata; UI uyarı toast'ı gösterebilir
+ */
+export async function notifyWorkflowEvent(input: {
+  taskId: string;
+  action: WorkflowNotificationAction;
+  toStatus: string;
+  note?: string | null;
+}): Promise<WorkflowNotifyResult> {
+  if (!isSupabaseConfigured()) return "missing_rpc";
+  const { error } = await supabase.rpc("create_workflow_notification", {
+    p_task_id: input.taskId,
+    p_action: input.action,
+    p_to_status: input.toStatus,
+    p_note: input.note?.trim() || null,
+  });
+  if (!error) return "ok";
+
+  const code = String(error.code ?? "");
+  const msg = String(error.message ?? "").toLowerCase();
+  // 42883 = function not found, 42P01 = table not found
+  if (
+    code === "42883" ||
+    code === "42P01" ||
+    msg.includes("create_workflow_notification") ||
+    msg.includes("does not exist")
+  ) {
+    console.info(
+      "[notifications] workflow RPC bulunamadı — scripts/task-workflow-notifications.sql migration'ı Supabase'e uygulanmamış olabilir."
+    );
+    return "missing_rpc";
+  }
+  console.warn("[notifications] workflow:", error.message);
+  return "error";
 }
 
 export async function markNotificationSourceRead(sourceKey: string): Promise<boolean> {

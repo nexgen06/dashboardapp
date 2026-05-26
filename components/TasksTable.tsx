@@ -152,7 +152,8 @@ import {
   type ManagedReportTemplate,
 } from "@/lib/reportTemplates";
 import { usePrompt } from "@/components/ui/modals";
-import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, Expand, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban, Eye, Mail, MessageSquare, Printer, Activity, Table2 } from "lucide-react";
+import { notifyWorkflowEvent } from "@/lib/notifications";
+import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, Expand, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban, Eye, Mail, MessageSquare, Printer, Activity, Table2, Lock, Unlock } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
 const STATUS_FILTER_OPTIONS = ["Tümü", "Yapılacak", "Devam ediyor", "Devam", "Tamamlandı"] as const;
@@ -2483,6 +2484,23 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     [projectPermissionsByProjectId]
   );
 
+  /** Workflow onay kilidi: satır approved + proje lock_on_approval açık + kullanıcı yetkili değilse true. */
+  const isRowLockedByApproval = useCallback(
+    (task: Task) => {
+      const project = task.project_id ? projectById.get(String(task.project_id)) ?? null : null;
+      if (!project?.workflow_enabled || !project?.lock_on_approval) return false;
+      const ws = normalizeWorkflowStatus(task.workflow_status);
+      if (ws !== "approved") return false;
+      if (isAdmin || user?.roleId === "project_manager") return false;
+      const projectPermission = getProjectPermissionForTask(task);
+      const isReviewer = projectPermission
+        ? projectPermission.project_role === "project_owner" || projectPermission.project_role === "project_manager"
+        : false;
+      return !isReviewer;
+    },
+    [getProjectPermissionForTask, isAdmin, projectById, user?.roleId]
+  );
+
   const canEditRow = useCallback(
     (task: Task) => {
       const baseAllowed = canEditTaskRow({
@@ -2494,13 +2512,15 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       });
       if (!baseAllowed) return false;
       if (isAdmin) return true;
+      // Onay sonrası kilit: yetkili olmayan kullanıcı approved satırı düzenleyemez.
+      if (isRowLockedByApproval(task)) return false;
       const automationState = rowAutomationStateByTaskId.get(task.id);
       if (automationState?.locked && user?.roleId !== "project_manager") return false;
 
       const projectPermission = getProjectPermissionForTask(task);
       return projectPermission ? projectPermission.can_view && projectPermission.can_edit : baseAllowed;
     },
-    [canEditTask, currentUserEmail, getProjectPermissionForTask, isAdmin, projectById, rowAutomationStateByTaskId, user?.roleId]
+    [canEditTask, currentUserEmail, getProjectPermissionForTask, isAdmin, isRowLockedByApproval, projectById, rowAutomationStateByTaskId, user?.roleId]
   );
 
   const canCommentRow = useCallback(
@@ -2586,26 +2606,111 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     (task: Task): TaskWorkflowAction[] => {
       if (!isProjectWorkflowEnabled(task)) return [];
       const workflowStatus = normalizeWorkflowStatus(task.workflow_status);
+      const project = task.project_id ? projectById.get(String(task.project_id)) ?? null : null;
+      const lockActive = project?.lock_on_approval === true && workflowStatus === "approved";
       const rowCanEdit = canEditRow(task);
       const canReview = canReviewWorkflowRow(task);
       const actions: TaskWorkflowAction[] = [];
-      if (rowCanEdit && (workflowStatus === "draft" || workflowStatus === "revision_requested" || workflowStatus === "rejected")) {
+      // "Kontrole gönder" yalnızca iş başlamışsa görünür (status kind != "todo").
+      // Yapılacak statüsündeki bir satır kontrole gönderilemez — önce "Devam"a alınmalı.
+      const statusKind = getStatusKind(task.status ?? null);
+      const submitGateOpen = statusKind !== "todo";
+      if (
+        rowCanEdit &&
+        submitGateOpen &&
+        (workflowStatus === "draft" || workflowStatus === "revision_requested" || workflowStatus === "rejected")
+      ) {
         actions.push("submit");
       }
       if (canReview && workflowStatus === "submitted") {
         actions.push("approve", "request_revision", "reject");
       }
-      if ((rowCanEdit || canReview) && workflowStatus !== "draft") {
+      // Approved + lock_on_approval:
+      //   - Yetkili (reviewer) "Kilidi aç" görür.
+      //   - Yetkisi olmayan (üye dahil) "Kilit açma talep et" görür.
+      if (lockActive && canReview) {
+        actions.push("unlock");
+      } else if (lockActive && !canReview) {
+        actions.push("unlock_request");
+      }
+      // 'reset' (Taslağa al): kilitli durumda gizlenir; kilit kapalıyken edit/review yetkili görür.
+      if (!lockActive && (rowCanEdit || canReview) && workflowStatus !== "draft") {
         actions.push("reset");
       }
       return actions;
     },
-    [canEditRow, canReviewWorkflowRow, isProjectWorkflowEnabled]
+    [canEditRow, canReviewWorkflowRow, isProjectWorkflowEnabled, projectById]
   );
 
   const handleWorkflowAction = useCallback(
     async (task: Task, action: TaskWorkflowAction) => {
       if (!isProjectWorkflowEnabled(task)) return;
+
+      // Revize iste / Reddet / Kilit açma talep et aksiyonlarında zorunlu açıklama notu al.
+      let note: string | null = null;
+      if (action === "request_revision" || action === "reject" || action === "unlock_request") {
+        const titleByAction =
+          action === "reject" ? "Reddet" :
+          action === "request_revision" ? "Revize İste" :
+          "Kilit Açma Talep Et";
+        const messageByAction =
+          action === "reject"
+            ? "Ret nedenini ve düzeltilmesi gereken noktaları yazın. Bu not satırı gönderen üyeye iletilecek."
+            : action === "request_revision"
+              ? "Revize nedenini ve düzeltilmesi gerekenleri yazın. Bu not satırı gönderen üyeye iletilecek."
+              : "Kilidin neden açılması gerektiğini yazın. Bu talep proje yetkilisine iletilecek; kilidi onlar açacaktır.";
+        const placeholderByAction =
+          action === "reject"
+            ? "Örn. Eksik belge — fatura kopyası eklenmemiş."
+            : action === "request_revision"
+              ? "Örn. Tarih alanı yanlış; lütfen güncelleyip tekrar gönderin."
+              : "Örn. Tutar bilgisi hatalı, satırı tekrar düzenlemem gerekiyor.";
+        const confirmLabelByAction =
+          action === "reject" ? "Reddet" :
+          action === "request_revision" ? "Revize iste" :
+          "Talep gönder";
+        const result = await promptUser({
+          title: titleByAction,
+          message: messageByAction,
+          placeholder: placeholderByAction,
+          confirmLabel: confirmLabelByAction,
+          required: true,
+          multiline: true,
+          rows: 4,
+        });
+        if (result == null || !result.trim()) {
+          // Kullanıcı vazgeçti — hiçbir değişiklik uygulanmaz.
+          return;
+        }
+        note = result.trim();
+      }
+
+      // Kilit açma talebi: satır statüsü DEĞİŞMEZ — sadece event log + bildirim.
+      if (action === "unlock_request") {
+        const fromStatus = normalizeWorkflowStatus(task.workflow_status);
+        void logTaskWorkflowEvent({
+          taskId: task.id,
+          projectId: task.project_id ?? null,
+          fromStatus,
+          toStatus: fromStatus, // statü aynı kalır (approved)
+          action: "unlock_request",
+          actorEmail: user?.email ?? null,
+          note,
+        });
+        void notifyWorkflowEvent({
+          taskId: task.id,
+          action: "unlock_request",
+          toStatus: fromStatus,
+          note,
+        }).then((res) => {
+          if (res === "error") {
+            toast.warning("Bildirim gönderilemedi");
+          }
+        });
+        toast.success("Kilit açma talebi gönderildi");
+        return;
+      }
+
       const fromStatus = normalizeWorkflowStatus(task.workflow_status);
       const toStatus = nextWorkflowStatus(action);
       const nowIso = new Date().toISOString();
@@ -2620,10 +2725,28 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       } else if (action === "approve" || action === "request_revision" || action === "reject") {
         patch.workflow_reviewed_at = nowIso;
         patch.workflow_reviewed_by = user?.email ?? null;
+        // Onay/durum bağlama: onaylandığında satır resmen tamamlanmış sayılır;
+        // reddedildiğinde / revize istendiğinde üye işine devam etmeli.
+        // Eğer mevcut status zaten doğru "kind"deyse dokunma (kullanıcı özel
+        // status etiketi kullanıyor olabilir).
+        if (action === "approve" && !isStatusDone(task.status ?? null)) {
+          patch.status = "Tamamlandı";
+        } else if (
+          (action === "request_revision" || action === "reject") &&
+          !isStatusInProgress(task.status ?? null)
+        ) {
+          patch.status = "Devam";
+        }
       } else if (action === "reset") {
         patch.workflow_submitted_at = null;
         patch.workflow_reviewed_at = null;
         patch.workflow_reviewed_by = null;
+      } else if (action === "unlock") {
+        // Kilidi aç: satır draft'a döner, gönderim/inceleme zaman damgaları sıfırlanır.
+        // Denetim için workflow_reviewed_by'a kilidi açanın e-postası yazılır.
+        patch.workflow_submitted_at = null;
+        patch.workflow_reviewed_at = nowIso;
+        patch.workflow_reviewed_by = user?.email ?? null;
       }
       updateTaskOptimistic(task.id, patch);
       const result = await saveTask(task.id, patch);
@@ -2639,10 +2762,34 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         toStatus,
         action,
         actorEmail: user?.email ?? null,
+        note,
       });
+
+      // Bildirim: submit/approve/request_revision/reject/unlock. 'reset' için bildirim yok.
+      if (
+        action === "submit" ||
+        action === "approve" ||
+        action === "request_revision" ||
+        action === "reject" ||
+        action === "unlock"
+      ) {
+        void notifyWorkflowEvent({
+          taskId: task.id,
+          action,
+          toStatus,
+          note,
+        }).then((result) => {
+          // "missing_rpc" → migration uygulanmamış; sessizce geç (workflow geçişi yine de tamam).
+          // "error" → gerçek bir hata; kullanıcıyı uyar ama workflow geri alma yok.
+          if (result === "error") {
+            toast.warning("Bildirim gönderilemedi");
+          }
+        });
+      }
+
       toast.success(WORKFLOW_ACTION_LABELS[action]);
     },
-    [fetchTasks, isProjectWorkflowEnabled, saveTask, toast, updateTaskOptimistic, user?.email]
+    [fetchTasks, isProjectWorkflowEnabled, promptUser, saveTask, toast, updateTaskOptimistic, user?.email]
   );
 
   useEffect(() => {
@@ -2700,6 +2847,17 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       .map((p) => ({ id: p.id, name: (p.name ?? "").trim() || "(adsız proje)" }))
       .sort((a, b) => a.name.localeCompare(b.name, "tr"));
   }, [projects]);
+  const hasProjectLinkedTasks = tasks.some(
+    (task) => task.project_id != null && String(task.project_id).trim() !== ""
+  );
+  const requiresSingleProjectSelection =
+    projectFilter.length !== 1 && (projectFilterOptions.length > 0 || hasProjectLinkedTasks);
+  const projectSelectionTitle =
+    projectFilter.length === 0 ? "Canlı tablo için proje seçin" : "Tek proje seçin";
+  const projectSelectionDescription =
+    projectFilter.length === 0
+      ? "Farklı proje tablolarının kolonları birbirine karışmasın diye doğrudan açılışta tablo birleştirilmiyor. Bir proje seçtiğinizde sadece o projenin satırları ve kolonları gösterilir."
+      : "Seçili projelerin kolon yapıları farklı olabilir. Veri karışmasını önlemek için Canlı Tablo özel kolonları tek proje seçildiğinde açılır.";
 
   /** Görünmez olan projelerin filtre seçimini temizle (proje silinirse vb.).
    *  ÖNEMLİ: projects henüz yüklenmediyse (projectFilterOptions boş) bu
@@ -2748,7 +2906,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
    *  o projeyi filtreleyince schema'sı görünür.
    */
   const scopedProjectIdSet = useMemo(
-    () => (projectFilter.length > 0 ? new Set(projectFilter) : null),
+    () => (projectFilter.length === 1 ? new Set(projectFilter) : null),
     [projectFilter]
   );
 
@@ -2774,6 +2932,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   }, [projects, scopedProjectIdSet]);
 
   const extraDataKeys = useMemo(() => {
+    if (requiresSingleProjectSelection) return [];
     const keys = new Set<string>(scopedProjectSchemaKeys);
     scopedTasksForSchema.forEach((t) => {
       if (t.extra_data && typeof t.extra_data === "object") {
@@ -2789,7 +2948,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       }
     });
     return Array.from(keys).sort();
-  }, [scopedTasksForSchema, scopedProjectSchemaKeys, scopedProjectIdSet]);
+  }, [requiresSingleProjectSelection, scopedTasksForSchema, scopedProjectSchemaKeys, scopedProjectIdSet]);
 
   const activeReferenceColumns = useMemo(() => {
     const source =
@@ -3019,8 +3178,9 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   }, []);
 
   const filteredData = useMemo(
-    () =>
-      filterLiveTableTasks({
+    () => {
+      if (requiresSingleProjectSelection) return [];
+      return filterLiveTableTasks({
         tasks,
         projectLinkedFilter,
         projectFilter,
@@ -3034,11 +3194,13 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         chipResolver,
         rowChipValues,
         chipCatalog,
-      }),
+      });
+    },
     [
       tasks,
       projectLinkedFilter,
       projectFilter,
+      requiresSingleProjectSelection,
       globalSearch,
       statusFilter,
       assigneeFilter,
@@ -3110,19 +3272,30 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     ]
   );
 
+  const resolveProjectContextFromSavedFilters = useCallback(
+    (savedProjectFilter: unknown): string[] => {
+      if (!Array.isArray(savedProjectFilter)) return projectFilter;
+      const validSavedProjects = savedProjectFilter.filter(
+        (id): id is string => typeof id === "string" && id.trim() !== ""
+      );
+      if (validSavedProjects.length > 0) return validSavedProjects;
+      return projectFilter;
+    },
+    [projectFilter]
+  );
+
   const clearFilters = useCallback(() => {
     setProjectLinkedFilter("tümü");
     setGlobalSearch("");
     setStatusFilter([]);
     setAssigneeFilter([]);
-    setProjectFilter([]);
     setDateFrom("");
     setDateTo("");
     setDatePreset("custom");
     setColumnFilters({});
     setAdvancedFilterRules([]);
     setActiveSmartFilter(null);
-  }, [setProjectFilter]);
+  }, []);
 
   /**
    * SavedViews entegrasyonu:
@@ -3177,7 +3350,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     setProjectLinkedFilter(f.projectLinkedFilter === "proje" ? "proje" : "tümü");
     setStatusFilter(Array.isArray(f.statusFilter) ? f.statusFilter : []);
     setAssigneeFilter(Array.isArray(f.assigneeFilter) ? f.assigneeFilter : []);
-    setProjectFilter(Array.isArray(f.projectFilter) ? f.projectFilter : []);
+    setProjectFilter(resolveProjectContextFromSavedFilters(f.projectFilter));
     setDateFrom(typeof f.dateFrom === "string" ? f.dateFrom : "");
     setDateTo(typeof f.dateTo === "string" ? f.dateTo : "");
     setDatePreset(typeof f.datePreset === "string" ? f.datePreset : "custom");
@@ -3195,7 +3368,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         right: c.pinning.right ?? [],
       });
     }
-  }, [setProjectFilter]);
+  }, [resolveProjectContextFromSavedFilters, setProjectFilter]);
 
   const applyFilterConfigPatch = useCallback((filters?: SavedViewConfig["filters"]) => {
     if (!filters) return;
@@ -3206,7 +3379,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     if (has("projectLinkedFilter")) setProjectLinkedFilter(filters.projectLinkedFilter === "proje" ? "proje" : "tümü");
     if (has("statusFilter")) setStatusFilter(Array.isArray(filters.statusFilter) ? filters.statusFilter : []);
     if (has("assigneeFilter")) setAssigneeFilter(Array.isArray(filters.assigneeFilter) ? filters.assigneeFilter : []);
-    if (has("projectFilter")) setProjectFilter(Array.isArray(filters.projectFilter) ? filters.projectFilter : []);
+    if (has("projectFilter")) setProjectFilter(resolveProjectContextFromSavedFilters(filters.projectFilter));
     if (has("dateFrom")) setDateFrom(typeof filters.dateFrom === "string" ? filters.dateFrom : "");
     if (has("dateTo")) setDateTo(typeof filters.dateTo === "string" ? filters.dateTo : "");
     if (has("datePreset")) setDatePreset(typeof filters.datePreset === "string" ? filters.datePreset : "custom");
@@ -3217,7 +3390,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     if (has("advancedFilterRules")) {
       setAdvancedFilterRules(Array.isArray(filters.advancedFilterRules) ? (filters.advancedFilterRules as AdvancedFilterRule[]) : []);
     }
-  }, [setProjectFilter]);
+  }, [resolveProjectContextFromSavedFilters, setProjectFilter]);
 
   /** Komut paleti eylemlerini dinle */
   useEffect(() => {
@@ -3918,21 +4091,43 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         }
         const workflowStatus = normalizeWorkflowStatus(task.workflow_status);
         const workflowActions = getWorkflowActionsForTask(task);
+        const project = task.project_id ? projectById.get(String(task.project_id)) ?? null : null;
+        const lockActive =
+          project?.workflow_enabled === true &&
+          project?.lock_on_approval === true &&
+          workflowStatus === "approved";
+        const isLockedForViewer = isRowLockedByApproval(task);
+        // "Kontrole gönder" gizlendi mi (status="Yapılacak" yüzünden)?
+        // Bu durumda kullanıcıya tooltip ile nedenini anlat.
+        const rowCanEditForBadge = canEditRow(task);
+        const submitWouldBeAllowed =
+          rowCanEditForBadge &&
+          (workflowStatus === "draft" || workflowStatus === "revision_requested" || workflowStatus === "rejected");
+        const submitBlockedByStatus =
+          submitWouldBeAllowed && getStatusKind(task.status ?? null) === "todo";
         const badge = (
           <span
             className={cn(
               "inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold shadow-sm dark:font-bold",
               WORKFLOW_STATUS_CLASS[workflowStatus],
-              workflowActions.length > 0 && "gap-1 cursor-pointer"
+              workflowActions.length > 0 && "gap-1 cursor-pointer",
+              lockActive && "gap-1"
             )}
             title={
-              task.workflow_reviewed_by
-                ? `Son karar: ${task.workflow_reviewed_by}`
-                : task.workflow_submitted_at
-                  ? `Kontrole gönderildi: ${new Date(task.workflow_submitted_at).toLocaleString("tr-TR")}`
-                  : undefined
+              isLockedForViewer
+                ? "Satır onaylandı ve kilitli — düzenlemek için proje yetkilisinin kilidi açması gerekir."
+                : lockActive
+                  ? `Onaylandı (kilitli). Son karar: ${task.workflow_reviewed_by ?? "—"}`
+                  : submitBlockedByStatus
+                    ? "Kontrole göndermek için önce durumu 'Devam'a alın (Yapılacak satır kontrole gönderilemez)."
+                    : task.workflow_reviewed_by
+                      ? `Son karar: ${task.workflow_reviewed_by}`
+                      : task.workflow_submitted_at
+                        ? `Kontrole gönderildi: ${new Date(task.workflow_submitted_at).toLocaleString("tr-TR")}`
+                        : undefined
             }
           >
+            {lockActive && <Lock className="h-3 w-3" aria-hidden />}
             {WORKFLOW_STATUS_LABELS[workflowStatus]}
             {workflowActions.length > 0 && <ChevronDown className="h-3 w-3" aria-hidden />}
           </span>
@@ -3952,9 +4147,13 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                   onClick={() => void handleWorkflowAction(task, action)}
                   className={cn(
                     action === "approve" && "text-emerald-700 focus:text-emerald-700 dark:text-emerald-300 dark:focus:text-emerald-300",
-                    action === "reject" && "text-red-700 focus:text-red-700 dark:text-red-300 dark:focus:text-red-300"
+                    action === "reject" && "text-red-700 focus:text-red-700 dark:text-red-300 dark:focus:text-red-300",
+                    action === "unlock" && "text-amber-700 focus:text-amber-700 dark:text-amber-300 dark:focus:text-amber-300",
+                    action === "unlock_request" && "text-sky-700 focus:text-sky-700 dark:text-sky-300 dark:focus:text-sky-300"
                   )}
                 >
+                  {action === "unlock" && <Unlock className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
+                  {action === "unlock_request" && <Lock className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
                   {WORKFLOW_ACTION_LABELS[action]}
                 </DropdownMenuItem>
               ))}
@@ -7403,6 +7602,7 @@ ${emailTemplate.html}
         ref={liveTableScrollRef}
         className={cn(
           "hidden md:flex flex-1 min-h-0 w-full min-w-0 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 bg-slate-50/80 shadow-sm isolate [overflow-anchor:none] dark:border-slate-700/80 dark:bg-slate-950/40 dark:shadow-[0_18px_42px_-32px_rgba(0,0,0,0.8)]",
+          requiresSingleProjectSelection && "!hidden",
           /* Sayfa düzeni flex’te bazen yükseklik sınırlanmıyor; viewport tavanı iç scroll + thead sticky’yi garanti eder (genişlet modunda portal zaten sınırlı). */
           !isFullWidth &&
             "md:max-h-[calc(100dvh-20rem)] lg:max-h-[calc(100dvh-18rem)] xl:max-h-[calc(100dvh-16rem)]",
@@ -7828,7 +8028,7 @@ ${emailTemplate.html}
                 </tr>
               );
             })}
-            {canCreateTask && (
+            {canCreateTask && !requiresSingleProjectSelection && (
               <tr className="border-b border-slate-100 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-900/80">
                 <td
                   colSpan={table.getVisibleLeafColumns().length}
@@ -7941,7 +8141,47 @@ ${emailTemplate.html}
         </div>
       )}
       {filteredData.length === 0 && (
-        tasks.length === 0 ? (
+        requiresSingleProjectSelection ? (
+          <div className="flex min-h-[18rem] flex-1 items-center justify-center px-4 py-8">
+            <EmptyState
+              icon={<FolderKanban className="h-10 w-10" />}
+              title={projectSelectionTitle}
+              description={projectSelectionDescription}
+              action={
+                projectFilterOptions.length > 0 ? (
+                  <div className="flex max-w-3xl flex-wrap items-center justify-center gap-2">
+                    {projectFilterOptions.slice(0, 8).map((project) => (
+                      <Button
+                        key={project.id}
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setProjectFilter([project.id])}
+                        className="max-w-[14rem] justify-start"
+                        title={project.name}
+                      >
+                        <FolderKanban className="mr-2 h-4 w-4 shrink-0" aria-hidden />
+                        <span className="truncate">{project.name}</span>
+                      </Button>
+                    ))}
+                    {projectFilterOptions.length > 8 && (
+                      <span className="text-xs text-slate-500 dark:text-slate-400">
+                        +{projectFilterOptions.length - 8} proje daha; üstteki Proje filtresinden seçebilirsiniz.
+                      </span>
+                    )}
+                  </div>
+                ) : undefined
+              }
+              secondaryAction={
+                projectFilter.length > 1 ? (
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setProjectFilter([])}>
+                    Çoklu seçimi temizle
+                  </Button>
+                ) : undefined
+              }
+            />
+          </div>
+        ) : tasks.length === 0 ? (
           <EmptyState
             icon={<ListTodo className="h-10 w-10" />}
             title="Henüz görev yok"

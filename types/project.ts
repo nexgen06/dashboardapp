@@ -33,6 +33,8 @@ export type Project = {
   wip_in_progress_limit?: number | null;
   /** Açıksa görev satırları tamamlanmadan önce proje yetkilisi/admin onay akışından geçer. */
   workflow_enabled?: boolean;
+  /** Açıksa onay verilmiş (approved) görev satırları yalnızca yetkili (admin/PM/proje yetkilisi) tarafından düzenlenebilir; üyeler için salt-okunur olur. workflow_enabled gerekli. */
+  lock_on_approval?: boolean;
   /** Soft-archive timestamp. NULL = aktif. Dolu = arşivli (UI listelerde gizlenir, silinmez). */
   archived_at?: string | null;
 };

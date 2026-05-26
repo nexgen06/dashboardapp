@@ -48,6 +48,8 @@ export type NotificationSummaryItem = {
   count: number;
   createdAt?: string;
   readAt?: string | null;
+  /** Ham notification payload (workflow için action, project_id vs.) */
+  payload?: Record<string, unknown> | null;
 };
 
 export type NotificationSummary = {
@@ -64,6 +66,8 @@ export type NotificationSummary = {
   readAnnouncementIds?: Set<string>;
   /** Tek bir duyuruyu okundu işaretle (sayfa içi tıklama) */
   markAnnouncementRead?: (id: string) => void | Promise<void>;
+  /** Tek bir bildirimi okundu işaretle (source_key bazında — çan içi tek tek okuma) */
+  markSingleRead?: (sourceKey: string) => void | Promise<void>;
 };
 
 type AdminAlertRow = {
@@ -505,6 +509,7 @@ export function useNotificationSummary(): NotificationSummary {
         href: n.href || "/bildirimler",
         count: n.read_at ? 0 : Math.max(1, Number(n.count ?? 1)),
         createdAt: n.created_at,
+        payload: n.payload ?? null,
         readAt: n.read_at,
       }));
       const totalCount = items.reduce((s, i) => s + i.count, 0);
@@ -673,6 +678,15 @@ export function useNotificationSummary(): NotificationSummary {
     readAnnouncementIds,
   ]);
 
+  const markSingleRead = useCallback(
+    async (sourceKey: string) => {
+      if (!sourceKey || !centralNotificationsAvailable) return;
+      await markNotificationSourceRead(sourceKey);
+      void fetchCentralNotifications();
+    },
+    [centralNotificationsAvailable, fetchCentralNotifications]
+  );
+
   const markAnnouncementRead = useCallback(
     async (id: string) => {
       if (centralNotificationsAvailable) {
@@ -701,5 +715,6 @@ export function useNotificationSummary(): NotificationSummary {
     announcements,
     readAnnouncementIds,
     markAnnouncementRead: userId ? markAnnouncementRead : undefined,
+    markSingleRead: userId && centralNotificationsAvailable ? markSingleRead : undefined,
   };
 }

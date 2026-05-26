@@ -14,6 +14,7 @@ import {
   Loader2,
   Megaphone,
   Bot,
+  ClipboardCheck,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { type NotificationSummaryItem } from "@/hooks/useNotificationSummary";
@@ -78,6 +79,13 @@ const TYPE_META: Record<
     bg: "bg-cyan-100 dark:bg-cyan-900/40",
     text: "text-cyan-700 dark:text-cyan-300",
   },
+  workflow: {
+    label: "Onay akışı",
+    icon: ClipboardCheck,
+    chip: "Onay",
+    bg: "bg-sky-100 dark:bg-sky-900/40",
+    text: "text-sky-700 dark:text-sky-300",
+  },
 };
 
 const ORDER: NotifType[] = [
@@ -88,6 +96,7 @@ const ORDER: NotifType[] = [
   "chat_unread",
   "admin_team_done",
   "automation",
+  "workflow",
 ];
 
 type DateGroup = "today" | "week" | "older" | "unknown";
@@ -125,6 +134,7 @@ export default function BildirimlerPage() {
       chat_unread: 0,
       announcement: 0,
       automation: 0,
+      workflow: 0,
     };
     for (const item of summary.items) {
       m[item.type] = (m[item.type] ?? 0) + item.count;
@@ -367,7 +377,7 @@ export default function BildirimlerPage() {
                           >
                             <Icon className="h-4 w-4" />
                           </span>
-                          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                          <span className="flex min-w-0 flex-1 flex-col gap-1">
                             <span className="flex items-center gap-2">
                               <span
                                 className={cn(
@@ -383,10 +393,20 @@ export default function BildirimlerPage() {
                                   {item.count}
                                 </span>
                               )}
+                              {item.createdAt && (
+                                <span className="ml-auto text-[10px] text-slate-400">
+                                  {new Date(item.createdAt).toLocaleString("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                                </span>
+                              )}
                             </span>
-                            <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
+                            <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
                               {item.label}
                             </span>
+                            {item.body && (
+                              <span className="whitespace-pre-wrap text-xs leading-snug text-slate-600 dark:text-slate-300">
+                                {item.body}
+                              </span>
+                            )}
                           </span>
                           <ArrowRight
                             className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-hover:translate-x-0.5 group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300"

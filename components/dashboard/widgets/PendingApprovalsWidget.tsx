@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { normalizeWorkflowStatus, WORKFLOW_STATUS_LABELS } from "@/lib/taskWorkflow";
+import { getTaskDisplayCard } from "@/lib/taskDisplayLabel";
 import type { Task } from "@/types/tasks";
 import type { Project } from "@/types/project";
 
@@ -95,6 +96,14 @@ export function PendingApprovalsWidget({
             const ws = normalizeWorkflowStatus(task.workflow_status);
             const wsLabel = WORKFLOW_STATUS_LABELS[ws];
             const href = projectId ? `/projeler/${projectId}` : "/canli-tablo";
+            // Görev başlığı + alt başlık: önce task.content; boşsa projenin
+            // title_column / subtitle_columns ayarıyla extra_data'dan türetilir.
+            const card = getTaskDisplayCard(task, {
+              projectTitleColumn: project?.title_column ?? null,
+              subtitleColumns: project?.subtitle_columns ?? null,
+            });
+            const displayTitle = (task.content?.trim() || card.label || "").trim();
+            const subtitleText = card.subtitle.map((s) => `${s.key}: ${s.value}`).join(" · ");
             return (
               <li key={task.id}>
                 <Link
@@ -129,8 +138,18 @@ export function PendingApprovalsWidget({
                       )}
                     </span>
                     <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
-                      {task.content || "(içerik yok)"}
+                      {displayTitle || "(başlıksız görev)"}
                     </span>
+                    {subtitleText && (
+                      <span className="line-clamp-2 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+                        {subtitleText}
+                      </span>
+                    )}
+                    {task.assignee && (
+                      <span className="truncate text-[11px] text-slate-500 dark:text-slate-400">
+                        Gönderen: {task.assignee}
+                      </span>
+                    )}
                   </span>
                   <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-violet-500 dark:text-slate-600 dark:group-hover:text-violet-400" aria-hidden />
                 </Link>
