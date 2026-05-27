@@ -908,20 +908,31 @@ function ReferenceSelectCell({
     );
   }
 
+  // Hibrit: resting state'te düz metin (tablo cell ile uyumlu).
+  // Click veya focus ile editing moduna geçer → input + dropdown açılır.
+  const isEditing = open;
+
   return (
     <div ref={wrapperRef} className="relative w-full min-w-0 max-w-full">
       <input
         ref={inputRef}
         type="text"
         value={localValue}
-        onFocus={() => {
+        // İlk tıklamada cell'in tüm alanı tıklanabilir hissetsin diye placeholder
+        // yerine display value göster. Boşken küçük bir hint metni gösterelim.
+        onFocus={(e) => {
           isFocusedRef.current = true;
           if (!open) setOpen(true);
           updateMenuPos();
+          // Excel/Notion davranışı: ilk focus'ta tüm metni seç → kullanıcı
+          // yazmaya başlarsa üzerine yazılır, ok tuşuyla sonuna geçer
+          if (localValue) {
+            // Async ki render sonrası select çalışsın
+            requestAnimationFrame(() => e.target.select?.());
+          }
         }}
         onChange={(e) => {
           setLocalValue(e.target.value);
-          // setOpen sadece kapalıysa — gereksiz state update'ten kaçın
           if (!open) setOpen(true);
         }}
         onBlur={() => {
@@ -943,12 +954,23 @@ function ReferenceSelectCell({
             inputRef.current?.blur();
           }
         }}
-        placeholder={isLargeList ? `${options.length} kayıt — aramak için yazın` : "Ara ve seç"}
-        title={title}
+        placeholder={
+          isEditing
+            ? (isLargeList ? `${options.length} kayıt — aramak için yazın` : "Ara ve seç")
+            : (value ? "" : "—")
+        }
+        title={title || value || undefined}
+        // Resting state: input görünmez border + transparent bg → düz metin gibi
+        // Editing/focus: border + bg → input "aktif" görünür
+        // Hover: hafif bg + border ipucu → tıklanabilir affordance
         className={cn(
-          "w-full min-w-0 rounded border border-slate-200 bg-white text-slate-800 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100",
+          "w-full min-w-0 rounded outline-none transition-colors",
           cellText,
-          inputPad
+          inputPad,
+          isEditing
+            ? "border border-blue-400 bg-white text-slate-800 ring-1 ring-blue-400 dark:border-blue-500 dark:bg-slate-700 dark:text-slate-100"
+            : "cursor-pointer border border-transparent bg-transparent text-slate-800 hover:border-slate-200 hover:bg-white/60 dark:text-slate-100 dark:hover:border-slate-600 dark:hover:bg-slate-700/50",
+          !value && !isEditing && "text-slate-400 dark:text-slate-500"
         )}
       />
       {open && filteredOptions.length > 0 && createPortal(
