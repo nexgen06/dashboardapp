@@ -154,7 +154,7 @@ import {
 } from "@/lib/reportTemplates";
 import { usePrompt } from "@/components/ui/modals";
 import { notifyWorkflowEvent } from "@/lib/notifications";
-import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, Expand, AlertTriangle, Calendar, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban, Eye, Mail, MessageSquare, Printer, Activity, Table2, Lock, Unlock } from "lucide-react";
+import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, Expand, AlertTriangle, Calendar, CalendarDays, CalendarClock, CalendarRange, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban, Eye, Mail, MessageSquare, Printer, Activity, Table2, Lock, Unlock, Sunrise, History, ArrowRight, Zap } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
 const STATUS_FILTER_OPTIONS = ["Tümü", "Yapılacak", "Devam ediyor", "Devam", "Tamamlandı"] as const;
@@ -6417,69 +6417,200 @@ ${emailTemplate.html}
             )}
           </div>
 
-          {/* Tarih kontrolü — preset select + (custom modda) iki date input
-              Aşama 3: 3 ayrı element tek bordered container'da "→" ile birleştirildi. */}
-          <div
-            className={cn(
-              "inline-flex h-8 items-stretch overflow-hidden rounded-md border bg-white text-xs dark:bg-slate-900",
-              (dateFrom || dateTo)
-                ? "border-indigo-300 dark:border-indigo-700"
-                : "border-slate-200 dark:border-slate-700"
-            )}
-          >
-            <select
-              value={datePreset}
-              onChange={(e) => applyDatePreset(e.target.value)}
-              className="border-0 bg-transparent px-2 text-slate-700 focus:outline-none focus:ring-0 dark:text-slate-200"
-              aria-label="Tarih aralığı önayarı"
-            >
-              <option value="custom">📅 Tarih aralığı</option>
-              <optgroup label="Gelecek">
-                <option value="today">🔵 Bugün</option>
-                <option value="tomorrow">➡️ Yarın</option>
-                <option value="thisWeek">📆 Bu hafta (7 gün)</option>
-                <option value="nextWeek">⏭️ Gelecek hafta</option>
-                <option value="thisMonth">📊 Bu ay</option>
-                <option value="nextMonth">⏩ Gelecek ay</option>
-              </optgroup>
-              <optgroup label="Geçmiş">
-                <option value="last7days">⏪ Son 7 gün</option>
-                <option value="last30days">⏮️ Son 30 gün</option>
-              </optgroup>
-            </select>
-            {datePreset === "custom" && (
+          {/* Tarih kontrolü — modern dropdown + custom range kapsülü */}
+          {(() => {
+            // Preset etiketleri ve ikonları — modern lucide ile
+            const datePresetMeta: Record<string, { label: string; icon: typeof Calendar; tint: string }> = {
+              custom: { label: "Tarih aralığı", icon: CalendarRange, tint: "text-slate-500" },
+              today: { label: "Bugün", icon: CalendarClock, tint: "text-blue-600" },
+              tomorrow: { label: "Yarın", icon: Sunrise, tint: "text-amber-600" },
+              thisWeek: { label: "Bu hafta", icon: CalendarDays, tint: "text-indigo-600" },
+              nextWeek: { label: "Gelecek hafta", icon: CalendarDays, tint: "text-indigo-600" },
+              thisMonth: { label: "Bu ay", icon: Calendar, tint: "text-violet-600" },
+              nextMonth: { label: "Gelecek ay", icon: Calendar, tint: "text-violet-600" },
+              last7days: { label: "Son 7 gün", icon: History, tint: "text-slate-600" },
+              last30days: { label: "Son 30 gün", icon: History, tint: "text-slate-600" },
+            };
+            const meta = datePresetMeta[datePreset] ?? datePresetMeta.custom;
+            const PresetIcon = meta.icon;
+            const isActive = Boolean(dateFrom || dateTo);
+
+            const presetButton = (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
+                      "bg-white dark:bg-slate-900",
+                      isActive
+                        ? "border-indigo-300 text-indigo-800 hover:border-indigo-400 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-200"
+                        : "border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800/60"
+                    )}
+                    aria-label="Tarih aralığı seç"
+                  >
+                    <PresetIcon className={cn("h-3.5 w-3.5 shrink-0", isActive ? "text-indigo-600 dark:text-indigo-400" : meta.tint)} aria-hidden />
+                    <span>{meta.label}</span>
+                    <ChevronDown className="h-3 w-3 shrink-0 opacity-60" aria-hidden />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  <DropdownMenuItem onClick={() => applyDatePreset("custom")} className="gap-2">
+                    <CalendarRange className="h-4 w-4 text-slate-500" aria-hidden />
+                    <span className="flex-1">Özel aralık</span>
+                    {datePreset === "custom" && <Check className="h-3.5 w-3.5 text-indigo-600" aria-hidden />}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Gelecek</div>
+                  <DropdownMenuItem onClick={() => applyDatePreset("today")} className="gap-2">
+                    <CalendarClock className="h-4 w-4 text-blue-600" aria-hidden />
+                    <span className="flex-1">Bugün</span>
+                    {datePreset === "today" && <Check className="h-3.5 w-3.5 text-indigo-600" aria-hidden />}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => applyDatePreset("tomorrow")} className="gap-2">
+                    <Sunrise className="h-4 w-4 text-amber-600" aria-hidden />
+                    <span className="flex-1">Yarın</span>
+                    {datePreset === "tomorrow" && <Check className="h-3.5 w-3.5 text-indigo-600" aria-hidden />}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => applyDatePreset("thisWeek")} className="gap-2">
+                    <CalendarDays className="h-4 w-4 text-indigo-600" aria-hidden />
+                    <span className="flex-1">Bu hafta (7 gün)</span>
+                    {datePreset === "thisWeek" && <Check className="h-3.5 w-3.5 text-indigo-600" aria-hidden />}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => applyDatePreset("nextWeek")} className="gap-2">
+                    <CalendarDays className="h-4 w-4 text-indigo-600" aria-hidden />
+                    <span className="flex-1">Gelecek hafta</span>
+                    {datePreset === "nextWeek" && <Check className="h-3.5 w-3.5 text-indigo-600" aria-hidden />}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => applyDatePreset("thisMonth")} className="gap-2">
+                    <Calendar className="h-4 w-4 text-violet-600" aria-hidden />
+                    <span className="flex-1">Bu ay</span>
+                    {datePreset === "thisMonth" && <Check className="h-3.5 w-3.5 text-indigo-600" aria-hidden />}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => applyDatePreset("nextMonth")} className="gap-2">
+                    <Calendar className="h-4 w-4 text-violet-600" aria-hidden />
+                    <span className="flex-1">Gelecek ay</span>
+                    {datePreset === "nextMonth" && <Check className="h-3.5 w-3.5 text-indigo-600" aria-hidden />}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Geçmiş</div>
+                  <DropdownMenuItem onClick={() => applyDatePreset("last7days")} className="gap-2">
+                    <History className="h-4 w-4 text-slate-600 dark:text-slate-300" aria-hidden />
+                    <span className="flex-1">Son 7 gün</span>
+                    {datePreset === "last7days" && <Check className="h-3.5 w-3.5 text-indigo-600" aria-hidden />}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => applyDatePreset("last30days")} className="gap-2">
+                    <History className="h-4 w-4 text-slate-600 dark:text-slate-300" aria-hidden />
+                    <span className="flex-1">Son 30 gün</span>
+                    {datePreset === "last30days" && <Check className="h-3.5 w-3.5 text-indigo-600" aria-hidden />}
+                  </DropdownMenuItem>
+                  {isActive && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => {
+                          setDateFrom("");
+                          setDateTo("");
+                          setDatePreset("custom");
+                        }}
+                        className="gap-2 text-red-600 focus:text-red-700 dark:text-red-400 dark:focus:text-red-300"
+                      >
+                        <X className="h-4 w-4" aria-hidden />
+                        <span className="flex-1">Temizle</span>
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            );
+
+            // Custom range kapsülü — modern kompozit input
+            const customRangeCapsule = datePreset === "custom" ? (
+              <div
+                className={cn(
+                  "inline-flex h-8 items-center overflow-hidden rounded-md border bg-white text-xs shadow-sm transition-colors dark:bg-slate-900",
+                  isActive
+                    ? "border-indigo-300 ring-1 ring-indigo-200/60 dark:border-indigo-700 dark:ring-indigo-900/40"
+                    : "border-slate-200 dark:border-slate-700"
+                )}
+              >
+                <div className="flex items-center gap-1 border-r border-slate-200 px-2 dark:border-slate-700">
+                  <CalendarDays className="h-3.5 w-3.5 text-slate-400" aria-hidden />
+                  <input
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => {
+                      setDateFrom(e.target.value);
+                      setDatePreset("custom");
+                    }}
+                    className="w-[120px] border-0 bg-transparent px-1 text-slate-700 outline-none focus:outline-none focus:ring-0 dark:text-slate-200 [color-scheme:light] dark:[color-scheme:dark]"
+                    aria-label="Başlangıç tarihi"
+                    placeholder="Başlangıç"
+                  />
+                </div>
+                <ArrowRight className="mx-1.5 h-3 w-3 shrink-0 text-slate-400" aria-hidden />
+                <div className="flex items-center gap-1 border-l border-slate-200 px-2 dark:border-slate-700">
+                  <CalendarDays className="h-3.5 w-3.5 text-slate-400" aria-hidden />
+                  <input
+                    type="date"
+                    value={dateTo}
+                    onChange={(e) => {
+                      setDateTo(e.target.value);
+                      setDatePreset("custom");
+                    }}
+                    className="w-[120px] border-0 bg-transparent px-1 text-slate-700 outline-none focus:outline-none focus:ring-0 dark:text-slate-200 [color-scheme:light] dark:[color-scheme:dark]"
+                    aria-label="Bitiş tarihi"
+                    placeholder="Bitiş"
+                  />
+                </div>
+                {isActive && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDateFrom("");
+                      setDateTo("");
+                    }}
+                    className="flex h-full items-center border-l border-slate-200 px-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:border-slate-700 dark:hover:bg-red-950/30"
+                    title="Tarih aralığını temizle"
+                    aria-label="Temizle"
+                  >
+                    <X className="h-3 w-3" aria-hidden />
+                  </button>
+                )}
+              </div>
+            ) : null;
+
+            // Preset seçildi + aktif aralık — özet rozeti
+            const activePresetBadge = datePreset !== "custom" && isActive ? (
+              <span className="inline-flex h-8 items-center gap-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 text-xs font-medium text-indigo-800 dark:border-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-200">
+                <CalendarDays className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
+                <span>{dateFrom}</span>
+                <ArrowRight className="h-2.5 w-2.5 opacity-60" aria-hidden />
+                <span>{dateTo}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDateFrom("");
+                    setDateTo("");
+                    setDatePreset("custom");
+                  }}
+                  className="ml-1 -mr-1 rounded p-0.5 text-indigo-600/70 transition-colors hover:bg-indigo-100 hover:text-indigo-800 dark:text-indigo-300/70 dark:hover:bg-indigo-900/60 dark:hover:text-indigo-100"
+                  title="Tarih aralığını temizle"
+                  aria-label="Temizle"
+                >
+                  <X className="h-3 w-3" aria-hidden />
+                </button>
+              </span>
+            ) : null;
+
+            return (
               <>
-                <span className="self-center border-l border-slate-200 dark:border-slate-700" aria-hidden style={{ height: "60%" }} />
-                <input
-                  type="date"
-                  value={dateFrom}
-                  onChange={(e) => {
-                    setDateFrom(e.target.value);
-                    setDatePreset("custom");
-                  }}
-                  className="w-[120px] border-0 bg-transparent px-2 text-slate-700 focus:outline-none focus:ring-0 dark:text-slate-200"
-                  aria-label="Başlangıç tarihi"
-                />
-                <span className="self-center text-slate-400 dark:text-slate-500" aria-hidden>→</span>
-                <input
-                  type="date"
-                  value={dateTo}
-                  onChange={(e) => {
-                    setDateTo(e.target.value);
-                    setDatePreset("custom");
-                  }}
-                  className="w-[120px] border-0 bg-transparent px-2 text-slate-700 focus:outline-none focus:ring-0 dark:text-slate-200"
-                  aria-label="Bitiş tarihi"
-                />
+                {presetButton}
+                {customRangeCapsule}
+                {activePresetBadge}
               </>
-            )}
-          </div>
-          {datePreset !== "custom" && (dateFrom || dateTo) && (
-            <span className="inline-flex h-8 items-center gap-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-2 text-xs font-medium text-indigo-800 dark:border-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
-              <Calendar className="h-3 w-3 shrink-0" aria-hidden />
-              {dateFrom} → {dateTo}
-            </span>
-          )}
+            );
+          })()}
           {/* /Hızlı filtre dropdownları */}
 
           {/* Görünüm kontrolleri — sağa hizalı */}
