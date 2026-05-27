@@ -918,6 +918,51 @@ function GelismisAyarlar({ searchQuery, resetSection, resetToDefaults, canResetS
       </SettingRow>
       )}
 
+      {/* Tarayıcı verilerini sıfırla — herkes (sadece kendi tarayıcı tercihleri) */}
+      {matchesSearch(searchQuery, "Tarayıcı tercihlerini sıfırla", "Kolon ayarları, filtreler, sayfa boyutu vs.") && (
+      <SettingRow
+        label="Tarayıcı tercihlerini sıfırla"
+        description="Bu cihazdaki UI tercihlerini (kolon sıralaması, filtreler, sayfa boyutu, özet panel açık/kapalı, rapor şablonları) varsayılana döndürür. Sunucu verilerine (görev, proje, bildirim) dokunmaz."
+      >
+        <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-4 dark:border-blue-700 dark:bg-blue-900/15">
+          <p className="mb-3 text-xs text-slate-600 dark:text-slate-400">
+            Tipik kullanım: özellikleri sıfırdan test etmek istediğinizde, eski tercih önbelleğini temizler. Oturumunuz korunur.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (typeof window === "undefined") return;
+              if (!window.confirm("Tarayıcı UI tercihleri silinsin mi? Sayfa yenilenecek.")) return;
+              // Auth dışındaki dashboardapp.* + liveTable/reportTemplates anahtarlarını sil
+              const keysToDelete: string[] = [];
+              for (let i = 0; i < localStorage.length; i += 1) {
+                const k = localStorage.key(i);
+                if (!k) continue;
+                if (
+                  k.startsWith("dashboardapp.") ||
+                  k.startsWith("dashboardapp:") ||
+                  k.includes("liveTable") ||
+                  k.includes("reportTemplates") ||
+                  k.startsWith("dashboard-settings")
+                ) {
+                  keysToDelete.push(k);
+                }
+              }
+              keysToDelete.forEach((k) => localStorage.removeItem(k));
+              // sessionStorage de temizle (geçici state için)
+              try { sessionStorage.clear(); } catch { /* ignore */ }
+              window.location.reload();
+            }}
+          >
+            <RotateCcw className="mr-2 h-4 w-4" />
+            Tarayıcı tercihlerini temizle
+          </Button>
+        </div>
+      </SettingRow>
+      )}
+
       {/* Veritabanı Sıfırlama — sadece admin */}
       {canResetSettings && resetMatch && (
       <SettingRow
