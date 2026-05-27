@@ -637,7 +637,501 @@ drop table if exists public.encrypted_field_values cascade;
 
 ---
 
-## BÖLÜM 15 — Onay & Sonraki Adım
+## BÖLÜM 16 — Analytics / Raporlama Motoru
+
+> **Amaç**: Kullanıcı sadece veri girmesin; sistem girilen veriden otomatik KPI, analiz ve grafik üretsin. Her modül kendi analiz şablonunu tanımlayabilsin. **Ulaştırma modülü** referans implementasyon.
+
+### 16.1 Mimari Yaklaşım — "Analytics-as-Module"
+
+Analytics, ayrı bir modül değil **platform servisi**. Her modül kendi tanımını yapar:
+
+```
+PLATFORM SERVICES eklenir:
+  ├── Analytics Engine
+  │     ├── Computed Fields (hesaplanan alanlar)
+  │     ├── Metric Definitions (KPI tanımları)
+  │     ├── Chart Templates (grafik şablonları)
+  │     ├── Report Templates (rapor şablonları)
+  │     └── Cross-Record Matching (otomatik eşleştirme)
+```
+
+### 16.2 Yeni Tablolar
+
+```sql
+-- 1) Modül başına hesaplanan alanlar
+create table public.module_computed_fields (
+  id uuid primary key default gen_random_uuid(),
+  module_id uuid not null references public.modules(id) on delete cascade,
+  key text not null,                  -- 'total_km', 'usage_hours', 'fuel_cost_per_km'
+  label text not null,
+  formula_kind text not null,         -- 'arithmetic' | 'aggregate' | 'cross_record_match' | 'sql_view'
+  formula_config jsonb not null,      -- {expression, dependencies, scope, ...}
+  result_type text not null,          -- 'number', 'currency', 'duration', 'percent'
+  unit text,                          -- 'km', 'TL', 'saat', 'L'
+  cache_ttl_seconds int default 60,   -- materialized cache süresi
+  sort_order int default 0,
+  unique (module_id, key)
+);
+
+-- 2) Modül KPI tanımları (Dashboard kartları için detay)
+create table public.module_metrics (
+  id uuid primary key default gen_random_uuid(),
+  module_id uuid not null references public.modules(id) on delete cascade,
+  code text not null,                 -- 'monthly_fuel_cost', 'active_vehicles'
+  title text not null,
+  description text,
+  query_kind text not null,           -- 'count' | 'sum' | 'avg' | 'min' | 'max' | 'distinct_count' | 'custom_sql'
+  source_table text,                  -- 'fuel_logs', 'vehicle_trips'
+  source_field text,                  -- 'amount', 'total_km'
+  filter_config jsonb,                -- {date_range, status_in, vehicle_in, ...}
+  group_by text[],                    -- ['vehicle_id', 'month']
+  icon text,
+  color text,
+  format_template text,               -- '{value} TL', '{value} km'
+  trend_compare_period text,          -- 'prev_month', 'prev_year'
+  alert_threshold jsonb,              -- {operator, value, severity}
+  sort_order int default 0,
+  unique (module_id, code)
+);
+
+-- 3) Modül grafik şablonları
+create table public.module_charts (
+  id uuid primary key default gen_random_uuid(),
+  module_id uuid not null references public.modules(id) on delete cascade,
+  code text not null,                 -- 'monthly_km_by_vehicle'
+  title text not null,
+  chart_type text not null,           -- 'line' | 'bar' | 'pie' | 'area' | 'donut' | 'scatter' | 'heatmap'
+  query_config jsonb not null,        -- {source, x_axis, y_axis, group_by, aggregate}
+  display_config jsonb,               -- {colors, legend_position, tooltip_format}
+  default_filters jsonb,              -- preset filtreler
+  sort_order int default 0,
+  unique (module_id, code)
+);
+
+-- 4) Rapor şablonları (modül + sistem genel)
+create table public.module_reports (
+  id uuid primary key default gen_random_uuid(),
+  module_id uuid references public.modules(id) on delete cascade,
+  code text not null,                 -- 'monthly_vehicle_usage'
+  title text not null,
+  description text,
+  report_type text not null,          -- 'pdf' | 'excel' | 'csv'
+  sections jsonb not null,            -- [{type: 'header'}, {type: 'kpi_grid'}, {type: 'chart'}, {type: 'table'}]
+  default_filters jsonb,
+  required_permission text,
+  is_official boolean default false,
+  unique (module_id, code)
+);
+
+-- 5) Cross-record matching kuralları (ceza ↔ trip gibi)
+create table public.module_match_rules (
+  id uuid primary key default gen_random_uuid(),
+  module_id uuid not null references public.modules(id) on delete cascade,
+  code text not null,                 -- 'fine_to_trip'
+  source_table text not null,         -- 'traffic_fines'
+  target_table text not null,         -- 'vehicle_trips'
+  match_config jsonb not null,        -- {join_field: 'vehicle_id', time_overlap: {source: 'fine_datetime', target: ['start_datetime','end_datetime']}}
+  auto_actions jsonb,                 -- [{type: 'set_field', field: 'matched_driver_id'}, {type: 'notify', recipient: 'driver'}, {type: 'audit'}]
+  enabled boolean default true,
+  unique (module_id, code)
+);
+
+-- 6) Materialized metric cache (performans)
+create table public.metric_cache (
+  metric_id uuid not null references public.module_metrics(id) on delete cascade,
+  scope_hash text not null,           -- hash of (user_id, project_id, filters)
+  result jsonb not null,
+  computed_at timestamptz not null default now(),
+  primary key (metric_id, scope_hash)
+);
+```
+
+### 16.3 Ulaştırma Modülü Şeması (Referans Implementasyon)
+
+```sql
+-- Araçlar
+create table public.vehicles (
+  id uuid primary key default gen_random_uuid(),
+  plate text unique not null,
+  brand text, model text, year int,
+  fuel_type text,                     -- 'benzin', 'dizel', 'lpg', 'elektrik'
+  department text,
+  status text default 'active',       -- 'active' | 'maintenance' | 'retired'
+  current_km int default 0,
+  next_service_km int,
+  next_service_date date,
+  module_id uuid references public.modules(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Şoförler (auth.users'a opsiyonel bağlı)
+create table public.drivers (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id),
+  name text not null,
+  license_type text,                  -- 'B', 'C', 'D', 'E'
+  license_no_encrypted text,          -- field_security_rules ile maskeli
+  department text,
+  phone text,
+  active boolean default true,
+  created_at timestamptz not null default now()
+);
+
+-- Araç görev (trip) kayıtları
+create table public.vehicle_trips (
+  id uuid primary key default gen_random_uuid(),
+  vehicle_id uuid not null references public.vehicles(id),
+  driver_id uuid references public.drivers(id),
+  start_datetime timestamptz not null,
+  end_datetime timestamptz,
+  start_km int not null,
+  end_km int,
+  total_km int generated always as (coalesce(end_km - start_km, 0)) stored,
+  duration_minutes int generated always as (
+    case when end_datetime is not null
+      then extract(epoch from (end_datetime - start_datetime))::int / 60
+      else null end
+  ) stored,
+  destination text,
+  task_type text,                     -- 'sehir_ici', 'sehir_disi', 'bakim', 'aciliyet'
+  status text default 'active',       -- 'planned' | 'active' | 'completed' | 'cancelled'
+  handover_received_by text,          -- teslim alan
+  handover_returned_to text,          -- teslim eden
+  notes text,
+  project_id uuid references public.projects(id),
+  created_by uuid references auth.users(id),
+  created_at timestamptz not null default now()
+);
+
+-- Yakıt kayıtları
+create table public.fuel_logs (
+  id uuid primary key default gen_random_uuid(),
+  vehicle_id uuid not null references public.vehicles(id),
+  fuel_date date not null,
+  liter numeric(10,2) not null,
+  amount numeric(12,2) not null,      -- toplam tutar
+  unit_price numeric(10,4) generated always as (
+    case when liter > 0 then amount / liter else 0 end
+  ) stored,
+  station text,
+  km_at_fueling int,
+  invoice_file_id uuid,               -- task_files referansı
+  trip_id uuid references public.vehicle_trips(id),  -- opsiyonel
+  created_by uuid references auth.users(id),
+  created_at timestamptz not null default now()
+);
+
+-- Trafik cezaları
+create table public.traffic_fines (
+  id uuid primary key default gen_random_uuid(),
+  vehicle_id uuid not null references public.vehicles(id),
+  fine_datetime timestamptz not null,
+  fine_type text not null,            -- 'hiz', 'park', 'kirmizi_isik', 'emniyet_kemer'
+  amount numeric(12,2) not null,
+  location text,
+  document_file_id uuid,
+  -- Otomatik eşleştirme alanları
+  matched_trip_id uuid references public.vehicle_trips(id),
+  matched_driver_id uuid references public.drivers(id),
+  match_confidence text,              -- 'auto_high' | 'auto_medium' | 'manual' | 'unmatched'
+  responsibility_status text,         -- 'driver' | 'company' | 'disputed' | 'pending'
+  payment_status text default 'pending', -- 'pending' | 'paid' | 'objected' | 'cancelled'
+  payment_date date,
+  notes text,
+  created_at timestamptz not null default now()
+);
+
+-- Bakım/servis kayıtları
+create table public.maintenance_logs (
+  id uuid primary key default gen_random_uuid(),
+  vehicle_id uuid not null references public.vehicles(id),
+  service_date date not null,
+  km_at_service int not null,
+  cost numeric(12,2),
+  description text,
+  service_provider text,
+  next_service_date date,
+  next_service_km int,
+  invoice_file_id uuid,
+  created_at timestamptz not null default now()
+);
+
+-- İndeksler (performans)
+create index vehicle_trips_vehicle_dates_idx on public.vehicle_trips(vehicle_id, start_datetime, end_datetime);
+create index vehicle_trips_driver_idx on public.vehicle_trips(driver_id, start_datetime desc);
+create index fuel_logs_vehicle_date_idx on public.fuel_logs(vehicle_id, fuel_date desc);
+create index traffic_fines_vehicle_date_idx on public.traffic_fines(vehicle_id, fine_datetime);
+create index traffic_fines_unmatched_idx on public.traffic_fines(vehicle_id, fine_datetime) where matched_trip_id is null;
+create index maintenance_next_due_idx on public.maintenance_logs(vehicle_id, next_service_date);
+```
+
+### 16.4 Ulaştırma Hesaplanan Alanlar (Auto-Computed)
+
+Veritabanı tarafı (PostgreSQL `generated always as`):
+- `vehicle_trips.total_km` = `end_km - start_km`
+- `vehicle_trips.duration_minutes` = `end_datetime - start_datetime`
+- `fuel_logs.unit_price` = `amount / liter`
+
+Uygulama / view tarafı (modülün `module_computed_fields` kayıtları):
+- `vehicle_monthly_km` = `SUM(total_km)` per vehicle per month
+- `vehicle_unique_drivers_count` = `COUNT(DISTINCT driver_id)` per vehicle per period
+- `vehicle_monthly_trips` = `COUNT(*)` per vehicle per month
+- `vehicle_monthly_fuel_cost` = `SUM(amount)` per vehicle per month
+- `vehicle_cost_per_km` = `monthly_fuel_cost / monthly_km`
+- `driver_total_trips` = `COUNT(*)` per driver per period
+- `driver_total_fines` = `SUM(amount)` per driver per period
+
+### 16.5 Cross-Record Matching — Ceza ↔ Trip Eşleştirme
+
+**Kural** (`module_match_rules` kaydı):
+```json
+{
+  "code": "fine_to_trip",
+  "source_table": "traffic_fines",
+  "target_table": "vehicle_trips",
+  "match_config": {
+    "join_field": "vehicle_id",
+    "time_overlap": {
+      "source_field": "fine_datetime",
+      "target_range_fields": ["start_datetime", "end_datetime"]
+    }
+  },
+  "auto_actions": [
+    { "type": "set_field", "target": "matched_trip_id", "source": "trip.id" },
+    { "type": "set_field", "target": "matched_driver_id", "source": "trip.driver_id" },
+    { "type": "set_field", "target": "match_confidence", "value": "auto_high" },
+    { "type": "audit_event", "code": "fine.auto_matched" },
+    { "type": "notify", "recipient_lookup": "trip.driver.user_id",
+      "title": "Size atanan trafik cezası", "severity": "warning" }
+  ]
+}
+```
+
+**Çalışma şekli** (PostgreSQL trigger + RPC):
+```sql
+create or replace function public.match_fine_to_trip()
+returns trigger language plpgsql security definer as $$
+declare
+  v_trip record;
+begin
+  select * into v_trip
+  from public.vehicle_trips
+  where vehicle_id = new.vehicle_id
+    and new.fine_datetime between start_datetime and coalesce(end_datetime, now())
+  order by start_datetime desc
+  limit 1;
+
+  if v_trip.id is not null then
+    new.matched_trip_id := v_trip.id;
+    new.matched_driver_id := v_trip.driver_id;
+    new.match_confidence := 'auto_high';
+    -- Bildirim ve audit RPC çağrıları
+    perform public.create_fine_match_notification(new.id, v_trip.driver_id);
+  else
+    new.match_confidence := 'unmatched';
+  end if;
+  return new;
+end $$;
+
+create trigger trg_match_fine_to_trip
+  before insert on public.traffic_fines
+  for each row execute function public.match_fine_to_trip();
+```
+
+### 16.6 Ulaştırma KPI Kartları (8 adet)
+
+| Kod | Başlık | Sorgu | Format |
+|---|---|---|---|
+| `active_vehicles_today` | Bugün görevdeki araç | COUNT(DISTINCT vehicle_id) WHERE status='active' AND today BETWEEN start AND end | `{value} araç` |
+| `today_trip_count` | Bugünkü sefer | COUNT(*) WHERE start_date = today | `{value} sefer` |
+| `monthly_trip_total` | Aylık sefer | COUNT(*) WHERE month = current | `{value} sefer` (trend: prev_month) |
+| `monthly_km_total` | Aylık toplam km | SUM(total_km) | `{value} km` |
+| `monthly_fuel_cost` | Aylık yakıt gideri | SUM(amount) from fuel_logs | `{value} TL` (trend) |
+| `monthly_fine_total` | Aylık ceza | SUM(amount) from traffic_fines | `{value} TL` (alert: >threshold kırmızı) |
+| `maintenance_due_soon` | Bakımı yaklaşan | COUNT(*) WHERE next_service_date < today+14 OR next_service_km - current_km < 1000 | `{value} araç` |
+| `most_active_vehicle` | En yoğun araç | top 1 by monthly_trip_count | `{plate} ({value} sefer)` |
+
+### 16.7 Ulaştırma Grafikleri (8 adet)
+
+| Kod | Tür | X / Y / Group |
+|---|---|---|
+| `monthly_km_by_vehicle` | bar (stacked) | x: month, y: total_km, group: vehicle_id |
+| `driver_trip_count` | bar (horizontal) | x: trip_count, y: driver |
+| `monthly_fuel_cost_trend` | line | x: month, y: fuel_amount |
+| `vehicle_fuel_consumption` | bar | x: plate, y: L/100km (computed) |
+| `fines_monthly_distribution` | bar | x: month, y: count + amount overlay |
+| `task_type_usage_pie` | pie | groups: task_type, value: count |
+| `vehicle_usage_hours` | bar | x: plate, y: SUM(duration_minutes)/60 |
+| `cost_per_km_trend` | line | x: month, y: fuel_cost/km |
+
+### 16.8 Ulaştırma Raporları (5 adet, PDF/Excel)
+
+1. **Aylık Araç Kullanım Raporu** — vehicle bazlı: km, sefer, saat, yakıt, maliyet
+2. **Yakıt Gider Raporu** — fuel_logs tablosu + KPI özet + trend grafiği
+3. **Trafik Cezası Raporu** — ceza listesi + eşleşmiş şoför + sorumluluk durumu
+4. **Şoför Performans Raporu** — driver bazlı: sefer sayısı, toplam km, ceza, ortalama hız
+5. **Bakım Takip Raporu** — vehicle bazlı: son bakım, sonraki bakım, gecikme
+
+Her raporun `sections` JSON yapısı:
+```json
+{
+  "sections": [
+    { "type": "header", "config": { "logo": true, "title": "{period} Araç Kullanım Raporu", "filters_summary": true } },
+    { "type": "kpi_grid", "metric_codes": ["monthly_trip_total", "monthly_km_total", "monthly_fuel_cost"] },
+    { "type": "chart", "chart_code": "monthly_km_by_vehicle" },
+    { "type": "table", "source": "vehicle_trips", "columns": [...], "group_by": "vehicle" },
+    { "type": "footer", "config": { "page_number": true, "generated_at": true } }
+  ]
+}
+```
+
+### 16.9 Filtre Sistemi — `analytics_filters` (Generic)
+
+```sql
+create table public.module_filter_definitions (
+  id uuid primary key default gen_random_uuid(),
+  module_id uuid not null references public.modules(id) on delete cascade,
+  key text not null,                  -- 'date_range', 'vehicle_id', 'driver_id'
+  label text not null,
+  filter_type text not null,          -- 'date_range' | 'multi_select' | 'single_select' | 'number_range' | 'text'
+  source_config jsonb,                -- {table: 'vehicles', label_field: 'plate', value_field: 'id'}
+  default_value jsonb,
+  required boolean default false,
+  sort_order int default 0
+);
+```
+
+Ulaştırma filtreleri: `date_range`, `vehicle_id` (multi_select from vehicles), `driver_id`, `department`, `task_type`, `fuel_type`, `fine_type`, `payment_status`, `maintenance_status`.
+
+### 16.10 Diğer Modüller İçin Genel Yapı (Genelleştirme)
+
+Aynı `module_metrics` / `module_charts` / `module_reports` yapısı **tüm modüller** için:
+
+**Finans örneği**:
+- Metrics: `pending_payments_count`, `monthly_paid_total`, `overdue_approvals`
+- Charts: `monthly_cashflow`, `budget_vs_actual`, `department_spending_pie`
+- Reports: "Aylık Ödeme Raporu", "Bütçe Sapma Raporu"
+
+**Hukuk örneği**:
+- Metrics: `open_cases`, `upcoming_hearings_7day`, `critical_deadlines`
+- Charts: `cases_by_court`, `monthly_case_outcomes`, `lawyer_caseload`
+- Reports: "Dava Durum Raporu", "Duruşma Takvimi", "Avukat Performans"
+
+**Personel örneği**:
+- Metrics: `open_requests`, `overdue_processes`, `dept_workload`
+- Charts: `monthly_request_types`, `dept_processing_time`, `request_status_funnel`
+
+### 16.11 Güvenlik — Analytics RLS
+
+**Kritik kural**: Dashboard query'leri **kullanıcının erişebileceği kayıtlarla** sınırlı.
+
+```sql
+-- Örnek: vehicle_trips RLS
+create policy vehicle_trips_select on public.vehicle_trips
+  for select to authenticated
+  using (
+    -- Admin tümünü görür
+    is_app_admin()
+    -- Filo Müdürü tüm araçları görür
+    or current_profile_role_id() in ('admin', 'project_manager')
+    -- Şoför sadece kendi tripi
+    or driver_id = (select id from public.drivers where user_id = auth.uid())
+    -- Birim sorumlusu kendi birim araçları
+    or vehicle_id in (
+      select v.id from public.vehicles v
+      where v.department = current_user_department()
+    )
+  );
+```
+
+**KPI fonksiyonları RLS-aware** çalışır:
+```sql
+create function public.compute_metric(
+  p_metric_code text,
+  p_filters jsonb
+) returns jsonb security invoker  -- ÖNEMLİ: invoker, definer DEĞİL
+language plpgsql as $$
+-- RLS otomatik uygulanır; kullanıcı sadece kendi görebildiği veriden sayım alır
+$$;
+```
+
+**Cache key'i kullanıcı bazlı**: `scope_hash = hash(user_id, project_filters, date_range)` — farklı kullanıcılar aynı KPI'ı farklı görür.
+
+### 16.12 Performans Stratejisi
+
+- **Generated columns** (PostgreSQL native): `total_km`, `duration_minutes`, `unit_price` — yazma zamanı hesap
+- **Materialized views**: Aylık KPI'lar için `mat_view_monthly_vehicle_metrics`, gece refresh
+- **Metric cache**: `metric_cache` tablosu, 60 saniye TTL, scope-hash key
+- **Index strategy**:
+  - `(vehicle_id, start_datetime DESC)` — son tripler için
+  - `(vehicle_id, fuel_date DESC)` — son yakıt için
+  - Partial index: `where matched_trip_id is null` — eşleşmemiş cezalar
+- **Chart query timeout**: 5sn, üstüne çıkarsa "veri çok büyük, filtreleyin" uyarısı
+
+### 16.13 Frontend — Chart Library
+
+**Karar**: `recharts` (zaten ekosisteme yakın, ~90KB, React-friendly).
+
+Yeni klasör:
+```
+components/analytics/
+  ChartRenderer.tsx       # chart_type → bileşen dispatcher
+  MetricCard.tsx          # KPI kartı (number + trend + alert)
+  ReportBuilder.tsx       # rapor önizleme + PDF/Excel export
+  FilterBar.tsx           # module_filter_definitions render
+  charts/
+    LineChart.tsx
+    BarChart.tsx
+    PieChart.tsx
+    DonutChart.tsx
+    AreaChart.tsx
+    HeatmapChart.tsx
+lib/analytics/
+  metricEngine.ts         # compute_metric RPC wrapper + cache
+  chartQueryBuilder.ts    # query_config → SQL/RPC
+  reportRenderer.ts       # sections JSON → PDF/Excel
+```
+
+### 16.14 Sprint Eklemeleri (Mevcut 12 Sprint + 4 yeni)
+
+| Yeni Sprint | İçerik | Bağımlılık |
+|---|---|---|
+| **S13** | `module_computed_fields`, `module_metrics`, `module_charts`, `metric_cache` tabloları | S2 (modüler altyapı) |
+| **S14** | Analytics Engine lib + KPI renderer + chart library entegrasyonu | S13 |
+| **S15** | Ulaştırma şeması (vehicles, drivers, trips, fuel, fines, maintenance) + 8 KPI + 8 chart + 5 rapor | S13, S14 |
+| **S16** | Cross-record matching engine (`module_match_rules`) + ceza-trip otomatik eşleştirme + bildirim | S15 |
+
+Toplam sprint sayısı **12 → 16** (3 ay → ~4 ay).
+
+### 16.15 Migration Stratejisi (Ulaştırma)
+
+Eski projeler için: Ulaştırma şeması **opsiyonel**. Sadece "Ulaştırma" modülü etkin projeler kullanır. Mevcut tasks tablosu olduğu gibi kalır.
+
+**Geriye uyum**:
+- Vehicles/drivers/trips ayrı tablolar — `tasks` ile karışmaz
+- Ulaştırma kayıtları aynı zamanda `tasks` tablosuna projection yapılabilir (opsiyonel view): kullanıcı isterse "Canlı Tablo"da da görür
+- Mevcut görev modeli bozulmaz
+
+### 16.16 Test Senaryoları (Analytics Özel)
+
+- Generated column çalışır: trip kaydet → total_km otomatik
+- Ceza eşleştirme: trip aralığında ceza ekle → matched_driver otomatik dolu + bildirim
+- RLS: şoför kendi tripi dışındaki cezayı görmez
+- Cache: aynı filtre 2. kez 60sn içinde → cache hit
+- Rapor: 5K kayıt PDF üretimi <10sn
+- Chart: 1 yıllık veri 12 ay group → <500ms
+
+### 16.17 Rollback (Analytics)
+
+- `module_computed_fields` boşalırsa: KPI gösterilmez ama veri kaybı yok (alt tablolar dolu)
+- `metric_cache` her zaman silinebilir (yeniden hesaplanır)
+- `traffic_fines.matched_trip_id` NULL'a düşerse trigger tekrar çalıştırılabilir (`UPDATE traffic_fines SET ... WHERE matched_trip_id IS NULL` re-trigger)
+- Ulaştırma tabloları drop edilebilir — diğer modüller etkilenmez
+
+---
+
+## BÖLÜM 17 — Onay & Sonraki Adım
 
 Bu plan **bir yol haritası** — uygulama başlamak için aşağıdaki kararlar gerek:
 
@@ -647,9 +1141,10 @@ Bu plan **bir yol haritası** — uygulama başlamak için aşağıdaki kararlar
    - A) Faz A (Temel — modüler altyapı) — en güvenli başlangıç
    - B) Faz B (Güvenlik — şifreleme öncelik) — kurumsal alıcı varsa
    - C) Faz D (Modüler şablonlar — kullanıcıya değer) — pazara hızlı
+   - **D) Faz F (Analytics — Ulaştırma pilot)** — somut iş değeri, görsel sonuç
 
 2. **İlk modül hangisi olsun?**
-   - Hukuk, Finans veya Personel — biri ile pilot, başarılı olursa diğerleri
+   - Hukuk, Finans, Personel veya **Ulaştırma** (analytics pilot olarak)
 
 3. **Feature flag ile mi açalım?**
    - Önerim: evet (`app_settings.feature_modules = true` ile UI'da modül seçici görünür; false iken eski deneyim aynen kalır)
@@ -659,7 +1154,11 @@ Bu plan **bir yol haritası** — uygulama başlamak için aşağıdaki kararlar
    - Master key rotation stratejisi?
 
 5. **Zaman çizelgesi**:
-   - 3 ay (12 sprint) gerçekçi mi yoksa fazlar arasında daha esnek mi gidelim?
+   - 4 ay (16 sprint) gerçekçi mi yoksa fazlar arasında daha esnek mi gidelim?
+
+6. **Chart library tercihi**:
+   - Önerim: `recharts` (~90KB, React-friendly, MIT)
+   - Alternatif: `visx` (Airbnb, daha düşük seviye), `nivo` (zengin ama büyük)
 
 ### Bu Planın Çıktısı
 
