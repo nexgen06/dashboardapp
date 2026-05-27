@@ -12,6 +12,11 @@ import { useAuth } from "@/contexts/auth-context";
 import { useProjectChatUnread } from "@/contexts/project-chat-unread-context";
 import { formatDate } from "@/lib/formatDate";
 import { parseCSV } from "@/lib/csvParser";
+import {
+  buildStandardFieldMap,
+  normalizeImportedStatus,
+  normalizeImportedPriority,
+} from "@/lib/csvHeaderMapping";
 import { parseJSON } from "@/lib/jsonParser";
 import {
   findAssigneeColumnIndex,
@@ -1970,6 +1975,42 @@ function ProjectFormModal({
                 )}
                 {importPreview && importPreview.headers.length > 0 && (
                   <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-800/60">
+                    {/* Standart alan eşleme uyarısı */}
+                    {(() => {
+                      const stdMap = buildStandardFieldMap(importPreview.headers);
+                      const mappedEntries = Object.entries(stdMap).filter(([, v]) => v != null);
+                      if (mappedEntries.length === 0) return null;
+                      const labelMap: Record<string, string> = {
+                        content: "Görev İçeriği",
+                        status: "Durum",
+                        priority: "Öncelik",
+                        due_date: "Son Tarih",
+                        assignee: "Atanan",
+                      };
+                      return (
+                        <div className="border-b border-emerald-200 bg-emerald-50/60 px-3 py-2 text-xs dark:border-emerald-800 dark:bg-emerald-900/20">
+                          <p className="font-medium text-emerald-800 dark:text-emerald-200">
+                            ✓ Akıllı eşleme — {mappedEntries.length} sütun sistem alanına bağlanacak (mükerrer olmayacak):
+                          </p>
+                          <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                            {mappedEntries.map(([field, info]) => (
+                              <li
+                                key={field}
+                                className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-white px-2 py-0.5 text-[10px] dark:border-emerald-700 dark:bg-emerald-950/40"
+                              >
+                                <span className="font-mono text-emerald-700 dark:text-emerald-300">
+                                  {info!.header}
+                                </span>
+                                <span className="opacity-60">→</span>
+                                <span className="font-semibold text-emerald-800 dark:text-emerald-200">
+                                  {labelMap[field] ?? field}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      );
+                    })()}
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-700">
                       <div className="text-xs font-medium text-slate-700 dark:text-slate-300">
                         Sütun seçimi
@@ -2645,7 +2686,7 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
           : null;
         const isColumnIncluded = (rawKey: string) =>
           columnWhitelist == null || columnWhitelist.has(rawKey.trim());
-        type TaskInsert = { content: string; status: string; assignee: string | null; project_id: string; extra_data: Record<string, string> | null; priority?: string | null };
+        type TaskInsert = { content: string; status: string; assignee: string | null; project_id: string; extra_data: Record<string, string> | null; priority?: string | null; due_date?: string | null };
         const tasksToInsert: TaskInsert[] = [];
         let distributeIndex = 0;
         if (isJson) {
@@ -2655,12 +2696,17 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
             importMode === "groupByColumn" && data.importGroupByColumn
               ? headers.find((h) => ((h ?? "").trim() || h) === data.importGroupByColumn) ?? data.importGroupByColumn
               : null;
+          // Standart alan eşlemesi (DURUM → status, AÇIKLAMA → content vs.)
+          // Bu sütunlar extra_data'ya yazılmaz, doğrudan task field'ına gider.
+          const stdMap = buildStandardFieldMap(headers);
+          const mappedHeaders = new Set(Object.values(stdMap).map((m) => m!.header));
           if (headers.length > 0 && rows.length > 0) {
             for (const row of rows) {
               const extra_data: Record<string, string> = {};
               headers.forEach((h) => {
                 const key = (h ?? "").trim() || "Sütun";
                 if (!isColumnIncluded(key)) return;
+                if (mappedHeaders.has(h)) return; // standart alanlar extra_data'ya gitmez
                 extra_data[key] = row[key] ?? "";
               });
               const hasAnyData = Object.values(extra_data).some((v) => String(v ?? "").trim() !== "");
@@ -2682,14 +2728,24 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
                       ? fromRange
                       : (fromCol ?? defaultAssignee);
                 distributeIndex += 1;
+                // Standart alanları stdMap'ten doldur (JSON)
+                const stdContent = stdMap.content ? String(row[stdMap.content.header] ?? "").trim() : "";
+                const stdStatusRaw = stdMap.status ? String(row[stdMap.status.header] ?? "").trim() : "";
+                const stdPriorityRaw = stdMap.priority ? String(row[stdMap.priority.header] ?? "").trim() : "";
+                const stdDueRaw = stdMap.due_date ? String(row[stdMap.due_date.header] ?? "").trim() : "";
+                // assignee: stdMap.assignee varsa onu da kullan (mevcut findAssigneeJsonKey ile tutarlı)
+                const finalAssignee = stdMap.assignee && !assignee
+                  ? normalizeTaskAssigneeEmail(row[stdMap.assignee.header]) ?? assignee
+                  : assignee;
                 tasksToInsert.push({
-                  content: "",
-                  status: "Yapılacak",
-                  assignee,
+                  content: stdContent,
+                  status: stdStatusRaw ? normalizeImportedStatus(stdStatusRaw) : "Yapılacak",
+                  assignee: finalAssignee,
                   project_id: projectId,
                   extra_data: Object.keys(extra_data).length > 0 ? extra_data : null,
-                  priority: projectPriority ?? undefined,
-                });
+                  priority: stdPriorityRaw ? (normalizeImportedPriority(stdPriorityRaw) ?? projectPriority ?? undefined) : (projectPriority ?? undefined),
+                  ...(stdDueRaw ? { due_date: stdDueRaw } : {}),
+                } as TaskInsert);
               }
             }
           }
@@ -2700,18 +2756,31 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
             importMode === "groupByColumn" && data.importGroupByColumn
               ? headers.findIndex((h) => ((h ?? "").trim() || h) === data.importGroupByColumn)
               : -1;
+          // Standart alan eşlemesi (DURUM → status, AÇIKLAMA → content vs.)
+          const stdMap = buildStandardFieldMap(headers);
+          const mappedIndices = new Set(Object.values(stdMap).map((m) => m!.index));
           if (headers.length > 0 && rows.length > 0) {
             for (const row of rows) {
               const extra_data: Record<string, string> = {};
               headers.forEach((h, i) => {
+                if (mappedIndices.has(i)) return; // standart alanlar extra_data'ya gitmez
                 const key = (h ?? "").trim() || `Sütun ${i + 1}`;
                 if (!isColumnIncluded(key)) return;
                 extra_data[key] = (row[i] != null ? String(row[i]).trim() : "") ?? "";
               });
-              const hasAnyData = Object.values(extra_data).some((v) => String(v ?? "").trim() !== "");
+              // Standart alanları çek
+              const stdContent = stdMap.content ? String(row[stdMap.content.index] ?? "").trim() : "";
+              const stdStatusRaw = stdMap.status ? String(row[stdMap.status.index] ?? "").trim() : "";
+              const stdPriorityRaw = stdMap.priority ? String(row[stdMap.priority.index] ?? "").trim() : "";
+              const stdDueRaw = stdMap.due_date ? String(row[stdMap.due_date.index] ?? "").trim() : "";
+
+              const hasAnyData = stdContent.length > 0 || Object.values(extra_data).some((v) => String(v ?? "").trim() !== "");
               if (hasAnyData) {
                 const fromCol =
                   assigneeCol != null ? normalizeTaskAssigneeEmail(row[assigneeCol]) : null;
+                const fromStdAssignee = stdMap.assignee
+                  ? normalizeTaskAssigneeEmail(row[stdMap.assignee.index])
+                  : null;
                 const groupValue = groupCol >= 0 ? String(row[groupCol] ?? "").trim() : "";
                 const fromGroup =
                   importMode === "groupByColumn"
@@ -2725,15 +2794,18 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
                     ? fromGroup
                     : importMode === "rowRanges"
                       ? fromRange
-                      : (fromCol ?? defaultAssignee);
+                      : (fromCol ?? fromStdAssignee ?? defaultAssignee);
                 distributeIndex += 1;
                 tasksToInsert.push({
-                  content: "",
-                  status: "Yapılacak",
+                  content: stdContent,
+                  status: stdStatusRaw ? normalizeImportedStatus(stdStatusRaw) : "Yapılacak",
                   assignee,
                   project_id: projectId,
                   extra_data: Object.keys(extra_data).length > 0 ? extra_data : null,
-                  priority: projectPriority ?? undefined,
+                  priority: stdPriorityRaw
+                    ? (normalizeImportedPriority(stdPriorityRaw) ?? projectPriority ?? undefined)
+                    : (projectPriority ?? undefined),
+                  ...(stdDueRaw ? { due_date: stdDueRaw } : {}),
                 });
               }
             }
