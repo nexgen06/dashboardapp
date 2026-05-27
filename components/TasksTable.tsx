@@ -2255,6 +2255,33 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       if (!isTyping && (e.key === "f" || e.key === "F") && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         setIsFullWidth((p) => !p);
+        return;
+      }
+      // Sayfa navigasyonu — modifier yokken
+      if (!isTyping && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        // [ veya , → önceki sayfa
+        if (e.key === "[" || e.key === ",") {
+          e.preventDefault();
+          window.dispatchEvent(new Event("taskstable:prevPage"));
+          return;
+        }
+        // ] veya . → sonraki sayfa
+        if (e.key === "]" || e.key === ".") {
+          e.preventDefault();
+          window.dispatchEvent(new Event("taskstable:nextPage"));
+          return;
+        }
+        // Home → ilk sayfa, End → son sayfa
+        if (e.key === "Home") {
+          e.preventDefault();
+          window.dispatchEvent(new Event("taskstable:firstPage"));
+          return;
+        }
+        if (e.key === "End") {
+          e.preventDefault();
+          window.dispatchEvent(new Event("taskstable:lastPage"));
+          return;
+        }
       }
     };
     window.addEventListener("keydown", handler);
@@ -4756,6 +4783,28 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     manualPagination: false,
     pageCount: Math.ceil(filteredData.length / pagination.pageSize),
   });
+
+  // Klavye sayfa navigasyonu — global event'leri dinleyip table API'sini çağır
+  useEffect(() => {
+    const prev = () => {
+      if (table.getCanPreviousPage()) table.previousPage();
+    };
+    const next = () => {
+      if (table.getCanNextPage()) table.nextPage();
+    };
+    const first = () => table.setPageIndex(0);
+    const last = () => table.setPageIndex(Math.max(0, table.getPageCount() - 1));
+    window.addEventListener("taskstable:prevPage", prev);
+    window.addEventListener("taskstable:nextPage", next);
+    window.addEventListener("taskstable:firstPage", first);
+    window.addEventListener("taskstable:lastPage", last);
+    return () => {
+      window.removeEventListener("taskstable:prevPage", prev);
+      window.removeEventListener("taskstable:nextPage", next);
+      window.removeEventListener("taskstable:firstPage", first);
+      window.removeEventListener("taskstable:lastPage", last);
+    };
+  }, [table]);
 
   const liveTableVisibleKey = useMemo(() => {
     const vis = Object.keys(columnVisibility)
@@ -8236,6 +8285,7 @@ ${emailTemplate.html}
                 disabled={!table.getCanPreviousPage()}
                 className="inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                 aria-label="Önceki sayfa"
+                title="Önceki sayfa ( [ veya , )"
               >
                 <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
               </button>
@@ -8245,6 +8295,7 @@ ${emailTemplate.html}
                 disabled={!table.getCanNextPage()}
                 className="inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                 aria-label="Sonraki sayfa"
+                title="Sonraki sayfa ( ] veya . )"
               >
                 <ChevronRight className="h-3.5 w-3.5" aria-hidden />
               </button>

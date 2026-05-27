@@ -127,6 +127,10 @@ export function KeyboardShortcutsHUD() {
       shortcuts: [
         { keys: ["F"], description: "Tabloyu tam ekran aç / daralt" },
         { keys: ["Esc"], description: "Tam ekrandan çık" },
+        { keys: ["]"], description: "Sonraki sayfa" },
+        { keys: ["["], description: "Önceki sayfa" },
+        { keys: ["End"], description: "Son sayfaya atla" },
+        { keys: ["Home"], description: "İlk sayfaya atla" },
       ],
     },
     {
