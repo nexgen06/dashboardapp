@@ -23,12 +23,14 @@ import {
   Filter,
   PlusCircle,
   Sparkles,
+  Keyboard,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useSettings } from "@/contexts/settings-context";
 import { useProjects } from "@/hooks/useProjects";
 import { resetOnboardingTour } from "@/components/OnboardingTour";
+import { openKeyboardShortcuts } from "@/components/KeyboardShortcutsHUD";
 import type { Permission } from "@/types/permissions";
 import { cn } from "@/lib/utils";
 
@@ -140,13 +142,14 @@ export function CommandPalette() {
   const commands = useMemo<CommandItem[]>(() => {
     const list: CommandItem[] = [];
 
-    // — Navigasyon —
+    // — Navigasyon — (hint = klavye kısayolu G + harf)
     list.push({
       id: "nav-dashboard",
       label: "Dashboard",
       keywords: ["anasayfa", "ozet", "home"],
       icon: LayoutDashboard,
       group: "Sayfaya git",
+      hint: "G H",
       perform: () => navigate("/"),
     });
     if (hasPermission("area.projects") && hasPermission("projects.view")) {
@@ -156,6 +159,7 @@ export function CommandPalette() {
         keywords: ["project"],
         icon: FolderKanban,
         group: "Sayfaya git",
+        hint: "G P",
         perform: () => navigate("/projeler"),
       });
     }
@@ -166,6 +170,7 @@ export function CommandPalette() {
         keywords: ["gorevler", "tasks", "table", "tablo"],
         icon: Table2,
         group: "Sayfaya git",
+        hint: "G T",
         perform: () => navigate("/canli-tablo"),
       });
     }
@@ -175,6 +180,7 @@ export function CommandPalette() {
       keywords: ["sohbet", "chat", "messages"],
       icon: MessageSquare,
       group: "Sayfaya git",
+      hint: "G M",
       perform: () => navigate("/mesajlar"),
     });
     if (hasPermission("area.settings") && hasPermission("settings.view")) {
@@ -300,6 +306,18 @@ export function CommandPalette() {
     }
 
     // — Yardım —
+    list.push({
+      id: "help-shortcuts",
+      label: "Klavye kısayollarını göster",
+      hint: "?",
+      keywords: ["kisayol", "shortcut", "keyboard", "klavye", "tuş", "yardim", "help"],
+      icon: Keyboard,
+      group: "Yardım",
+      perform: () => {
+        close();
+        openKeyboardShortcuts();
+      },
+    });
     list.push({
       id: "help-tour",
       label: "Tanıtım turunu başlat",

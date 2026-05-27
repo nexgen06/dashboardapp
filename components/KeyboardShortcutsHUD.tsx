@@ -24,6 +24,15 @@ function isMac(): boolean {
   return /Mac|iPhone|iPad/.test(navigator.platform);
 }
 
+/** HUD'u tetiklemek için global event — komut paleti gibi başka yerlerden açılır. */
+const SHORTCUTS_OPEN_EVENT = "keyboardshortcuts:open";
+
+/** Diğer bileşenlerden HUD'u açmak için yardımcı (komut paleti vb.) */
+export function openKeyboardShortcuts() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(SHORTCUTS_OPEN_EVENT));
+}
+
 /**
  * Klavye Kısayolları HUD'u.
  *
@@ -83,8 +92,11 @@ export function KeyboardShortcutsHUD() {
       }
     };
     window.addEventListener("keydown", handler);
+    const openHandler = () => setOpen(true);
+    window.addEventListener(SHORTCUTS_OPEN_EVENT, openHandler);
     return () => {
       window.removeEventListener("keydown", handler);
+      window.removeEventListener(SHORTCUTS_OPEN_EVENT, openHandler);
       if (gTimerRef.current) clearTimeout(gTimerRef.current);
     };
   }, [open, router]);
