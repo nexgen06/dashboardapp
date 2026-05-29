@@ -552,6 +552,8 @@ export function TasksTable({
     selectedCanBulkDelete,
     executeBulkDelete,
     handleBulkStatusUpdate,
+    handleBulkAssign,
+    handleBulkPriorityUpdate,
   } = bulkSelection;
 
   const tableExport = useTasksTableExport({
@@ -816,7 +818,11 @@ export function TasksTable({
         bulkStatusOpen={bulkStatusOpen}
         setBulkStatusOpen={setBulkStatusOpen}
         statusOptions={statusOptions}
+        priorityOptions={priorityOptions}
+        assigneeOptions={Array.from(new Set(tasks.map((t) => (t.assignee ?? "").trim()).filter(Boolean)))}
         onBulkStatusUpdate={handleBulkStatusUpdate}
+        onBulkPriorityUpdate={handleBulkPriorityUpdate}
+        onBulkAssign={handleBulkAssign}
         onBulkDeleteRequest={() => setBulkDeleteConfirmOpen(true)}
         onClearSelection={() => setRowSelection({})}
       />

@@ -160,6 +160,75 @@ export function useTasksTableBulkSelection({
     [selectedTasks, canBulkUpdate, canBulkUpdateRow, saveTask, updateTaskOptimistic, setRowSelection, toast]
   );
 
+  /** Toplu atama (assignee). null geçilirse atamayı kaldırır. */
+  const handleBulkAssign = useCallback(
+    async (assignee: string | null) => {
+      if (!canBulkUpdate) {
+        toast.error("Toplu güncelleme yetkiniz yok.");
+        return;
+      }
+      let fail = 0;
+      let skipped = 0;
+      for (const t of selectedTasks) {
+        if (!canBulkUpdateRow(t)) {
+          skipped += 1;
+          continue;
+        }
+        updateTaskOptimistic(t.id, { assignee, last_updated_by: "anon" });
+        const r = await saveTask(t.id, { assignee, last_updated_by: "anon" });
+        if (!r.ok) fail += 1;
+      }
+      const updated = selectedTasks.length - skipped - fail;
+      if (fail > 0) {
+        toast.error(`${fail} görev güncellenemedi${updated > 0 ? ` (${updated} güncellendi)` : ""}`);
+      } else if (updated > 0) {
+        toast.success(
+          assignee
+            ? `${updated} görev "${assignee}" kullanıcısına atandı`
+            : `${updated} görevin ataması kaldırıldı`
+        );
+      }
+      if (skipped > 0) toast.info(`${skipped} görev yetki nedeniyle atlandı.`);
+      setRowSelection({});
+    },
+    [selectedTasks, canBulkUpdate, canBulkUpdateRow, saveTask, updateTaskOptimistic, setRowSelection, toast]
+  );
+
+  /** Toplu öncelik güncelle. Boş string → temizle. */
+  const handleBulkPriorityUpdate = useCallback(
+    async (priority: string) => {
+      if (!canBulkUpdate) {
+        toast.error("Toplu güncelleme yetkiniz yok.");
+        return;
+      }
+      const newPriority = priority.trim() || null;
+      let fail = 0;
+      let skipped = 0;
+      for (const t of selectedTasks) {
+        if (!canBulkUpdateRow(t)) {
+          skipped += 1;
+          continue;
+        }
+        updateTaskOptimistic(t.id, { priority: newPriority, last_updated_by: "anon" });
+        const r = await saveTask(t.id, { priority: newPriority, last_updated_by: "anon" });
+        if (!r.ok) fail += 1;
+      }
+      const updated = selectedTasks.length - skipped - fail;
+      if (fail > 0) {
+        toast.error(`${fail} görev güncellenemedi${updated > 0 ? ` (${updated} güncellendi)` : ""}`);
+      } else if (updated > 0) {
+        toast.success(
+          newPriority
+            ? `${updated} görev "${newPriority}" önceliğine alındı`
+            : `${updated} görevin önceliği temizlendi`
+        );
+      }
+      if (skipped > 0) toast.info(`${skipped} görev yetki nedeniyle atlandı.`);
+      setRowSelection({});
+    },
+    [selectedTasks, canBulkUpdate, canBulkUpdateRow, saveTask, updateTaskOptimistic, setRowSelection, toast]
+  );
+
   return {
     bulkStatusOpen,
     setBulkStatusOpen,
@@ -171,5 +240,7 @@ export function useTasksTableBulkSelection({
     selectedCanBulkDelete,
     executeBulkDelete,
     handleBulkStatusUpdate,
+    handleBulkAssign,
+    handleBulkPriorityUpdate,
   };
 }
