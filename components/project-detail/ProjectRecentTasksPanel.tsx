@@ -62,14 +62,14 @@ export function ProjectRecentTasksPanel({
       </div>
 
       {loading ? (
-        <div className="flex flex-1 items-center justify-center gap-2 py-10 text-sm text-slate-500">
+        <div className="flex flex-1 items-center justify-center gap-2 py-10 text-sm text-slate-500 dark:text-slate-400">
           <Loader2 className="h-5 w-5 animate-spin" />
           Yükleniyor…
         </div>
       ) : visibleTasks.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center px-4 py-8 text-center">
           <ListTodo className="h-8 w-8 text-slate-400" />
-          <p className="mt-2 text-sm text-slate-500">Henüz görev yok.</p>
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Henüz görev yok.</p>
           <Button asChild size="sm" className="mt-3 bg-orange-600 hover:bg-orange-700 text-white">
             <Link href={liveTableHref}>Görev ekle</Link>
           </Button>
@@ -107,7 +107,7 @@ export function ProjectRecentTasksPanel({
                     {overdueFlag && (
                       <Badge
                         variant="outline"
-                        className="text-[10px] font-medium border-red-200 bg-red-50 text-red-700"
+                        className="text-[10px] font-medium border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300"
                       >
                         Gecikmiş
                       </Badge>
@@ -123,7 +123,7 @@ export function ProjectRecentTasksPanel({
 
       {showViewAll && visibleTasks.length > 0 && (
         <div className="shrink-0 border-t border-slate-100 p-2 dark:border-slate-700">
-          <Button variant="ghost" size="sm" asChild className="h-8 w-full text-xs text-slate-600">
+          <Button variant="ghost" size="sm" asChild className="h-8 w-full text-xs text-slate-600 dark:text-slate-400 dark:hover:text-slate-200">
             <Link href={liveTableHref}>
               Tümünü gör
               <ArrowRight className="ml-1 h-3 w-3" />

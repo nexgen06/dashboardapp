@@ -15,28 +15,28 @@ export type ProjectKpiCardProps = {
 
 const VARIANT_STYLES = {
   default: {
-    card: "border-slate-200 bg-white",
-    label: "text-slate-500",
-    value: "text-slate-900",
-    icon: "text-slate-400",
+    card: "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/40",
+    label: "text-slate-500 dark:text-slate-400",
+    value: "text-slate-900 dark:text-slate-100",
+    icon: "text-slate-400 dark:text-slate-500",
   },
   success: {
-    card: "border-emerald-200 bg-emerald-50/80",
-    label: "text-emerald-700",
-    value: "text-emerald-900",
-    icon: "text-emerald-600",
+    card: "border-emerald-200 bg-emerald-50/80 dark:border-emerald-800 dark:bg-emerald-950/30",
+    label: "text-emerald-700 dark:text-emerald-300",
+    value: "text-emerald-900 dark:text-emerald-100",
+    icon: "text-emerald-600 dark:text-emerald-400",
   },
   warning: {
-    card: "border-amber-200 bg-amber-50/80",
-    label: "text-amber-700",
-    value: "text-amber-900",
-    icon: "text-amber-600",
+    card: "border-amber-200 bg-amber-50/80 dark:border-amber-800 dark:bg-amber-950/30",
+    label: "text-amber-700 dark:text-amber-300",
+    value: "text-amber-900 dark:text-amber-100",
+    icon: "text-amber-600 dark:text-amber-400",
   },
   danger: {
-    card: "border-red-200 bg-red-50/80",
-    label: "text-red-700",
-    value: "text-red-900",
-    icon: "text-red-600",
+    card: "border-red-200 bg-red-50/80 dark:border-red-800 dark:bg-red-950/30",
+    label: "text-red-700 dark:text-red-300",
+    value: "text-red-900 dark:text-red-100",
+    icon: "text-red-600 dark:text-red-400",
   },
 } as const;
 
@@ -54,7 +54,7 @@ export function ProjectKpiCard({
   return (
     <div
       className={cn(
-        "rounded-xl border p-4 shadow-sm transition-shadow hover:shadow-md dark:border-slate-700 dark:bg-slate-900/40",
+        "rounded-xl border p-4 shadow-sm transition-shadow hover:shadow-md",
         styles.card,
         className
       )}

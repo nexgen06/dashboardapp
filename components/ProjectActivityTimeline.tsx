@@ -61,35 +61,35 @@ const ACTION_CHIP: Record<
 > = {
   task_updated: {
     label: "Görev güncellendi",
-    className: "border-orange-200 bg-orange-50 text-orange-700",
+    className: "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-300",
   },
   status_changed: {
     label: "Durum değişti",
-    className: "border-amber-200 bg-amber-50 text-amber-800",
+    className: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
   },
   assignment_changed: {
     label: "Atama değişti",
-    className: "border-blue-200 bg-blue-50 text-blue-700",
+    className: "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300",
   },
   task_created: {
     label: "Görev eklendi",
-    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300",
   },
   task_deleted: {
     label: "Görev silindi",
-    className: "border-red-200 bg-red-50 text-red-700",
+    className: "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300",
   },
   project_updated: {
     label: "Proje güncellendi",
-    className: "border-slate-200 bg-slate-100 text-slate-700",
+    className: "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300",
   },
   system_update: {
     label: "Sistem güncellemesi",
-    className: "border-slate-200 bg-slate-50 text-slate-600",
+    className: "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400",
   },
   email_sent: {
     label: "E-posta gönderildi",
-    className: "border-violet-200 bg-violet-50 text-violet-700",
+    className: "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300",
   },
 };
 
@@ -103,23 +103,23 @@ function ChangeRow({ change }: { change: ProjectActivityChange }) {
   return (
     <div className="rounded-md border border-slate-100 bg-white px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900/30 sm:border-0 sm:bg-transparent sm:p-0">
       <div className="grid gap-1.5 sm:grid-cols-[minmax(6rem,8rem)_minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-center sm:gap-2">
-        <span className="text-xs font-medium text-slate-600">{change.field}</span>
+        <span className="text-xs font-medium text-slate-600 dark:text-slate-400">{change.field}</span>
         <div className="flex min-w-0 items-center gap-2 sm:contents">
           <span
             className={cn(
-              "min-w-0 flex-1 truncate rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-400 line-through decoration-slate-400/70 sm:flex-none",
+              "min-w-0 flex-1 truncate rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-400 line-through decoration-slate-400/70 dark:bg-slate-800/60 dark:text-slate-500 sm:flex-none",
               change.sensitive && "font-mono tracking-wide"
             )}
             title={change.oldValue}
           >
             {change.oldValue}
           </span>
-          <span className="text-slate-300 sm:text-center" aria-hidden>
+          <span className="text-slate-300 dark:text-slate-600 sm:text-center" aria-hidden>
             →
           </span>
           <span
             className={cn(
-              "min-w-0 flex-1 truncate rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 sm:flex-none",
+              "min-w-0 flex-1 truncate rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 sm:flex-none",
               change.sensitive && "font-mono tracking-wide"
             )}
             title={change.newValue}
@@ -162,9 +162,9 @@ function ActivityCard({
         )}
         <div
           className={cn(
-            "relative z-[1] flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white shadow-sm sm:h-10 sm:w-10",
-            item.actorKind === "automation" && "border-violet-200 bg-violet-50 text-violet-700",
-            item.actorKind === "system" && "border-slate-200 bg-slate-100 text-slate-600"
+            "relative z-[1] flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white shadow-sm dark:border-slate-600 dark:bg-slate-800 sm:h-10 sm:w-10",
+            item.actorKind === "automation" && "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300",
+            item.actorKind === "system" && "border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400"
           )}
         >
           {item.actorAvatar ? (
@@ -197,7 +197,7 @@ function ActivityCard({
                 >
                   {chip.label}
                 </span>
-                <span className="text-xs text-slate-500" title={fullDate}>
+                <span className="text-xs text-slate-500 dark:text-slate-400" title={fullDate}>
                   {getRelativeTime(new Date(item.timestamp), now)}
                 </span>
               </div>
@@ -210,7 +210,7 @@ function ActivityCard({
               title={item.taskSubtitle ? `${item.taskLabel} — ${item.taskSubtitle}` : item.taskLabel}
             >
               <p className="text-xs text-slate-600 dark:text-slate-300">
-                <span className="font-medium text-slate-500">Görev:</span>{" "}
+                <span className="font-medium text-slate-500 dark:text-slate-400">Görev:</span>{" "}
                 <span className="font-medium text-slate-800 dark:text-slate-100">{item.taskLabel}</span>
               </p>
               {item.taskSubtitle && (
@@ -223,14 +223,14 @@ function ActivityCard({
 
           {item.tableName === "projects" && (
             <p className="mt-2.5 text-xs text-slate-600 dark:text-slate-300">
-              <span className="font-medium text-slate-500">Kayıt:</span>{" "}
+              <span className="font-medium text-slate-500 dark:text-slate-400">Kayıt:</span>{" "}
               <span className="font-medium text-slate-800 dark:text-slate-100">Proje ayarları</span>
             </p>
           )}
 
           {item.changes.length > 0 && (
             <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-800/40">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 Değişen alanlar
               </p>
               <div className="space-y-2">
@@ -242,7 +242,7 @@ function ActivityCard({
                 <button
                   type="button"
                   onClick={() => setExpanded(true)}
-                  className="mt-2.5 text-xs font-medium text-orange-600 hover:text-orange-700"
+                  className="mt-2.5 text-xs font-medium text-orange-600 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300"
                 >
                   +{hiddenCount} değişiklik daha
                 </button>
@@ -251,16 +251,16 @@ function ActivityCard({
           )}
 
           {(detailsOpen || item.changes.length === 0) && (
-            <div className="mt-3 rounded-lg border border-dashed border-slate-200 bg-white px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900/20">
+            <div className="mt-3 rounded-lg border border-dashed border-slate-200 bg-white px-3 py-2 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900/20 dark:text-slate-400">
               <p>
-                <span className="font-medium text-slate-600">Kullanıcı:</span> {item.actorName}
+                <span className="font-medium text-slate-600 dark:text-slate-300">Kullanıcı:</span> {item.actorName}
                 {item.actorEmail ? ` (${item.actorEmail})` : ""}
               </p>
               <p className="mt-1">
-                <span className="font-medium text-slate-600">Zaman:</span> {fullDate}
+                <span className="font-medium text-slate-600 dark:text-slate-300">Zaman:</span> {fullDate}
               </p>
               <p className="mt-1">
-                <span className="font-medium text-slate-600">Kayıt ID:</span>{" "}
+                <span className="font-medium text-slate-600 dark:text-slate-300">Kayıt ID:</span>{" "}
                 <span className="font-mono text-[11px]">{item.recordId}</span>
               </p>
             </div>
@@ -271,7 +271,7 @@ function ActivityCard({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 px-2.5 text-xs text-slate-600 hover:text-slate-900"
+              className="h-8 px-2.5 text-xs text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
               onClick={() => setDetailsOpen((v) => !v)}
             >
               {detailsOpen ? "Detayları gizle" : "Detayları göster"}
@@ -280,7 +280,7 @@ function ActivityCard({
               type="button"
               variant="outline"
               size="sm"
-              className="h-8 gap-1.5 border-slate-200 px-2.5 text-xs"
+              className="h-8 gap-1.5 border-slate-200 px-2.5 text-xs dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-200 dark:hover:bg-slate-700"
               asChild
             >
               <Link href={recordHref}>
@@ -468,7 +468,7 @@ export function ProjectActivityTimeline({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-9 justify-between gap-2 border-slate-200 bg-white px-3 text-xs font-normal sm:min-w-[10.5rem]"
+                className="h-9 justify-between gap-2 border-slate-200 bg-white px-3 text-xs font-normal dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 sm:min-w-[10.5rem]"
               >
                 <span className="inline-flex items-center gap-1.5 truncate">
                   <Filter className="h-3.5 w-3.5 shrink-0 text-slate-500" aria-hidden />
@@ -482,7 +482,7 @@ export function ProjectActivityTimeline({
                 <DropdownMenuItem
                   key={option.value}
                   onClick={() => setFilterKind(option.value)}
-                  className={cn(filterKind === option.value && "bg-orange-50 text-orange-700")}
+                  className={cn(filterKind === option.value && "bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300")}
                 >
                   {option.label}
                 </DropdownMenuItem>
@@ -496,7 +496,7 @@ export function ProjectActivityTimeline({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-9 justify-between gap-2 border-slate-200 bg-white px-3 text-xs font-normal sm:min-w-[9.5rem]"
+                className="h-9 justify-between gap-2 border-slate-200 bg-white px-3 text-xs font-normal dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 sm:min-w-[9.5rem]"
               >
                 <span className="inline-flex items-center gap-1.5 truncate">
                   <CalendarDays className="h-3.5 w-3.5 shrink-0 text-slate-500" aria-hidden />
@@ -510,7 +510,7 @@ export function ProjectActivityTimeline({
                 <DropdownMenuItem
                   key={option.value}
                   onClick={() => setDateFilter(option.value)}
-                  className={cn(dateFilter === option.value && "bg-orange-50 text-orange-700")}
+                  className={cn(dateFilter === option.value && "bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300")}
                 >
                   {option.label}
                 </DropdownMenuItem>
@@ -522,7 +522,7 @@ export function ProjectActivityTimeline({
 
       <div className={cn("mt-5", isPanel && "min-h-0 flex-1 overflow-y-auto overscroll-contain")}>
         {loading && entries.length === 0 ? (
-          <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/60 py-10 text-sm text-slate-500">
+          <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/60 py-10 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800/30 dark:text-slate-400">
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
             Aktivite yükleniyor…
           </div>
@@ -539,7 +539,7 @@ export function ProjectActivityTimeline({
           <div className="space-y-6">
             {groupedSections.map((section) => (
               <div key={section.group}>
-                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   {TIME_GROUP_LABELS[section.group]}
                 </h3>
                 <div className="space-y-0">
@@ -563,7 +563,7 @@ export function ProjectActivityTimeline({
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="border-slate-200 text-xs"
+                    className="border-slate-200 text-xs dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-200 dark:hover:bg-slate-700"
                     onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
                   >
                     Daha fazla göster ({filteredActivities.length - visibleCount} kaldı)
@@ -574,7 +574,7 @@ export function ProjectActivityTimeline({
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="border-slate-200 text-xs"
+                    className="border-slate-200 text-xs dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-200 dark:hover:bg-slate-700"
                     disabled={loading}
                     onClick={() => setFetchLimit((n) => n + 60)}
                   >

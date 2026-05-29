@@ -758,7 +758,7 @@ export default function ProjeDetayPage() {
             type="button"
             size="sm"
             variant="outline"
-            className="shrink-0 border-amber-300 bg-white hover:bg-amber-100 dark:bg-slate-800 dark:hover:bg-amber-900/50"
+            className="shrink-0 border-amber-300 bg-white text-amber-950 hover:bg-amber-100 dark:border-amber-700 dark:bg-slate-800 dark:text-amber-100 dark:hover:bg-amber-900/50"
             onClick={async () => {
               await requestNotificationPermission();
               if (notificationApiAvailable()) setBrowserNotifPerm(Notification.permission);

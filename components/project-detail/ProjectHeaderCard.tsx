@@ -10,9 +10,9 @@ import { cn } from "@/lib/utils";
 import { useProfileLookup } from "@/contexts/profile-lookup-context";
 
 const PROJECT_STATUS_STYLES: Record<ProjectStatus, string> = {
-  Aktif: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  Tamamlandı: "border-slate-200 bg-slate-100 text-slate-700",
-  Beklemede: "border-amber-200 bg-amber-50 text-amber-800",
+  Aktif: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300",
+  Tamamlandı: "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300",
+  Beklemede: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
 };
 
 const VISIBLE_ASSIGNEE_CHIPS = 3;
@@ -76,7 +76,7 @@ export function ProjectHeaderCard({
               {isAssigned && (
                 <Badge
                   variant="outline"
-                  className="border-emerald-200 bg-emerald-50 text-xs font-normal text-emerald-700"
+                  className="border-emerald-200 bg-emerald-50 text-xs font-normal text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
                 >
                   <ShieldCheck className="mr-1 h-3 w-3" />
                   Atandınız
@@ -91,7 +91,7 @@ export function ProjectHeaderCard({
 
           {assignedEmails.length > 0 && (
             <div>
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 Atanan kullanıcılar
               </p>
               <div className="flex flex-wrap gap-1.5">
@@ -101,7 +101,7 @@ export function ProjectHeaderCard({
                     className={cn(
                       "inline-flex max-w-full truncate rounded-full border px-2.5 py-1 text-xs",
                       email.toLowerCase() === currentUserEmail
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
                         : "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
                     )}
                     title={email}
@@ -110,7 +110,7 @@ export function ProjectHeaderCard({
                   </span>
                 ))}
                 {hiddenAssigneeCount > 0 && (
-                  <span className="inline-flex rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-500">
+                  <span className="inline-flex rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400">
                     +{hiddenAssigneeCount} daha
                   </span>
                 )}
@@ -130,14 +130,14 @@ export function ProjectHeaderCard({
                         className="h-6 w-6 border-2 border-white dark:border-slate-800"
                       >
                         {profile.avatarUrl ? <AvatarImage src={profile.avatarUrl} alt="" /> : null}
-                        <AvatarFallback className="bg-orange-100 text-[9px] text-orange-800">
+                        <AvatarFallback className="bg-orange-100 text-[9px] text-orange-800 dark:bg-orange-950/60 dark:text-orange-200">
                           {emailInitials(u.email ?? u.name ?? "?")}
                         </AvatarFallback>
                       </Avatar>
                     );
                   })
                 ) : (
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-slate-200 text-slate-500 dark:border-slate-800">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-slate-200 text-slate-500 dark:border-slate-800 dark:bg-slate-700 dark:text-slate-400">
                     <Users className="h-3 w-3" />
                   </span>
                 )}

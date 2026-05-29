@@ -38,7 +38,7 @@ export function ProjectActionButtons({
           variant="outline"
           size="sm"
           onClick={onMemberPermissions}
-          className="h-9 gap-1.5 border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+          className="h-9 gap-1.5 border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
         >
           <ShieldCheck className="h-4 w-4" aria-hidden />
           Üye izinleri
@@ -49,7 +49,7 @@ export function ProjectActionButtons({
           asChild
           variant="outline"
           size="sm"
-          className="h-9 gap-1.5 border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+          className="h-9 gap-1.5 border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
         >
           <Link href={editHref}>
             <Pencil className="h-4 w-4" aria-hidden />
