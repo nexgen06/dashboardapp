@@ -9,6 +9,7 @@ import type { LiveTableDensity } from "@/contexts/settings-context";
 import { cn } from "@/lib/utils";
 import { getRelativeTime } from "@/lib/relativeTime";
 import { presenceEditorLines } from "@/lib/userDisplayName";
+import { RowPresenceIndicator } from "@/components/tasks-table/RowPresenceIndicator";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -571,7 +572,8 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                 return [lockLabel, whoLabel, whenLabel].filter(Boolean).join(" · ");
               })();
               const rowClassName = cn(
-                "group/row transition-[background-color,box-shadow,border-color] duration-150",
+                // 'relative' her zaman aktif — RowPresenceIndicator absolute positioning için.
+                "group/row relative transition-[background-color,box-shadow,border-color] duration-150",
                 tableSkin.row,
                 isModernTemplate && "live-table-modern-row",
                 rowCanEdit ? "cursor-default" : "cursor-default select-none",
@@ -645,6 +647,13 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                         }
                       >
                         {rowCells}
+                        {/* Figma-tarzı presence indicator — TR'nin relative pozisyonundan
+                            yararlanır. Zero-width td DOM uyumluluğu için. */}
+                        {rowEditors.length > 0 && (
+                          <td className="border-0 p-0" style={{ width: 0, padding: 0 }} aria-hidden>
+                            <RowPresenceIndicator editors={rowEditors} />
+                          </td>
+                        )}
                       </tr>
                     </TooltipTrigger>
                     <TooltipContent side="top" sideOffset={10} className={rowTooltipClass}>
@@ -662,6 +671,13 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                   {...rowPointerHandlers}
                 >
                   {rowCells}
+                  {/* Figma-tarzı presence indicator — yalnızca başka kullanıcı
+                      bu satırı düzenliyorsa görünür. Zero-width td DOM uyumluluğu için. */}
+                  {rowEditors.length > 0 && (
+                    <td className="border-0 p-0" style={{ width: 0, padding: 0 }} aria-hidden>
+                      <RowPresenceIndicator editors={rowEditors} />
+                    </td>
+                  )}
                 </tr>
               );
             })}
