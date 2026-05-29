@@ -136,7 +136,7 @@ describe("getSmartFilterCounts", () => {
   ];
 
   const projectById = new Map<string, Project>([
-    ["p1", { id: "p1", name: "P1", priority: "Acil" } as Project],
+    ["p1", { id: "p1", name: "P1", description: "", status: "Aktif", created_at: null, updated_at: null, priority: "High" }],
   ]);
 
   it("proje kapsamında akıllı sayaçları hesaplar", () => {
