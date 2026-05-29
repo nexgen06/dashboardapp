@@ -5,13 +5,12 @@ import { useCallback, useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useProjects } from "@/hooks/useProjects";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
-import { useSettings, getStatusOptions, getPriorityOptions } from "@/contexts/settings-context";
+import { useSettings, getStatusOptions, getPriorityOptions, parseListOptionString } from "@/contexts/settings-context";
 import { useAuth } from "@/contexts/auth-context";
 import { formatDate } from "@/lib/formatDate";
 import { parseCSV } from "@/lib/csvParser";
 import { parseJSON } from "@/lib/jsonParser";
 import { urgentPrioritySetFromCsv } from "@/lib/urgentTaskPriority";
-import { PriorityBadge } from "@/components/ui/priority-badge";
 import { RestrictedButton } from "@/components/ui/permission-gate";
 import {
   findAssigneeColumnIndex,
@@ -25,7 +24,6 @@ import {
   parseRowRangeAssignments,
   type ImportAssignmentMode,
 } from "@/lib/importAssignment";
-import type { ProjectStatus } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -35,31 +33,25 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { ArrowLeft, PlusCircle, Unlink, Loader2, ListTodo, User, Calendar, Upload, Users, ShieldCheck, X, CheckCircle2, AlertTriangle, Clock, UserX, ArrowRight, Table2 } from "lucide-react";
+import { ArrowLeft, PlusCircle, Unlink, Loader2, User, Calendar, Upload, ShieldCheck, X, Trophy } from "lucide-react";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { cn } from "@/lib/utils";
 import { useProjectPresence } from "@/hooks/useProjectPresence";
-import { OnlineUsersPanel } from "@/components/OnlineUsersPanel";
-import { ProjectActivityFeed } from "@/components/ProjectActivityFeed";
+import { ProjectActivityTimeline } from "@/components/ProjectActivityTimeline";
+import { ProjectCommandHeader } from "@/components/project-detail/ProjectCommandHeader";
+import { ProjectOverviewSummary } from "@/components/project-detail/ProjectOverviewSummary";
+import { ProjectRecentTasksPanel } from "@/components/project-detail/ProjectRecentTasksPanel";
+import type { ProjectDetailTab } from "@/components/project-detail/projectDetailTypes";
 import { ProjectMemberPermissionsPanel } from "@/components/ProjectMemberPermissionsPanel";
 import {
   requestNotificationPermission,
   notificationApiAvailable,
 } from "@/lib/browserNotifications";
-import { getTaskDisplayLabel } from "@/lib/taskDisplayLabel";
+import { getTaskDisplayCard } from "@/lib/taskDisplayLabel";
+import type { Task } from "@/types/tasks";
 import { isStatusDone } from "@/lib/statusKind";
 import { getTaskDueDate } from "@/lib/dueUrgency";
 
-const STATUS_STYLES: Record<string, string> = {
-  Yapılacak: "bg-slate-100 text-slate-700 dark:bg-slate-600 dark:text-slate-300",
-  "Devam ediyor": "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
-  Tamamlandı: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
-};
-const PRIORITY_STYLES: Record<string, string> = {
-  High: "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-300",
-  Medium: "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300",
-  Low: "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-700 dark:text-slate-300",
-};
 const ME_LABEL = "Ben";
 
 /** Katı RLS için DB'de e-posta tutulur; arayüzde kendi satırında "Ben" gösterilir. */
@@ -86,12 +78,6 @@ function assigneeValueForDatabase(
   }
   return t;
 }
-const PROJECT_STATUS_STYLES: Record<ProjectStatus, string> = {
-  Aktif: "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300 dark:border-emerald-700",
-  Tamamlandı: "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600",
-  Beklemede: "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-700",
-};
-
 type DateFilterKind = "all" | "week" | "month" | "overdue";
 
 function isOverdue(dueDate: string | null | undefined): boolean {
@@ -136,6 +122,7 @@ export default function ProjeDetayPage() {
   const canRemoveTask = hasPermission("projectDetail.removeTask");
   const canDeleteTask = hasPermission("projectDetail.deleteTask");
   const canImportCsv = hasPermission("projectDetail.importCsv");
+  const canEditProject = hasPermission("projects.edit");
   // Arşivli projelere de detay sayfasından erişilebilsin
   const { projects, isLoading: projectsLoading, error: projectsError } = useProjects({ includeArchived: true });
   const {
@@ -207,6 +194,7 @@ export default function ProjeDetayPage() {
   const [importRowRangesText, setImportRowRangesText] = useState("");
   const [importing, setImporting] = useState(false);
   const [taskMutationError, setTaskMutationError] = useState<string | null>(null);
+  const [detailView, setDetailView] = useState<ProjectDetailTab>("overview");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -304,7 +292,7 @@ export default function ProjeDetayPage() {
     return { total, done, completionPct, overdue, dueToday, unassigned };
   }, [rawProjectTasks]);
 
-  /** Son güncellenen 5 görev — preview, eylemler Canlı Tablo'da yapılır. */
+  /** Son güncellenen 5 görev — Genel Bakış preview. */
   const recentTasks = useMemo(() => {
     return [...rawProjectTasks]
       .sort((a, b) => {
@@ -314,6 +302,109 @@ export default function ProjeDetayPage() {
       })
       .slice(0, 5);
   }, [rawProjectTasks]);
+
+  /** Görevler sekmesi — daha geniş liste. */
+  const sortedProjectTasks = useMemo(() => {
+    return [...rawProjectTasks].sort((a, b) => {
+      const at = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+      const bt = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+      return bt - at;
+    });
+  }, [rawProjectTasks]);
+
+  const isTaskOverdue = useCallback((task: Task) => {
+    const due = getTaskDueDate(task);
+    if (!due || isStatusDone(task.status)) return false;
+    const t0 = new Date();
+    t0.setHours(0, 0, 0, 0);
+    return due.getTime() < t0.getTime();
+  }, []);
+
+  /** Görev Özeti ile aynı başlık + alt satır mantığı (title_column, subtitle_columns). */
+  const summaryExtraKeys = useMemo(
+    () => parseListOptionString(settings.taskSummaryPreferredExtraKeys),
+    [settings.taskSummaryPreferredExtraKeys]
+  );
+  const getRecentTaskDisplay = useCallback(
+    (task: Task) => {
+      const card = getTaskDisplayCard(task, {
+        projectTitleColumn: project?.title_column ?? null,
+        subtitleColumns: project?.subtitle_columns ?? null,
+        preferredExtraKeys: summaryExtraKeys,
+      });
+      return {
+        label: card.label,
+        subtitle: card.subtitle.map((s) => s.value).join(" · "),
+      };
+    },
+    [project?.title_column, project?.subtitle_columns, summaryExtraKeys]
+  );
+
+  const scoreRows = useMemo(() => {
+    type Row = {
+      assignee: string;
+      total: number;
+      done: number;
+      onTimeDone: number;
+      overdueOpen: number;
+      highDone: number;
+      score: number;
+    };
+    const map = new Map<string, Row>();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    for (const task of rawProjectTasks) {
+      const assigneeRaw = (task.assignee ?? "").trim();
+      if (!assigneeRaw) continue;
+      const key = assigneeRaw.toLowerCase();
+      const row =
+        map.get(key) ??
+        ({
+          assignee: assigneeRaw,
+          total: 0,
+          done: 0,
+          onTimeDone: 0,
+          overdueOpen: 0,
+          highDone: 0,
+          score: 0,
+        } satisfies Row);
+      row.total += 1;
+      const done = isStatusDone(task.status);
+      const due = getTaskDueDate(task);
+      if (done) {
+        row.done += 1;
+        const completedAt = task.updated_at ? new Date(task.updated_at) : null;
+        if (!due || (completedAt != null && completedAt.getTime() <= due.getTime())) {
+          row.onTimeDone += 1;
+        }
+        if (String(task.priority ?? "").toLowerCase() === "high") {
+          row.highDone += 1;
+        }
+      } else if (due && due.getTime() < today.getTime()) {
+        row.overdueOpen += 1;
+      }
+      map.set(key, row);
+    }
+    const rows = Array.from(map.values()).map((row) => {
+      // Basit ve açıklanabilir başlangıç formülü
+      row.score = row.done * 10 + row.onTimeDone * 6 + row.highDone * 2 - row.overdueOpen * 4;
+      return row;
+    });
+    rows.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (b.done !== a.done) return b.done - a.done;
+      return a.assignee.localeCompare(b.assignee, "tr", { sensitivity: "base" });
+    });
+    return rows;
+  }, [rawProjectTasks]);
+
+  const scoreSummary = useMemo(() => {
+    const teamCount = scoreRows.length;
+    const totalScore = scoreRows.reduce((sum, row) => sum + row.score, 0);
+    const averageScore = teamCount > 0 ? Math.round((totalScore / teamCount) * 10) / 10 : 0;
+    const leader = scoreRows[0] ?? null;
+    return { teamCount, averageScore, leader };
+  }, [scoreRows]);
 
   useEffect(() => {
     if (addTaskOpen) {
@@ -623,7 +714,7 @@ export default function ProjeDetayPage() {
   }
 
   return (
-    <div className="container max-w-4xl py-6">
+    <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
       <div className="mb-4 flex items-center justify-between gap-3">
         <Breadcrumb
           items={[
@@ -656,314 +747,182 @@ export default function ProjeDetayPage() {
         </div>
       )}
 
-      <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm overflow-hidden">
-        <div className="border-b border-slate-200 dark:border-slate-700 px-4 py-4">
-          {settings.notificationsPush && browserNotifPerm === "default" && (
-            <div
-              className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
-              role="region"
-              aria-label="Tarayıcı bildirim izni"
-            >
-              <span>Projede katılım bildirimleri için tarayıcıdan izin verin.</span>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="shrink-0 border-amber-300 bg-white hover:bg-amber-100 dark:bg-slate-800 dark:hover:bg-amber-900/50"
-                onClick={async () => {
-                  await requestNotificationPermission();
-                  if (notificationApiAvailable()) setBrowserNotifPerm(Notification.permission);
-                }}
-              >
-                İzin ver
-              </Button>
-            </div>
-          )}
-          {settings.notificationsPush && browserNotifPerm === "denied" && (
-            <p className="mb-4 text-xs text-amber-800 dark:text-amber-200/90">
-              Tarayıcı bildirimleri engellenmiş. Adres çubuğundaki kilit / site ayarlarından bildirimlere izin verin.
-            </p>
-          )}
-          <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">{project.name || "İsimsiz proje"}</h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{project.description || "—"}</p>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className={cn("text-xs font-normal", PROJECT_STATUS_STYLES[project.status])}>
-              {project.status}
-            </Badge>
-            {isAssigned && (
-              <Badge variant="outline" className="text-xs font-normal bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300 dark:border-emerald-700">
-                <ShieldCheck className="mr-1 h-3 w-3" />
-                Bu projeye atandınız — canlı tablo verisiyle çalışabilirsiniz
-              </Badge>
-            )}
-            {(project.updated_at || project.created_at) && (
-              <span className="text-xs text-slate-400 dark:text-slate-500">
-                {formatDate(new Date(project.updated_at || project.created_at!), settings.dateFormat)}
-              </span>
-            )}
-          </div>
-          {assignedEmails.length > 0 && (
-            <div className="mt-3 flex flex-wrap items-center gap-1.5">
-              <Users className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400 shrink-0" />
-              <span className="text-xs text-slate-500 dark:text-slate-400">Atanan kullanıcılar:</span>
-              {assignedEmails.map((email) => (
-                <span
-                  key={email}
-                  className={cn(
-                    "inline-flex rounded-full px-2 py-0.5 text-xs",
-                    email.toLowerCase() === currentUserEmail
-                      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200"
-                      : "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
-                  )}
-                >
-                  {email}
-                </span>
-              ))}
-              {(isAdmin || user?.roleId === "project_manager") && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setMemberPermsOpen(true)}
-                  className="ml-1 h-6 gap-1 border-blue-300 bg-blue-50 px-2 text-[11px] text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-950/50"
-                  title="Üye izinlerini ayrıntılı yönet"
-                >
-                  <ShieldCheck className="h-3 w-3" aria-hidden />
-                  Üye İzinleri
-                </Button>
-              )}
-            </div>
-          )}
-          {onlineUsers.length > 0 && (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
-                <Users className="h-3.5 w-3.5 shrink-0" />
-                Şu an bu projede:
-              </span>
-              <OnlineUsersPanel
-                onlineUsers={onlineUsers}
-                editorsByRowId={new Map()}
-                currentUserEmail={currentUserEmail}
-                tasks={[]}
-                label="Aktif ekip"
-              />
-            </div>
-          )}
+      {settings.notificationsPush && browserNotifPerm === "default" && (
+        <div
+          className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+          role="region"
+          aria-label="Tarayıcı bildirim izni"
+        >
+          <span>Projede katılım bildirimleri için tarayıcıdan izin verin.</span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="shrink-0 border-amber-300 bg-white hover:bg-amber-100 dark:bg-slate-800 dark:hover:bg-amber-900/50"
+            onClick={async () => {
+              await requestNotificationPermission();
+              if (notificationApiAvailable()) setBrowserNotifPerm(Notification.permission);
+            }}
+          >
+            İzin ver
+          </Button>
         </div>
+      )}
+      {settings.notificationsPush && browserNotifPerm === "denied" && (
+        <p className="mb-4 text-xs text-amber-800 dark:text-amber-200/90">
+          Tarayıcı bildirimleri engellenmiş. Adres çubuğundaki kilit / site ayarlarından bildirimlere izin verin.
+        </p>
+      )}
 
-        <div className="p-4">
-          {/* ───── Proje sağlık paneli — KPI grid ───── */}
-          <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800/50">
-              <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                <ListTodo className="h-3.5 w-3.5" aria-hidden /> Toplam
-              </div>
-              <div className="mt-1 text-xl font-semibold tabular-nums text-slate-800 dark:text-slate-100">
-                {projectKpis.total}
-              </div>
-            </div>
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-2.5 dark:border-emerald-800 dark:bg-emerald-950/30">
-              <div className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-300">
-                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> Tamamlanma
-              </div>
-              <div className="mt-1 text-xl font-semibold tabular-nums text-emerald-800 dark:text-emerald-200">
-                %{projectKpis.completionPct}
-                <span className="ml-1 text-xs font-normal text-emerald-700/80 dark:text-emerald-300/80">
-                  ({projectKpis.done}/{projectKpis.total})
-                </span>
-              </div>
-              <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-emerald-200/60 dark:bg-emerald-900/40">
-                <div
-                  className="h-full bg-emerald-500 transition-all dark:bg-emerald-400"
-                  style={{ width: `${projectKpis.completionPct}%` }}
-                />
-              </div>
-            </div>
-            <div
-              className={cn(
-                "rounded-lg border px-3 py-2.5",
-                projectKpis.overdue > 0
-                  ? "border-red-200 bg-red-50/70 dark:border-red-800 dark:bg-red-950/30"
-                  : "border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/50"
-              )}
-            >
-              <div
-                className={cn(
-                  "flex items-center gap-1.5 text-xs",
-                  projectKpis.overdue > 0
-                    ? "text-red-700 dark:text-red-300"
-                    : "text-slate-500 dark:text-slate-400"
-                )}
-              >
-                <AlertTriangle className="h-3.5 w-3.5" aria-hidden /> Gecikmiş
-              </div>
-              <div
-                className={cn(
-                  "mt-1 text-xl font-semibold tabular-nums",
-                  projectKpis.overdue > 0
-                    ? "text-red-800 dark:text-red-200"
-                    : "text-slate-800 dark:text-slate-100"
-                )}
-              >
-                {projectKpis.overdue}
-              </div>
-            </div>
-            <div
-              className={cn(
-                "rounded-lg border px-3 py-2.5",
-                projectKpis.dueToday > 0
-                  ? "border-amber-200 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/30"
-                  : "border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/50"
-              )}
-            >
-              <div
-                className={cn(
-                  "flex items-center gap-1.5 text-xs",
-                  projectKpis.dueToday > 0
-                    ? "text-amber-700 dark:text-amber-300"
-                    : "text-slate-500 dark:text-slate-400"
-                )}
-              >
-                <Clock className="h-3.5 w-3.5" aria-hidden /> Bugün biten
-              </div>
-              <div
-                className={cn(
-                  "mt-1 text-xl font-semibold tabular-nums",
-                  projectKpis.dueToday > 0
-                    ? "text-amber-800 dark:text-amber-200"
-                    : "text-slate-800 dark:text-slate-100"
-                )}
-              >
-                {projectKpis.dueToday}
-              </div>
-            </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800/50">
-              <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                <UserX className="h-3.5 w-3.5" aria-hidden /> Atanmamış
-              </div>
-              <div className="mt-1 text-xl font-semibold tabular-nums text-slate-800 dark:text-slate-100">
-                {projectKpis.unassigned}
-              </div>
-            </div>
-          </div>
+      <ProjectCommandHeader
+        name={project.name || "İsimsiz proje"}
+        description={project.description}
+        status={project.status}
+        dateLabel={formatDate(
+          new Date(project.updated_at || project.created_at || Date.now()),
+          settings.dateFormat
+        )}
+        assignedEmails={assignedEmails}
+        currentUserEmail={currentUserEmail}
+        isAssigned={isAssigned}
+        onlineUsers={onlineUsers}
+        kpis={projectKpis}
+        liveTableHref={`/canli-tablo?project=${encodeURIComponent(id)}`}
+        editHref={`/?tab=projeler&editProject=${encodeURIComponent(id)}`}
+        canEdit={canEditProject}
+        canManageMembers={isAdmin || user?.roleId === "project_manager"}
+        onMemberPermissions={() => setMemberPermsOpen(true)}
+        activeTab={detailView}
+        onTabChange={setDetailView}
+      />
 
-          {/* ───── Birincil eylem: Canlı Tabloda Aç ───── */}
-          <div className="mb-4 flex flex-col gap-3 rounded-lg border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 p-4 dark:border-blue-900/60 dark:from-blue-950/40 dark:to-indigo-950/40 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <h3 className="text-base font-semibold text-blue-950 dark:text-blue-50">
-                Görevleri düzenle, ekle, izle
-              </h3>
-              <p className="mt-0.5 text-xs text-blue-900/80 dark:text-blue-200/80">
-                Tablo / Kanban / Gantt görünümleri, hızlı satır ekleme, toplu işlemler ve canlı senkron — hepsi tek yerde.
-              </p>
-            </div>
-            <Button
-              asChild
-              size="sm"
-              className="shrink-0 bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700"
-            >
-              <Link
-                href={`/canli-tablo?project=${encodeURIComponent(id)}`}
-                className="inline-flex items-center gap-2"
-              >
-                <Table2 className="h-4 w-4" aria-hidden />
-                Canlı Tabloda Aç
-                <ArrowRight className="h-4 w-4" aria-hidden />
-              </Link>
-            </Button>
-          </div>
-
-          {/* ───── Son güncellenen 5 görev (preview, read-only) ───── */}
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-            <h2 className="text-sm font-medium text-slate-700 dark:text-slate-200">Son güncellenen görevler</h2>
-            {recentTasks.length > 0 && (
-              <span className="text-xs text-slate-400 dark:text-slate-500">
-                {recentTasks.length} / {projectKpis.total}
-              </span>
-            )}
-          </div>
-          {tasksLoading ? (
-            <div className="py-8 flex items-center justify-center gap-2 text-slate-500 dark:text-slate-400">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              Görevler yükleniyor…
-            </div>
-          ) : recentTasks.length === 0 ? (
-            <div className="py-8 text-center rounded-lg border border-dashed border-slate-200 dark:border-slate-600 bg-slate-50/50 dark:bg-slate-800/50">
-              <ListTodo className="mx-auto h-8 w-8 text-slate-400 dark:text-slate-500" />
-              <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Bu projede henüz görev yok.</p>
-              <Button
-                asChild
-                size="sm"
-                className="mt-3 bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                <Link href={`/canli-tablo?project=${encodeURIComponent(id)}`}>
-                  Canlı Tabloda görev ekle
-                </Link>
-              </Button>
-            </div>
-          ) : (
-            <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white dark:divide-slate-700 dark:border-slate-700 dark:bg-slate-800/40">
-              {recentTasks.map((task) => {
-                const due = getTaskDueDate(task);
-                const overdueFlag = due && !isStatusDone(task.status) && (() => {
-                  const t0 = new Date();
-                  t0.setHours(0, 0, 0, 0);
-                  return due.getTime() < t0.getTime();
-                })();
-                return (
-                  <li
-                    key={task.id}
-                    className="flex flex-wrap items-center gap-2 px-3 py-2"
-                  >
-                    <span
-                      className="min-w-0 flex-1 truncate text-sm text-slate-800 dark:text-slate-100"
-                      title={getTaskDisplayLabel(task)}
-                    >
-                      {getTaskDisplayLabel(task)}
-                    </span>
-                    <Badge
-                      variant="outline"
-                      className={cn("text-xs font-normal", STATUS_STYLES[task.status] ?? "")}
-                    >
-                      {task.status}
-                    </Badge>
-                    <span className="text-xs text-slate-500 dark:text-slate-400 min-w-[4rem] text-right">
-                      {formatAssigneeForDisplay(task.assignee, currentUserEmail)}
-                    </span>
-                    {overdueFlag && (
-                      <Badge
-                        variant="outline"
-                        className="text-[10px] font-medium border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300"
-                      >
-                        Gecikmiş
-                      </Badge>
-                    )}
-                    {task.updated_at && (
-                      <span className="text-xs text-slate-400 dark:text-slate-500">
-                        {formatDate(new Date(task.updated_at), settings.dateFormat)}
-                      </span>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-
-          {/* ───── Aktivite zaman çizelgesi ───── */}
-          <div className="mt-6">
-            <div className="mb-3 flex items-center gap-2">
-              <h2 className="text-sm font-medium text-slate-700 dark:text-slate-200">Aktivite</h2>
-              <span className="text-xs text-slate-400 dark:text-slate-500">
-                Bu projedeki son değişiklikler
-              </span>
-            </div>
-            <ProjectActivityFeed
+      <div className="mt-4">
+        {detailView === "overview" && (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-stretch">
+            <ProjectRecentTasksPanel
               projectId={id}
-              taskIds={rawProjectTasks.map((t) => t.id)}
+              tasks={recentTasks}
+              totalCount={projectKpis.total}
+              loading={tasksLoading}
+              getTaskDisplay={getRecentTaskDisplay}
+              formatAssignee={(a) => formatAssigneeForDisplay(a, currentUserEmail)}
+              isOverdue={isTaskOverdue}
+              className="lg:max-h-[calc(100dvh-12rem)]"
+            />
+            <ProjectOverviewSummary
+              kpis={projectKpis}
+              onOpenScoreboard={() => setDetailView("scoreboard")}
             />
           </div>
-        </div>
+        )}
+
+        {detailView === "tasks" && (
+          <ProjectRecentTasksPanel
+            projectId={id}
+            tasks={sortedProjectTasks}
+            totalCount={projectKpis.total}
+            loading={tasksLoading}
+            title="Proje görevleri"
+            getTaskDisplay={getRecentTaskDisplay}
+            formatAssignee={(a) => formatAssigneeForDisplay(a, currentUserEmail)}
+            isOverdue={isTaskOverdue}
+            className="max-h-[calc(100dvh-12rem)]"
+          />
+        )}
+
+        {detailView === "activity" && (
+          <div className="lg:max-h-[calc(100dvh-12rem)]">
+            <ProjectActivityTimeline
+              projectId={id}
+              taskIds={rawProjectTasks.map((t) => t.id)}
+              tasks={rawProjectTasks}
+              projectTitleColumn={project?.title_column ?? null}
+              subtitleColumns={project?.subtitle_columns ?? null}
+              preferredExtraKeys={summaryExtraKeys}
+              layout="panel"
+              className="h-full min-h-[24rem] lg:min-h-0"
+            />
+          </div>
+        )}
+
+        {detailView === "scoreboard" && (
+          <>
+            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-800/40">
+                <div className="text-xs text-slate-500 dark:text-slate-400">Ekip ortalama skoru</div>
+                <div className="mt-1 text-2xl font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+                  {scoreSummary.averageScore}
+                </div>
+              </div>
+              <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 shadow-sm dark:border-amber-800 dark:bg-amber-950/30">
+                <div className="text-xs text-amber-700 dark:text-amber-300">Lider</div>
+                <div className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-amber-900 dark:text-amber-100">
+                  <Trophy className="h-4 w-4" />
+                  {scoreSummary.leader ? formatAssigneeForDisplay(scoreSummary.leader.assignee, currentUserEmail) : "—"}
+                </div>
+              </div>
+              <div className="rounded-xl border border-blue-200 bg-blue-50/70 px-4 py-3 shadow-sm dark:border-blue-800 dark:bg-blue-950/30">
+                <div className="text-xs text-blue-700 dark:text-blue-300">Katılımcı</div>
+                <div className="mt-1 text-2xl font-semibold tabular-nums text-blue-900 dark:text-blue-100">
+                  {scoreSummary.teamCount}
+                </div>
+              </div>
+            </div>
+            {scoreRows.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
+                Skor panosu için atanmış görev verisi bulunamadı.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800/40">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-slate-50 dark:bg-slate-800/70">
+                    <tr className="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      <th className="px-3 py-2 font-medium">Sıra</th>
+                      <th className="px-3 py-2 font-medium">Kullanıcı</th>
+                      <th className="px-3 py-2 font-medium">Skor</th>
+                      <th className="px-3 py-2 font-medium">Tamamlanan</th>
+                      <th className="px-3 py-2 font-medium">Zamanında</th>
+                      <th className="px-3 py-2 font-medium">Geciken</th>
+                      <th className="px-3 py-2 font-medium">Yüksek öncelik bonus</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scoreRows.map((row, idx) => (
+                      <tr key={`${row.assignee}-${idx}`} className="border-t border-slate-100 dark:border-slate-700/70">
+                        <td className="px-3 py-2 text-slate-500 dark:text-slate-400">#{idx + 1}</td>
+                        <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-100">
+                          {formatAssigneeForDisplay(row.assignee, currentUserEmail)}
+                        </td>
+                        <td className="px-3 py-2">
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "font-semibold",
+                              row.score >= scoreSummary.averageScore
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                : "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                            )}
+                          >
+                            {row.score}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2 tabular-nums text-slate-700 dark:text-slate-200">{row.done}</td>
+                        <td className="px-3 py-2 tabular-nums text-slate-700 dark:text-slate-200">{row.onTimeDone}</td>
+                        <td className="px-3 py-2 tabular-nums text-red-700 dark:text-red-300">{row.overdueOpen}</td>
+                        <td className="px-3 py-2 tabular-nums text-blue-700 dark:text-blue-300">+{row.highDone * 2}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+              Formül: Tamamlanan*10 + Zamanında*6 + Yüksek Öncelik*2 - Geciken*4
+            </p>
+          </>
+        )}
       </div>
+
 
       <Dialog open={addTaskOpen} onOpenChange={setAddTaskOpen}>
         <DialogContent showClose={true}>

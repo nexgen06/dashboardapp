@@ -64,6 +64,7 @@ type FormState = {
   pdfPageSize: PdfPageSizeOption;
   pdfShowFilterSummary: boolean;
   pdfShowStatusSummary: boolean;
+  includeAutoRowNumber: boolean;
 };
 
 function emptyForm(): FormState {
@@ -94,6 +95,7 @@ function emptyForm(): FormState {
     pdfPageSize: base.pdfPageSize,
     pdfShowFilterSummary: base.pdfShowFilterSummary,
     pdfShowStatusSummary: base.pdfShowStatusSummary,
+    includeAutoRowNumber: base.includeAutoRowNumber,
   };
 }
 
@@ -125,6 +127,7 @@ function formFromTemplate(template: ManagedReportTemplate): FormState {
     pdfPageSize: config.pdfPageSize,
     pdfShowFilterSummary: config.pdfShowFilterSummary,
     pdfShowStatusSummary: config.pdfShowStatusSummary,
+    includeAutoRowNumber: config.includeAutoRowNumber,
   };
 }
 
@@ -322,6 +325,7 @@ export default function RaporSablonlariPage() {
           pdfPageSize: form.pdfPageSize,
           pdfShowFilterSummary: form.pdfShowFilterSummary,
           pdfShowStatusSummary: form.pdfShowStatusSummary,
+          includeAutoRowNumber: form.includeAutoRowNumber,
         },
       };
       if (form.id) await updateManagedReportTemplate(form.id, payload);

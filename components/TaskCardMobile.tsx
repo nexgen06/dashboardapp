@@ -31,8 +31,6 @@ import { cn } from "@/lib/utils";
 import { getStatusKind } from "@/lib/statusKind";
 import {
   getDueUrgency,
-  URGENCY_ROW_CLASS,
-  URGENCY_LEFT_BORDER_CLASS,
   URGENCY_LABEL,
   URGENCY_BADGE_CLASS,
 } from "@/lib/dueUrgency";
@@ -122,7 +120,7 @@ export function TaskCardMobile({
   const statusStyle = STATUS_TONE[kind];
   const overdue = !isOverdue ? false : isOverdue(task.due_date, now);
   const urgency = getDueUrgency(task, now);
-  const showUrgency = !selected && urgency !== "none" && kind !== "done";
+  const showUrgency = false;
 
   const populatedExtras = extraKeys.filter((k) => {
     const v = task.extra_data?.[k];
@@ -136,8 +134,6 @@ export function TaskCardMobile({
         selected
           ? "border-blue-400 ring-1 ring-blue-300 dark:border-blue-500 dark:ring-blue-700"
           : "border-slate-200 dark:border-slate-700",
-        showUrgency && URGENCY_ROW_CLASS[urgency],
-        showUrgency && URGENCY_LEFT_BORDER_CLASS[urgency],
         isDeleting && "opacity-60"
       )}
       aria-busy={isDeleting}

@@ -56,6 +56,7 @@ export default function CanliTabloPage() {
    *   Böylece kullanıcı seçim yapıp hemen sayfa değiştirir/yenilerse kayıt korunur.
    */
   const [projectFilter, setProjectFilterState] = useState<string[]>([]);
+  const [initialOpenTaskId, setInitialOpenTaskId] = useState<string | null>(null);
   /**
    * Görev Özeti sidebar — varsayılan AÇIK. Kullanıcı isterse gizleyebilir,
    * tercih localStorage'a kayıt. xl+ ekranda solda 280px panel olarak görünür.
@@ -185,9 +186,10 @@ export default function CanliTabloPage() {
   useEffect(() => {
     if (!userId) return;
     const projectParam = searchParams.get("project");
-    if (!projectParam) return;
-    setProjectFilter([projectParam]);
-    router.replace(pathname);
+    const taskParam = searchParams.get("task");
+    if (projectParam) setProjectFilter([projectParam]);
+    if (taskParam) setInitialOpenTaskId(taskParam);
+    if (projectParam || taskParam) router.replace(pathname);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, searchParams]);
 
@@ -278,6 +280,7 @@ export default function CanliTabloPage() {
               <TasksTable
                 projectFilter={projectFilter}
                 onProjectFilterChange={setProjectFilter}
+                initialOpenTaskId={initialOpenTaskId}
                 viewTabs={
                   <div className="flex min-w-0 items-center gap-2">
                     {renderViewTabs()}

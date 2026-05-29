@@ -49,6 +49,10 @@ import { listReferenceSources, type ReferenceSource } from "@/lib/referenceSourc
 import { getTaskDisplayLabel } from "@/lib/taskDisplayLabel";
 import { getRelativeTime } from "@/lib/relativeTime";
 import { cn } from "@/lib/utils";
+import {
+  fetchSpotlightEnabledFromServer,
+  persistSpotlightEnabledToServer,
+} from "@/lib/appSettingsSupabase";
 
 const operators: Array<{ value: AutomationConditionOperator; label: string; needsValue?: boolean }> = [
   { value: "date_before_today", label: "tarih geçti" },
@@ -88,12 +92,30 @@ type DraftAction = {
   templateName: string;
   optionValue: string;
   rowColor: string;
+  spotlightEnabled: boolean;
+  spotlightColumn: string;
+  spotlightValues: string;
+  spotlightStartsAt: string;
+  spotlightEndsAt: string;
   title: string;
   body: string;
 };
 
 function draftId(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function toDatetimeLocalInput(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const d = new Date(trimmed);
+  if (Number.isNaN(d.getTime())) return "";
+  const yyyy = d.getFullYear();
+  const mm = `${d.getMonth() + 1}`.padStart(2, "0");
+  const dd = `${d.getDate()}`.padStart(2, "0");
+  const hh = `${d.getHours()}`.padStart(2, "0");
+  const min = `${d.getMinutes()}`.padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
 }
 
 function defaultCondition(overrides?: Partial<AutomationCondition>): DraftCondition {
@@ -112,6 +134,11 @@ function defaultAction(overrides?: Partial<DraftAction>): DraftAction {
     templateName: overrides?.templateName ?? "Risk",
     optionValue: overrides?.optionValue ?? "critical",
     rowColor: overrides?.rowColor ?? "red",
+    spotlightEnabled: overrides?.spotlightEnabled ?? false,
+    spotlightColumn: overrides?.spotlightColumn ?? "",
+    spotlightValues: overrides?.spotlightValues ?? "",
+    spotlightStartsAt: overrides?.spotlightStartsAt ?? "",
+    spotlightEndsAt: overrides?.spotlightEndsAt ?? "",
     title: overrides?.title ?? "Otomasyon bildirimi",
     body: overrides?.body ?? "",
   };
@@ -126,7 +153,24 @@ function actionLabel(action: { actionType: AutomationActionType; payload: Record
     return `${String(action.payload.templateName ?? "Çip")} = ${String(action.payload.optionValue ?? action.payload.optionLabel ?? "—")}`;
   }
   if (action.actionType === "notify") return `Bildirim: ${String(action.payload.title ?? "Otomasyon bildirimi")}`;
-  if (action.actionType === "color_row") return `Satır rengi: ${String(action.payload.rowColor ?? action.payload.color ?? "—")}`;
+  if (action.actionType === "color_row") {
+    const spotlight = Boolean(action.payload.spotlight);
+    const column = String(action.payload.spotlightColumn ?? "").trim();
+    const values = Array.isArray(action.payload.spotlightValues)
+      ? action.payload.spotlightValues.map((item) => String(item)).filter(Boolean)
+      : [];
+    const startsAtRaw = String(action.payload.spotlightStartsAt ?? "").trim();
+    const endsAtRaw = String(action.payload.spotlightEndsAt ?? "").trim();
+    if (spotlight && column && values.length > 0) {
+      const parts = [
+        `Spotlight: ${column} → ${values.join(", ")}`,
+        startsAtRaw ? `başlangıç: ${startsAtRaw}` : null,
+        endsAtRaw ? `bitiş: ${endsAtRaw}` : null,
+      ].filter(Boolean);
+      return parts.join(" · ");
+    }
+    return `Satır rengi: ${String(action.payload.rowColor ?? action.payload.color ?? "—")}`;
+  }
   if (action.actionType === "lock_row") return `Satır kilidi: ${String(action.payload.body ?? action.payload.reason ?? "Otomasyon kilidi")}`;
   if (action.actionType === "log_only") return "Sadece logla";
   return action.actionType;
@@ -145,6 +189,8 @@ export default function OtomasyonMerkeziPage() {
   const [catalog, setCatalog] = useState<ChipCatalog>({ templates: [], options: [], bindings: [] });
   const [rowChipValues, setRowChipValues] = useState<RowChipValue[]>([]);
   const [referenceSources, setReferenceSources] = useState<ReferenceSource[]>([]);
+  const [spotlightEnabled, setSpotlightEnabled] = useState(true);
+  const [spotlightSaving, setSpotlightSaving] = useState(false);
   const [loading, setLoading] = useState(false);
   const [logStatusFilter, setLogStatusFilter] = useState<AutomationLog["status"] | "all">("all");
   const [logRuleFilter, setLogRuleFilter] = useState("all");
@@ -178,11 +224,13 @@ export default function OtomasyonMerkeziPage() {
         taskIds.length > 0 ? listRowChipValues(taskIds) : Promise.resolve([]),
         listReferenceSources().catch(() => [] as ReferenceSource[]),
       ]);
+      const spotlightMode = await fetchSpotlightEnabledFromServer().catch(() => null);
       setRules(nextRules);
       setCatalog(nextCatalog);
       setLogs(nextLogs);
       setRowChipValues(nextRowChipValues);
       setReferenceSources(nextRefs);
+      setSpotlightEnabled(spotlightMode ?? true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Otomasyonlar yüklenemedi.");
     } finally {
@@ -378,6 +426,51 @@ export default function OtomasyonMerkeziPage() {
       toast.error("Satır rengi aksiyonunda renk seçilmeli.");
       return;
     }
+    if (
+      form.actions.some(
+        (action) =>
+          action.actionType === "color_row" &&
+          action.spotlightEnabled &&
+          (!action.spotlightColumn.trim() || !action.spotlightValues.trim())
+      )
+    ) {
+      toast.error("Spotlight için sütun ve en az bir değer girilmeli.");
+      return;
+    }
+    if (
+      form.actions.some(
+        (action) =>
+          action.actionType === "color_row" &&
+          action.spotlightEnabled &&
+          action.spotlightStartsAt &&
+          Number.isNaN(new Date(action.spotlightStartsAt).getTime())
+      )
+    ) {
+      toast.error("Spotlight başlangıç zamanı geçersiz.");
+      return;
+    }
+    if (
+      form.actions.some(
+        (action) =>
+          action.actionType === "color_row" &&
+          action.spotlightEnabled &&
+          action.spotlightEndsAt &&
+          Number.isNaN(new Date(action.spotlightEndsAt).getTime())
+      )
+    ) {
+      toast.error("Spotlight bitiş zamanı geçersiz.");
+      return;
+    }
+    if (
+      form.actions.some((action) => {
+        if (action.actionType !== "color_row" || !action.spotlightEnabled) return false;
+        if (!action.spotlightStartsAt || !action.spotlightEndsAt) return false;
+        return new Date(action.spotlightStartsAt).getTime() >= new Date(action.spotlightEndsAt).getTime();
+      })
+    ) {
+      toast.error("Spotlight başlangıç zamanı bitişten önce olmalı.");
+      return;
+    }
     try {
       await saveAutomationRule({
         id: editingRuleId ?? undefined,
@@ -395,7 +488,17 @@ export default function OtomasyonMerkeziPage() {
             action.actionType === "notify"
               ? { title: action.title, body: action.body }
               : action.actionType === "color_row"
-                ? { rowColor: action.rowColor }
+                ? {
+                    rowColor: action.rowColor,
+                    spotlight: action.spotlightEnabled,
+                    spotlightColumn: action.spotlightColumn.trim(),
+                    spotlightValues: action.spotlightValues
+                      .split(",")
+                      .map((item) => item.trim())
+                      .filter(Boolean),
+                    spotlightStartsAt: action.spotlightStartsAt ? new Date(action.spotlightStartsAt).toISOString() : null,
+                    spotlightEndsAt: action.spotlightEndsAt ? new Date(action.spotlightEndsAt).toISOString() : null,
+                  }
                 : action.actionType === "lock_row"
                   ? { body: action.body || form.name }
               : action.actionType === "log_only"
@@ -429,6 +532,13 @@ export default function OtomasyonMerkeziPage() {
           templateName: String(payload.templateName ?? "Risk"),
           optionValue: String(payload.optionValue ?? payload.optionLabel ?? ""),
           rowColor: String(payload.rowColor ?? payload.color ?? "red"),
+          spotlightEnabled: Boolean(payload.spotlight),
+          spotlightColumn: String(payload.spotlightColumn ?? ""),
+          spotlightValues: Array.isArray(payload.spotlightValues)
+            ? payload.spotlightValues.map((item) => String(item)).join(", ")
+            : String(payload.spotlightValues ?? ""),
+          spotlightStartsAt: toDatetimeLocalInput(String(payload.spotlightStartsAt ?? "")),
+          spotlightEndsAt: toDatetimeLocalInput(String(payload.spotlightEndsAt ?? "")),
           title: String(payload.title ?? "Otomasyon bildirimi"),
           body: String(payload.body ?? payload.reason ?? payload.message ?? ""),
         });
@@ -456,6 +566,22 @@ export default function OtomasyonMerkeziPage() {
   };
 
   const [runningRuleId, setRunningRuleId] = useState<string | null>(null);
+
+  const handleToggleSpotlight = async () => {
+    if (!canManage || spotlightSaving) return;
+    const next = !spotlightEnabled;
+    setSpotlightSaving(true);
+    try {
+      const ok = await persistSpotlightEnabledToServer(next);
+      if (!ok) throw new Error("Spotlight ayarı kaydedilemedi.");
+      setSpotlightEnabled(next);
+      toast.success(next ? "Merkezi Spotlight açıldı" : "Merkezi Spotlight kapatıldı");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Spotlight ayarı güncellenemedi.");
+    } finally {
+      setSpotlightSaving(false);
+    }
+  };
 
   const handleRunRule = async (rule: AutomationRule) => {
     const matchCount = tasks.filter((task) => ruleMatchesTask(rule, task, { rowChipValues, catalog })).length;
@@ -610,6 +736,28 @@ export default function OtomasyonMerkeziPage() {
         <Button type="button" variant="outline" size="sm" onClick={() => seedPreset("document")}>Eksik evrak</Button>
         <Button type="button" variant="outline" size="sm" onClick={() => seedPreset("approval")}>Onay bekliyor</Button>
       </div>
+
+      <section className="rounded-lg border border-violet-200 bg-violet-50/70 p-3 dark:border-violet-700 dark:bg-violet-950/25">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-violet-900 dark:text-violet-100">Merkezi Reflektör (Spotlight)</p>
+            <p className="text-xs text-violet-700/90 dark:text-violet-200/85">
+              Bu anahtar kapalıysa canlı tabloda spotlight satır vurgusu ve dimming geçici olarak devre dışı kalır.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant={spotlightEnabled ? "default" : "outline"}
+            size="sm"
+            onClick={() => void handleToggleSpotlight()}
+            disabled={!canManage || spotlightSaving}
+            className={spotlightEnabled ? "bg-violet-600 hover:bg-violet-700 text-white" : ""}
+          >
+            {spotlightSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {spotlightEnabled ? "Spotlight açık" : "Spotlight kapalı"}
+          </Button>
+        </div>
+      </section>
 
       {canManage && (
         <form onSubmit={saveRule} className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
@@ -846,16 +994,93 @@ export default function OtomasyonMerkeziPage() {
                       </>
                     ) : isColorAction ? (
                       <>
-                        <select
-                          value={action.rowColor}
-                          onChange={(e) => updateAction(action.id, { rowColor: e.target.value })}
-                          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-                        >
-                          {rowColorOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                        </select>
-                        <span className="flex items-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-400">
-                          Satır tablo üzerinde renklendirilir
-                        </span>
+                        <div className="flex flex-col gap-1">
+                          <select
+                            value={action.rowColor}
+                            onChange={(e) => updateAction(action.id, { rowColor: e.target.value })}
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                          >
+                            {rowColorOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                          </select>
+                          <label className="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                            <input
+                              type="checkbox"
+                              checked={action.spotlightEnabled}
+                              onChange={(e) => updateAction(action.id, { spotlightEnabled: e.target.checked })}
+                            />
+                            Spotlight reflektörü olarak uygula
+                          </label>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          {action.spotlightEnabled ? (
+                            <>
+                              <input
+                                value={action.spotlightColumn}
+                                onChange={(e) => updateAction(action.id, { spotlightColumn: e.target.value })}
+                                list="automation-field-suggestions"
+                                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                                placeholder="Spotlight sütunu (örn: İl)"
+                              />
+                              <input
+                                value={action.spotlightValues}
+                                onChange={(e) => updateAction(action.id, { spotlightValues: e.target.value })}
+                                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                                placeholder="Değerler (virgülle): İstanbul, İzmir"
+                              />
+                              <div className="flex flex-wrap items-center gap-2">
+                                <input
+                                  type="datetime-local"
+                                  value={action.spotlightStartsAt}
+                                  onChange={(e) => updateAction(action.id, { spotlightStartsAt: e.target.value })}
+                                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                                  title="Reflektör başlangıç zamanı (opsiyonel)"
+                                />
+                                <input
+                                  type="datetime-local"
+                                  value={action.spotlightEndsAt}
+                                  onChange={(e) => updateAction(action.id, { spotlightEndsAt: e.target.value })}
+                                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                                  title="Reflektör bitiş zamanı (opsiyonel)"
+                                />
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => updateAction(action.id, { spotlightStartsAt: toDatetimeLocalInput(new Date().toISOString()) })}
+                                >
+                                  Şimdi başlat
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    const d = new Date();
+                                    d.setMinutes(d.getMinutes() + 120);
+                                    updateAction(action.id, {
+                                      spotlightStartsAt: action.spotlightStartsAt || toDatetimeLocalInput(new Date().toISOString()),
+                                      spotlightEndsAt: toDatetimeLocalInput(d.toISOString()),
+                                    });
+                                  }}
+                                >
+                                  +2 saat
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => updateAction(action.id, { spotlightStartsAt: "", spotlightEndsAt: "" })}
+                                >
+                                  Süresiz
+                                </Button>
+                              </div>
+                            </>
+                          ) : (
+                            <span className="flex h-full items-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-400">
+                              Satır tablo üzerinde renklendirilir
+                            </span>
+                          )}
+                        </div>
                       </>
                     ) : isLockAction ? (
                       <>

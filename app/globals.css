@@ -290,9 +290,44 @@
   animation-name: chip-reflector-violet;
 }
 
+.chip-spotlight {
+  box-shadow:
+    0 0 0 1px rgb(168 85 247 / 0.34),
+    0 0 14px rgb(168 85 247 / 0.36);
+}
+
+.spotlight-dim-row {
+  opacity: 0.48;
+  transition: opacity 180ms ease;
+}
+
+.spotlight-hit-row {
+  position: relative;
+  background-image: linear-gradient(
+    90deg,
+    rgb(168 85 247 / 0.18) 0%,
+    rgb(56 189 248 / 0.08) 42%,
+    transparent 82%
+  );
+  box-shadow: inset 6px 0 0 rgb(168 85 247 / 0.88);
+}
+
+.dark .spotlight-hit-row {
+  background-image: linear-gradient(
+    90deg,
+    rgb(168 85 247 / 0.26) 0%,
+    rgb(56 189 248 / 0.14) 42%,
+    transparent 82%
+  );
+  box-shadow: inset 6px 0 0 rgb(192 132 252 / 0.9);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .chip-reflector {
     animation: none;
+  }
+  .spotlight-dim-row {
+    transition: none;
   }
 }
 
@@ -386,4 +421,169 @@ tr[data-selected="true"] td:first-child {
   box-shadow:
     0 0 0 2px rgb(15 23 42),
     0 0 0 4px hsl(var(--accent-400));
+}
+
+/* ── 6) Modern table skin (hücre yapısı korunur, sadece görsel katman) ── */
+.table-modern-skin thead th {
+  letter-spacing: 0.02em;
+  font-weight: 600;
+  color: rgb(102 112 133);
+  text-transform: none;
+  font-size: 12px;
+  line-height: 18px;
+  border-bottom-color: rgb(228 231 236 / 0.95);
+}
+
+.table-modern-skin tbody tr {
+  transition: background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.table-modern-skin tbody tr:hover {
+  background-color: rgb(249 250 251 / 1);
+  box-shadow: inset 0 0 0 1px rgb(234 236 240 / 0.75);
+}
+
+.table-modern-skin tbody tr.live-table-modern-row[data-selected="true"] {
+  background-color: rgb(239 246 255 / 0.75);
+  box-shadow:
+    inset 0 0 0 1px rgb(191 219 254 / 0.95),
+    inset 3px 0 0 rgb(59 130 246 / 0.88);
+}
+
+.dark .table-modern-skin tbody tr:hover {
+  background-color: rgb(30 41 59 / 0.62);
+  box-shadow: inset 0 0 0 1px rgb(71 85 105 / 0.6);
+}
+
+.dark .table-modern-skin tbody tr.live-table-modern-row[data-selected="true"] {
+  background-color: rgb(30 58 138 / 0.24);
+  box-shadow:
+    inset 0 0 0 1px rgb(59 130 246 / 0.45),
+    inset 3px 0 0 rgb(96 165 250 / 0.88);
+}
+
+.table-modern-skin tbody td {
+  color: rgb(52 64 84);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.dark .table-modern-skin tbody td {
+  color: rgb(226 232 240);
+}
+
+.live-table-modern-shell {
+  overflow: hidden;
+}
+
+.live-table-modern-footer {
+  border-top-style: solid;
+  border-top-color: rgb(228 231 236 / 0.95);
+}
+
+/* Modern modda Spotlight badge/pill daha kurumsal görünüm */
+.table-modern-skin [data-live-editable-cell="true"] > span.inline-flex.rounded-full {
+  border-radius: 10px;
+  padding-inline: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.live-table-modern-metric-primary {
+  color: rgb(16 24 40);
+}
+
+.live-table-modern-metric-label {
+  color: rgb(102 112 133);
+}
+
+.live-table-modern-metric-secondary {
+  color: rgb(152 162 179);
+}
+
+.dark .live-table-modern-metric-primary {
+  color: rgb(241 245 249);
+}
+
+.dark .live-table-modern-metric-label {
+  color: rgb(148 163 184);
+}
+
+.dark .live-table-modern-metric-secondary {
+  color: rgb(100 116 139);
+}
+
+/* Toolbar / filter polish for modern template */
+.live-table-modern-toolbar > .flex.flex-wrap.items-center.gap-1\\.5 {
+  gap: 0.6rem;
+}
+
+.live-table-modern-toolbar input[type="text"],
+.live-table-modern-toolbar select {
+  border-color: rgb(208 213 221 / 0.95);
+  background-color: rgb(255 255 255 / 1);
+  color: rgb(52 64 84);
+  box-shadow: 0 1px 2px rgb(16 24 40 / 0.03);
+}
+
+.live-table-modern-toolbar input[type="text"]::placeholder {
+  color: rgb(152 162 179);
+}
+
+.live-table-modern-toolbar input[type="text"]:focus,
+.live-table-modern-toolbar select:focus {
+  border-color: rgb(152 162 179 / 0.95);
+  box-shadow:
+    0 0 0 1px rgb(152 162 179 / 0.18),
+    0 1px 2px rgb(16 24 40 / 0.04);
+}
+
+.live-table-modern-toolbar button.inline-flex.h-8 {
+  border-color: rgb(208 213 221 / 0.95);
+  background-color: rgb(255 255 255 / 1);
+  color: rgb(52 64 84);
+}
+
+.live-table-modern-toolbar button.inline-flex.h-8:hover {
+  background-color: rgb(249 250 251 / 1);
+}
+
+.live-table-modern-toolbar .absolute.z-50 {
+  border-color: rgb(234 236 240 / 0.95);
+  box-shadow:
+    0 8px 24px -6px rgb(16 24 40 / 0.14),
+    0 1px 2px rgb(16 24 40 / 0.06);
+}
+
+.live-table-modern-active-filters > span.inline-flex.rounded-full,
+.live-table-modern-active-filters > button.rounded-full {
+  border-radius: 10px;
+}
+
+.live-table-modern-active-filters > span.inline-flex.rounded-full {
+  border-color: rgb(234 236 240 / 0.95);
+}
+
+.dark .live-table-modern-toolbar input[type="text"],
+.dark .live-table-modern-toolbar select,
+.dark .live-table-modern-toolbar button.inline-flex.h-8 {
+  border-color: rgb(71 85 105 / 0.9);
+  background-color: rgb(15 23 42 / 0.88);
+  color: rgb(226 232 240);
+  box-shadow: none;
+}
+
+.dark .live-table-modern-toolbar button.inline-flex.h-8:hover {
+  background-color: rgb(30 41 59 / 0.95);
+}
+
+.dark .live-table-modern-toolbar input[type="text"]::placeholder {
+  color: rgb(100 116 139);
+}
+
+.dark .live-table-modern-toolbar .absolute.z-50 {
+  border-color: rgb(71 85 105 / 0.95);
+  box-shadow:
+    0 10px 28px -10px rgb(0 0 0 / 0.55),
+    0 1px 2px rgb(0 0 0 / 0.35);
 }

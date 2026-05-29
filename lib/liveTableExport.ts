@@ -9,7 +9,13 @@ import type { ChipValueResolver } from "@/lib/chipSystem";
 import type { Project } from "@/types/project";
 import type { Task } from "@/types/tasks";
 
+const EXPORT_SKIP_IDS = new Set(["select", "actions", "presence"]);
+/** Export-only sanal sütun: dışa aktarılan satırlara 1..N sıra numarası yazar. */
+export const AUTO_ROW_NUMBER_COLUMN_ID = "__auto_sira";
+const EXPORT_VIRTUAL_COLUMN_IDS = new Set([AUTO_ROW_NUMBER_COLUMN_ID]);
+
 const EXPORT_COLUMN_LABELS: Record<string, string> = {
+  [AUTO_ROW_NUMBER_COLUMN_ID]: "Otomatik Sıra",
   content: "Açıklama",
   status: "Durum",
   workflow: "Onay",
@@ -19,7 +25,6 @@ const EXPORT_COLUMN_LABELS: Record<string, string> = {
   updated: "Son güncelleme",
 };
 
-const EXPORT_SKIP_IDS = new Set(["select", "actions", "presence"]);
 const EXPORT_DEFAULT_COLUMNS = ["status", "content", "assignee", "priority", "updated", "due_date"];
 const INTERNAL_EXTRA_DATA_KEYS = new Set(["__reference_warnings"]);
 
@@ -223,6 +228,12 @@ function getExportValue(
   }
 }
 
+export function buildExportColumnIds(visibleColumnIds: string[], includeAutoRowNumber: boolean): string[] {
+  if (!includeAutoRowNumber) return visibleColumnIds;
+  if (visibleColumnIds.includes(AUTO_ROW_NUMBER_COLUMN_ID)) return visibleColumnIds;
+  return [AUTO_ROW_NUMBER_COLUMN_ID, ...visibleColumnIds];
+}
+
 export function getExportData(
   rows: Task[],
   visibleColumnIds: string[],
@@ -234,7 +245,8 @@ export function getExportData(
   let dataColumns = visibleColumnIds.filter(
     (id) =>
       !EXPORT_SKIP_IDS.has(id) &&
-      (EXPORT_COLUMN_LABELS[id] != null ||
+      (EXPORT_VIRTUAL_COLUMN_IDS.has(id) ||
+        EXPORT_COLUMN_LABELS[id] != null ||
         id.startsWith("extra:") ||
         id === "due_date" ||
         id === "updated" ||
@@ -263,8 +275,12 @@ export function getExportData(
             ? "Detay"
             : id)
   );
-  const rowArrays = rows.map((task) =>
-    dataColumns.map((id) => getExportValue(id, task, dateFormat, projectById, unmaskSensitive, chipResolver))
+  const rowArrays = rows.map((task, rowIndex) =>
+    dataColumns.map((id) =>
+      id === AUTO_ROW_NUMBER_COLUMN_ID
+        ? String(rowIndex + 1)
+        : getExportValue(id, task, dateFormat, projectById, unmaskSensitive, chipResolver)
+    )
   );
   return { headers, rowArrays };
 }

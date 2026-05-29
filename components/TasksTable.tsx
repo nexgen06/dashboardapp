@@ -25,7 +25,14 @@ import type { Project } from "@/types/project";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
 import { useProjects } from "@/hooks/useProjects";
 import { usePresence } from "@/hooks/usePresence";
-import { useSettings, getStatusOptions, getPriorityOptions, type DateFormat, type LiveTableDensity } from "@/contexts/settings-context";
+import {
+  useSettings,
+  getStatusOptions,
+  getPriorityOptions,
+  type DateFormat,
+  type LiveTableDensity,
+  type LiveTableTemplate,
+} from "@/contexts/settings-context";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -49,19 +56,20 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { OnlineUsersPanel } from "@/components/OnlineUsersPanel";
+import { ExportFormatButton, ExportToggleSwitch } from "@/components/tasks-table/ExportModalControls";
 import { presenceEditorLines } from "@/lib/userDisplayName";
 import { formatDate } from "@/lib/formatDate";
 import { getRelativeTime } from "@/lib/relativeTime";
 import { parseCSV } from "@/lib/csvParser";
 import { parseJSON } from "@/lib/jsonParser";
+import { supabase } from "@/lib/supabaseClient";
 import { isSensitiveExtraColumnKey, maskSensitiveExtraValue } from "@/lib/extraColumnSensitiveDisplay";
-import { normalizeExtraDataBySmartRules } from "@/lib/extraColumnFormatRules";
+import { normalizeExtraDataBySmartRules, getExtraColumnFormatKind } from "@/lib/extraColumnFormatRules";
 import { logPiiAccess, countPiiAccessLastHour } from "@/lib/piiAccessLog";
+import { evaluateSensitivePolicy, logSensitivePolicyShadow } from "@/lib/sensitiveFieldPolicy";
 import { isStatusDone, isStatusInProgress, getStatusKind } from "@/lib/statusKind";
 import {
   getDueUrgency,
-  URGENCY_ROW_CLASS,
-  URGENCY_LEFT_BORDER_CLASS,
   URGENCY_LABEL,
   URGENCY_BADGE_CLASS,
 } from "@/lib/dueUrgency";
@@ -89,13 +97,20 @@ import {
   downloadCSV,
   downloadExcel,
   downloadPDF,
+  buildExportColumnIds,
   type EmailTemplateMode,
   type PdfExportMetadata,
   type PdfExportScope,
   type PdfRenderOptions,
   type ReportTemplateId,
 } from "@/lib/liveTableExport";
-import { fetchOrgBranding, DEFAULT_ORG_BRANDING, type OrgBranding } from "@/lib/appSettingsSupabase";
+import {
+  fetchOrgBranding,
+  fetchSpotlightEnabledFromServer,
+  DEFAULT_ORG_BRANDING,
+  SPOTLIGHT_ENABLED_APP_SETTINGS_KEY,
+  type OrgBranding,
+} from "@/lib/appSettingsSupabase";
 import { FILTER_PRESET_LABELS, filterPresetsToConfig } from "@/lib/reportTemplates";
 import Link from "next/link";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -123,6 +138,7 @@ import {
   applyAutomationRulesForTasks,
   applyBuiltInOperationalRules,
   listAutomationRules,
+  ruleMatchesTask,
   type AutomationRule,
 } from "@/lib/automationRules";
 import {
@@ -154,7 +170,7 @@ import {
 } from "@/lib/reportTemplates";
 import { usePrompt } from "@/components/ui/modals";
 import { notifyWorkflowEvent } from "@/lib/notifications";
-import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, Expand, AlertTriangle, Calendar, CalendarDays, CalendarClock, CalendarRange, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban, Eye, Mail, MessageSquare, Printer, Activity, Table2, Lock, Unlock, Sunrise, History, ArrowRight, Zap } from "lucide-react";
+import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, Expand, AlertTriangle, Calendar, CalendarDays, CalendarClock, CalendarRange, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban, Eye, Mail, MessageSquare, Printer, Activity, Table2, Lock, LockKeyhole, Unlock, Sunrise, History, ArrowRight, Zap, FileText } from "lucide-react";
 
 const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
 const STATUS_FILTER_OPTIONS = ["Tümü", "Yapılacak", "Devam ediyor", "Devam", "Tamamlandı"] as const;
@@ -162,14 +178,65 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
 const REFERENCE_WARNINGS_KEY = "__reference_warnings";
 const INTERNAL_EXTRA_DATA_KEYS = new Set([REFERENCE_WARNINGS_KEY]);
 const EMPTY_CHIP_CATALOG: ChipCatalog = { templates: [], options: [], bindings: [] };
-const AUTOMATION_ROW_COLOR_CLASS: Record<string, string> = {
-  red: "bg-red-50/70 dark:bg-red-950/30 hover:bg-red-50/90 dark:hover:bg-red-950/40",
-  amber: "bg-amber-50/75 dark:bg-amber-950/30 hover:bg-amber-50/95 dark:hover:bg-amber-950/40",
-  emerald: "bg-emerald-50/70 dark:bg-emerald-950/25 hover:bg-emerald-50/90 dark:hover:bg-emerald-950/35",
-  blue: "bg-blue-50/70 dark:bg-blue-950/25 hover:bg-blue-50/90 dark:hover:bg-blue-950/35",
-  purple: "bg-purple-50/70 dark:bg-purple-950/25 hover:bg-purple-50/90 dark:hover:bg-purple-950/35",
-  slate: "bg-slate-100/75 dark:bg-slate-800/55 hover:bg-slate-100 dark:hover:bg-slate-800/70",
+
+type SpotlightDescriptor = {
+  columnKey: string;
+  values: string[];
+  badgeColor: string;
+  startsAt: string | null;
+  endsAt: string | null;
 };
+
+function normalizeSpotlightToken(value: unknown): string {
+  return String(value ?? "").trim().toLocaleLowerCase("tr");
+}
+
+function parseSpotlightDescriptor(rule: AutomationRule): SpotlightDescriptor[] {
+  return rule.actions.flatMap((action) => {
+    if (action.actionType !== "color_row") return [];
+    const spotlight = Boolean(action.payload?.spotlight);
+    if (!spotlight) return [];
+    const columnKey = String(action.payload?.spotlightColumn ?? "").trim();
+    const values = Array.isArray(action.payload?.spotlightValues)
+      ? action.payload.spotlightValues.map((item) => String(item).trim()).filter(Boolean)
+      : [];
+    if (!columnKey || values.length === 0) return [];
+    const badgeColor = String(action.payload?.rowColor ?? action.payload?.color ?? "purple").trim().toLowerCase();
+    const startsAtRaw = String(action.payload?.spotlightStartsAt ?? "").trim();
+    const endsAtRaw = String(action.payload?.spotlightEndsAt ?? "").trim();
+    return [{ columnKey, values, badgeColor, startsAt: startsAtRaw || null, endsAt: endsAtRaw || null }];
+  });
+}
+
+function isSpotlightDescriptorActive(descriptor: SpotlightDescriptor, nowMs: number): boolean {
+  if (descriptor.startsAt) {
+    const startMs = new Date(descriptor.startsAt).getTime();
+    if (Number.isFinite(startMs) && nowMs < startMs) return false;
+  }
+  if (!descriptor.endsAt) return true;
+  const endMs = new Date(descriptor.endsAt).getTime();
+  if (Number.isNaN(endMs)) return true;
+  return nowMs <= endMs;
+}
+
+function taskValueForSpotlight(task: Task, columnKey: string): string {
+  const key = columnKey.trim();
+  if (!key) return "";
+  const normalized = normalizeSpotlightToken(key);
+  if (normalized === "content" || normalized === "açıklama" || normalized === "aciklama") return String(task.content ?? "");
+  if (normalized === "status" || normalized === "durum") return String(task.status ?? "");
+  if (normalized === "assignee" || normalized === "atanan") return String(task.assignee ?? "");
+  if (normalized === "priority" || normalized === "oncelik" || normalized === "öncelik") return String(task.priority ?? "");
+  if (normalized === "project" || normalized === "proje") return String(task.project_name ?? "");
+  return String(task.extra_data?.[key] ?? "");
+}
+
+function isSpotlightCellMatch(descriptor: SpotlightDescriptor, columnKey: string, value: string): boolean {
+  if (normalizeSpotlightToken(descriptor.columnKey) !== normalizeSpotlightToken(columnKey)) return false;
+  const normalizedValue = normalizeSpotlightToken(value);
+  if (!normalizedValue) return false;
+  return descriptor.values.some((candidate) => normalizeSpotlightToken(candidate) === normalizedValue);
+}
 type ReportTemplateSelection = `builtin:${ReportTemplateId}` | `custom:${string}` | `managed:${string}`;
 
 function builtinReportTemplateSelection(id: ReportTemplateId): ReportTemplateSelection {
@@ -263,6 +330,60 @@ const LIVE_TABLE_DENSITY_UI: Record<
     rowCheckbox: "h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500",
     actionsBtn: "h-9 w-9",
     selectHeaderSpan: "text-sm",
+  },
+};
+
+const LIVE_TABLE_TEMPLATE_UI: Record<
+  LiveTableTemplate,
+  {
+    shell: string;
+    table: string;
+    headCell: string;
+    row: string;
+    bodyCell: string;
+    pinnedCell: string;
+  }
+> = {
+  classic: {
+    shell:
+      "rounded-lg border border-slate-200 bg-slate-50/80 shadow-sm dark:border-slate-700/80 dark:bg-slate-950/40 dark:shadow-[0_18px_42px_-32px_rgba(0,0,0,0.8)]",
+    table: "bg-white dark:bg-slate-900",
+    headCell:
+      "border-r border-b border-slate-200/90 bg-slate-100/95 text-[11px] font-semibold uppercase tracking-wide text-slate-600 shadow-[0_2px_8px_-5px_rgba(15,23,42,0.35)] dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-300 dark:shadow-[0_2px_10px_-6px_rgba(0,0,0,0.8)]",
+    row: "border-b border-slate-100 dark:border-slate-800",
+    bodyCell: "border-r border-slate-100 dark:border-slate-800",
+    pinnedCell: "bg-white dark:bg-slate-900",
+  },
+  modern: {
+    shell:
+      "live-table-modern-shell rounded-2xl border border-slate-200/90 bg-white shadow-[0_20px_44px_-30px_rgba(16,24,40,0.38)] dark:border-slate-700/80 dark:bg-slate-900/80 dark:shadow-[0_24px_52px_-30px_rgba(0,0,0,0.82)]",
+    table: "live-table-modern table-modern-skin bg-white dark:bg-slate-900",
+    headCell:
+      "border-r border-b border-slate-200 bg-slate-50 text-[11px] font-semibold tracking-[0.03em] text-slate-500 shadow-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300",
+    row: "border-b border-slate-100/90 dark:border-slate-800/90",
+    bodyCell: "border-r border-slate-100/80 dark:border-slate-800/90",
+    pinnedCell: "bg-white dark:bg-slate-900",
+  },
+};
+
+const MODERN_DENSITY_UI: Record<
+  LiveTableDensity,
+  {
+    th: string;
+    td: string;
+  }
+> = {
+  compact: {
+    th: "px-3 py-2",
+    td: "px-3 py-1.5",
+  },
+  normal: {
+    th: "px-4 py-3",
+    td: "px-4 py-2.5",
+  },
+  comfortable: {
+    th: "px-5 py-4",
+    td: "px-5 py-3",
   },
 };
 
@@ -620,6 +741,8 @@ type EditableCellProps = {
   value: string;
   /** Düzenleme dışında gösterilecek metin (örn. maskeli TCKN); verilmezse value kullanılır */
   displayValue?: string;
+  highlightAsBadge?: boolean;
+  highlightBadgeTone?: "red" | "amber" | "emerald" | "blue" | "purple" | "slate";
   taskId: string;
   field: string;
   navigationColumnId?: string;
@@ -642,9 +765,27 @@ function cssAttrValue(value: string) {
   return value.replace(/["\\]/g, "\\$&");
 }
 
+function normalizeSortText(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLocaleLowerCase("tr")
+    .replace(/ı/g, "i")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ç/g, "c")
+    .replace(/ğ/g, "g")
+    .replace(/ş/g, "s")
+    .replace(/ö/g, "o")
+    .replace(/ü/g, "u")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function EditableCell({
   value,
   displayValue,
+  highlightAsBadge = false,
+  highlightBadgeTone = "purple",
   taskId,
   field,
   navigationColumnId,
@@ -676,6 +817,24 @@ function EditableCell({
       : density === "comfortable"
         ? "px-2.5 py-2"
         : "px-2 py-1.5";
+  const badgeToneClass = useMemo(() => {
+    if (highlightBadgeTone === "red") {
+      return "border-red-300 bg-red-100/85 text-red-800 shadow-[0_0_0_1px_rgba(239,68,68,0.22),0_0_14px_rgba(239,68,68,0.22)] dark:border-red-700 dark:bg-red-900/35 dark:text-red-100";
+    }
+    if (highlightBadgeTone === "amber") {
+      return "border-amber-300 bg-amber-100/85 text-amber-800 shadow-[0_0_0_1px_rgba(245,158,11,0.22),0_0_14px_rgba(245,158,11,0.22)] dark:border-amber-700 dark:bg-amber-900/35 dark:text-amber-100";
+    }
+    if (highlightBadgeTone === "emerald") {
+      return "border-emerald-300 bg-emerald-100/85 text-emerald-800 shadow-[0_0_0_1px_rgba(16,185,129,0.22),0_0_14px_rgba(16,185,129,0.22)] dark:border-emerald-700 dark:bg-emerald-900/35 dark:text-emerald-100";
+    }
+    if (highlightBadgeTone === "blue") {
+      return "border-blue-300 bg-blue-100/85 text-blue-800 shadow-[0_0_0_1px_rgba(59,130,246,0.22),0_0_14px_rgba(59,130,246,0.22)] dark:border-blue-700 dark:bg-blue-900/35 dark:text-blue-100";
+    }
+    if (highlightBadgeTone === "slate") {
+      return "border-slate-300 bg-slate-100/90 text-slate-800 shadow-[0_0_0_1px_rgba(100,116,139,0.22),0_0_14px_rgba(100,116,139,0.20)] dark:border-slate-600 dark:bg-slate-800/55 dark:text-slate-100";
+    }
+    return "border-violet-300 bg-violet-100/85 text-violet-800 shadow-[0_0_0_1px_rgba(139,92,246,0.22),0_0_14px_rgba(139,92,246,0.22)] dark:border-violet-700 dark:bg-violet-900/35 dark:text-violet-100";
+  }, [highlightBadgeTone]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -723,7 +882,12 @@ function EditableCell({
         )}
       >
         <span
-          className="min-w-0 flex-1 truncate"
+          className={cn(
+            "min-w-0 flex-1 truncate",
+            highlightAsBadge &&
+              "inline-flex max-w-fit items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+            highlightAsBadge && badgeToneClass
+          )}
           title={displayValue !== undefined ? undefined : value || undefined}
         >
           {(displayValue !== undefined ? displayValue : value) || "—"}
@@ -775,7 +939,12 @@ function EditableCell({
       )}
     >
       <span
-        className="min-w-0 flex-1 truncate"
+        className={cn(
+          "min-w-0 flex-1 truncate",
+          highlightAsBadge &&
+            "inline-flex max-w-fit items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+          highlightAsBadge && badgeToneClass
+        )}
         title={displayValue !== undefined ? undefined : value || undefined}
       >
         {(displayValue !== undefined ? displayValue : value) || "—"}
@@ -801,6 +970,9 @@ function ReferenceSelectCell({
 }) {
   const [localValue, setLocalValue] = useState(value);
   const [open, setOpen] = useState(false);
+  // Kullanıcı açtıktan sonra yeni bir şey yazdı mı? Yazmadıysa mevcut değer
+  // arama sorgusu sayılmaz → tüm seçenekler listelenir (diğer seçenekler gizlenmesin).
+  const [hasTyped, setHasTyped] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 260 });
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -824,7 +996,9 @@ function ReferenceSelectCell({
   // React 18 useDeferredValue — yazma sırasında düşük öncelikle filter güncellemesi.
   // Input asla bloklanmaz; filter biraz geç gelir ama focus korunur.
   const deferredLocalValue = useDeferredValue(localValue);
-  const normalizedQuery = deferredLocalValue.trim().toLocaleLowerCase("tr");
+  // Sadece kullanıcı yazdıysa filtrele; aksi halde (mevcut değerle açıldıysa) boş
+  // sorgu → tüm seçenekler görünür ve başka seçeneğe geçilebilir.
+  const normalizedQuery = hasTyped ? deferredLocalValue.trim().toLocaleLowerCase("tr") : "";
   const isLargeList = options.length >= LARGE_LIST_THRESHOLD;
 
   const filteredOptions = useMemo(() => {
@@ -922,6 +1096,8 @@ function ReferenceSelectCell({
         // yerine display value göster. Boşken küçük bir hint metni gösterelim.
         onFocus={(e) => {
           isFocusedRef.current = true;
+          // Açılışta mevcut değeri sorgu sayma → tüm seçenekler görünür.
+          setHasTyped(false);
           if (!open) setOpen(true);
           updateMenuPos();
           // Excel/Notion davranışı: ilk focus'ta tüm metni seç → kullanıcı
@@ -933,7 +1109,17 @@ function ReferenceSelectCell({
         }}
         onChange={(e) => {
           setLocalValue(e.target.value);
+          setHasTyped(true);
           if (!open) setOpen(true);
+        }}
+        onClick={() => {
+          // Zaten odaktayken (örn. seçim sonrası) tekrar tıklayınca menü yeniden
+          // açılsın ve tüm seçenekler görünsün.
+          if (!open) {
+            setHasTyped(false);
+            setOpen(true);
+            updateMenuPos();
+          }
         }}
         onBlur={() => {
           isFocusedRef.current = false;
@@ -950,6 +1136,7 @@ function ReferenceSelectCell({
           }
           if (e.key === "Escape") {
             setLocalValue(value);
+            setHasTyped(false);
             setOpen(false);
             inputRef.current?.blur();
           }
@@ -964,13 +1151,20 @@ function ReferenceSelectCell({
         // Editing/focus: border + bg → input "aktif" görünür
         // Hover: hafif bg + border ipucu → tıklanabilir affordance
         className={cn(
-          "w-full min-w-0 rounded outline-none transition-colors",
+          "w-full min-w-0 rounded pr-6 outline-none transition-colors",
           cellText,
           inputPad,
           isEditing
             ? "border border-blue-400 bg-white text-slate-800 ring-1 ring-blue-400 dark:border-blue-500 dark:bg-slate-700 dark:text-slate-100"
-            : "cursor-pointer border border-transparent bg-transparent text-slate-800 hover:border-slate-200 hover:bg-white/60 dark:text-slate-100 dark:hover:border-slate-600 dark:hover:bg-slate-700/50",
+            : "cursor-pointer border border-slate-200 bg-white/60 text-slate-800 shadow-sm hover:border-blue-300 hover:bg-white dark:border-slate-600 dark:bg-slate-800/40 dark:text-slate-100 dark:hover:border-blue-500/60 dark:hover:bg-slate-700/60",
           !value && !isEditing && "text-slate-400 dark:text-slate-500"
+        )}
+      />
+      <ChevronDown
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute right-1.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 transition-colors",
+          isEditing ? "text-blue-500 dark:text-blue-400" : "text-slate-400 dark:text-slate-500"
         )}
       />
       {open && filteredOptions.length > 0 && createPortal(
@@ -983,12 +1177,20 @@ function ReferenceSelectCell({
               key={opt}
               type="button"
               tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
+              // Seçimi mousedown'da yap: input blur'undan ÖNCE çalışır, böylece
+              // commit/blur yarışı seçimi boşa düşürmez.
+              onMouseDown={(e) => {
+                e.preventDefault();
                 setLocalValue(opt);
+                setHasTyped(false);
                 commitValue(opt);
               }}
-              className="block w-full truncate rounded px-2 py-1.5 text-left text-xs text-slate-700 hover:bg-blue-50 hover:text-blue-700 dark:text-slate-200 dark:hover:bg-blue-950/40 dark:hover:text-blue-200"
+              className={cn(
+                "block w-full truncate rounded px-2 py-1.5 text-left text-xs hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/40 dark:hover:text-blue-200",
+                opt === value
+                  ? "bg-blue-50/60 font-semibold text-blue-700 dark:bg-blue-950/30 dark:text-blue-200"
+                  : "text-slate-700 dark:text-slate-200"
+              )}
               title={opt}
             >
               {opt}
@@ -1022,12 +1224,16 @@ function ExtraCellCopyButton({
   isSensitive,
   fieldName,
   recordId,
+  projectId,
+  roleId,
 }: {
   text: string;
   density: LiveTableDensity;
   isSensitive?: boolean;
   fieldName?: string;
   recordId?: string;
+  projectId?: string | null;
+  roleId?: string | null;
 }) {
   const [copied, setCopied] = useState(false);
   const iconClass = density === "comfortable" ? "h-4 w-4" : "h-3.5 w-3.5";
@@ -1041,9 +1247,98 @@ function ExtraCellCopyButton({
       e.preventDefault();
       const t = text.trim();
       if (!t || typeof navigator === "undefined" || !navigator.clipboard?.writeText) return;
+      const shouldHandleSensitiveCopy = Boolean(isSensitive && user?.email && fieldName);
+      const effectivePolicyMode: "shadow" | "enforce" = settings.piiPolicyMode;
+      let shouldLogSensitiveCopy = false;
+      let shadowPayload:
+        | {
+            decision: "allow" | "deny";
+            policyId: string | null;
+            reasonRequired: boolean;
+            priority: number;
+            mode: "shadow" | "enforce";
+            enforced: boolean;
+          }
+        | null = null;
+
+      // Shadow mod: copy eylemini await zincirinden once calistir (user gesture kaybi olmasin).
+      if (shouldHandleSensitiveCopy && effectivePolicyMode === "shadow") {
+        try {
+          let copiedWithFallback = false;
+          try {
+            await navigator.clipboard.writeText(t);
+            copiedWithFallback = true;
+          } catch {
+            if (typeof document !== "undefined") {
+              const ta = document.createElement("textarea");
+              ta.value = t;
+              ta.setAttribute("readonly", "");
+              ta.style.position = "fixed";
+              ta.style.opacity = "0";
+              ta.style.pointerEvents = "none";
+              document.body.appendChild(ta);
+              ta.focus();
+              ta.select();
+              try {
+                copiedWithFallback = document.execCommand("copy");
+              } catch {
+                copiedWithFallback = false;
+              } finally {
+                document.body.removeChild(ta);
+              }
+            }
+          }
+          if (!copiedWithFallback) throw new Error("clipboard-copy-failed");
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1600);
+          toast.success("Kopyalandı", { durationMs: 1400 });
+
+          if (user?.id) {
+            void (async () => {
+              const policy = await evaluateSensitivePolicy({
+                fieldKey: fieldName!,
+                action: "copy",
+                roleId: roleId ?? user?.roleId ?? "member",
+                projectId: projectId ?? null,
+              });
+              await logSensitivePolicyShadow({
+                userId: user.id,
+                userEmail: user.email ?? "",
+                fieldName: fieldName!,
+                action: "copy",
+                legacyDecision: "allow",
+                policyDecision: policy.decision,
+                policyId: policy.policyId,
+                enforced: false,
+                context: {
+                  recordId: recordId ?? null,
+                  reasonRequired: policy.reasonRequired,
+                  policyPriority: policy.priority,
+                  mode: "shadow",
+                },
+              });
+            })();
+          }
+
+          if (user?.email) {
+            void logPiiAccess({
+              userEmail: user.email,
+              action: "copy",
+              fieldName: fieldName!,
+              recordId: recordId ?? null,
+            });
+          }
+          toast.info("Bu işlem kaydedildi", { durationMs: 2000 });
+          return;
+        } catch {
+          setCopied(false);
+          toast.error("Kopyalama başarısız oldu");
+          return;
+        }
+      }
 
       // Hassas alan rate-limit kontrolü
-      if (isSensitive && user?.id && settings.piiCopyHourlyLimit > 0) {
+      if (effectivePolicyMode === "enforce" && isSensitive && user?.id && settings.piiCopyHourlyLimit > 0) {
         try {
           const count = await countPiiAccessLastHour(user.id, "copy");
           if (count >= settings.piiCopyHourlyLimit) {
@@ -1055,13 +1350,131 @@ function ExtraCellCopyButton({
         }
       }
 
+      // Enforce modda deny karari clipboard oncesi kontrol edilmeli.
+      if (shouldHandleSensitiveCopy && effectivePolicyMode === "enforce") {
+        try {
+          const policy = await evaluateSensitivePolicy({
+            fieldKey: fieldName!,
+            action: "copy",
+            roleId: roleId ?? user?.roleId ?? "member",
+            projectId: projectId ?? null,
+          });
+          const enforceDenied = policy.decision === "deny";
+          shadowPayload = {
+            decision: policy.decision,
+            policyId: policy.policyId,
+            reasonRequired: policy.reasonRequired,
+            priority: policy.priority,
+            mode: "enforce",
+            enforced: enforceDenied,
+          };
+          if (enforceDenied) {
+            if (user?.id) {
+              await logSensitivePolicyShadow({
+                userId: user.id,
+                userEmail: user.email ?? "",
+                fieldName: fieldName!,
+                action: "copy",
+                legacyDecision: "allow",
+                policyDecision: policy.decision,
+                policyId: policy.policyId,
+                enforced: true,
+                context: {
+                  recordId: recordId ?? null,
+                  reasonRequired: policy.reasonRequired,
+                  policyPriority: policy.priority,
+                  mode: effectivePolicyMode,
+                },
+              });
+            }
+            toast.error("Bu hassas alan için kopyalama policy tarafından engellendi.");
+            return;
+          }
+        } catch (err) {
+          console.warn("[sensitive copy] enforce precheck failed", err);
+        }
+      }
+
       try {
-        await navigator.clipboard.writeText(t);
+        let copiedWithFallback = false;
+        try {
+          await navigator.clipboard.writeText(t);
+          copiedWithFallback = true;
+        } catch {
+          // Clipboard API user-gesture/permission nedeniyle başarısız olursa legacy fallback.
+          if (typeof document !== "undefined") {
+            const ta = document.createElement("textarea");
+            ta.value = t;
+            ta.setAttribute("readonly", "");
+            ta.style.position = "fixed";
+            ta.style.opacity = "0";
+            ta.style.pointerEvents = "none";
+            document.body.appendChild(ta);
+            ta.focus();
+            ta.select();
+            try {
+              copiedWithFallback = document.execCommand("copy");
+            } catch {
+              copiedWithFallback = false;
+            } finally {
+              document.body.removeChild(ta);
+            }
+          }
+        }
+        if (!copiedWithFallback) throw new Error("clipboard-copy-failed");
         setCopied(true);
         window.setTimeout(() => setCopied(false), 1600);
+        toast.success("Kopyalandı", { durationMs: 1400 });
 
         // Hassas alan: denetim logu + caydırıcı toast
-        if (isSensitive && user?.email && fieldName) {
+        if (shouldHandleSensitiveCopy && user?.email && fieldName) {
+          if (effectivePolicyMode === "shadow") {
+            void (async () => {
+              const policy = await evaluateSensitivePolicy({
+                fieldKey: fieldName,
+                action: "copy",
+                roleId: roleId ?? user?.roleId ?? "member",
+                projectId: projectId ?? null,
+              });
+              if (!user?.id) return;
+              await logSensitivePolicyShadow({
+                userId: user.id,
+                userEmail: user.email,
+                fieldName,
+                action: "copy",
+                legacyDecision: "allow",
+                policyDecision: policy.decision,
+                policyId: policy.policyId,
+                enforced: false,
+                context: {
+                  recordId: recordId ?? null,
+                  reasonRequired: policy.reasonRequired,
+                  policyPriority: policy.priority,
+                  mode: effectivePolicyMode,
+                },
+              });
+            })();
+          } else if (shadowPayload && user?.id) {
+            void logSensitivePolicyShadow({
+              userId: user.id,
+              userEmail: user.email,
+              fieldName,
+              action: "copy",
+              legacyDecision: "allow",
+              policyDecision: shadowPayload.decision,
+              policyId: shadowPayload.policyId,
+              enforced: shadowPayload.enforced,
+              context: {
+                recordId: recordId ?? null,
+                reasonRequired: shadowPayload.reasonRequired,
+                policyPriority: shadowPayload.priority,
+                mode: shadowPayload.mode,
+              },
+            });
+          }
+          shouldLogSensitiveCopy = true;
+        }
+        if (shouldLogSensitiveCopy && user?.email && fieldName) {
           void logPiiAccess({
             userEmail: user.email,
             action: "copy",
@@ -1072,9 +1485,10 @@ function ExtraCellCopyButton({
         }
       } catch {
         setCopied(false);
+        toast.error("Kopyalama başarısız oldu");
       }
     },
-    [text, isSensitive, fieldName, recordId, user, settings.piiCopyHourlyLimit, toast]
+    [text, isSensitive, fieldName, recordId, user, settings.piiCopyHourlyLimit, settings.piiPolicyMode, toast, projectId, roleId]
   );
 
   return (
@@ -1354,6 +1768,7 @@ function CSVImportDialog({
   const [importMode, setImportMode] = useState<"file" | "paste">("file");
   const [pasteText, setPasteText] = useState("");
   const [headers, setHeaders] = useState<string[]>([]);
+  const [headerAliases, setHeaderAliases] = useState<string[]>([]);
   const [rows, setRows] = useState<string[][]>([]);
   const [columnMap, setColumnMap] = useState<Record<ColumnMapKey, number | null>>({
     content: null,
@@ -1369,6 +1784,7 @@ function CSVImportDialog({
 
   const reset = useCallback(() => {
     setHeaders([]);
+    setHeaderAliases([]);
     setRows([]);
     setColumnMap({ content: null, status: null, assignee: null, priority: null });
     setReplaceExisting(false);
@@ -1407,6 +1823,7 @@ function CSVImportDialog({
           }
           const r = jsonRows.map((row) => h.map((key) => row[key] ?? ""));
           setHeaders(h);
+          setHeaderAliases(h);
           setRows(r);
           autoMapHeaders(h);
         } else {
@@ -1416,6 +1833,7 @@ function CSVImportDialog({
             return;
           }
           setHeaders(h);
+          setHeaderAliases(h);
           setRows(r);
           autoMapHeaders(h);
         }
@@ -1473,7 +1891,7 @@ function CSVImportDialog({
     return rows.map((row) => {
       const get = (i: number) => (row[i] != null ? String(row[i]).trim() : "");
       const extra_data: Record<string, string> = {};
-      headers.forEach((h, i) => {
+      headerAliases.forEach((h, i) => {
         const key = h?.trim() || `Sütun ${i + 1}`;
         extra_data[key] = get(i);
       });
@@ -1492,7 +1910,22 @@ function CSVImportDialog({
         extra_data: Object.keys(extra_data).length > 0 ? extra_data : null,
       };
     }).filter((t): t is NonNullable<typeof t> => t !== null);
-  }, [rows, headers, columnMap]);
+  }, [rows, headerAliases, columnMap]);
+
+  const applySmartHeaderFixes = useCallback(() => {
+    setHeaderAliases((prev) =>
+      prev.map((header) => {
+        const n = header.trim().toLocaleLowerCase("tr");
+        if (
+          /(^|\s)(e-?posta|email|mail)\s*durum(u)?($|\s)/i.test(n) ||
+          /(^|\s)mail\s*gonderim\s*durum(u)?($|\s)/i.test(n)
+        ) {
+          return "İleti Durumu";
+        }
+        return header;
+      })
+    );
+  }, []);
 
   const pasteLines = useMemo(() => {
     if (!pasteText.trim()) return [];
@@ -1523,6 +1956,17 @@ function CSVImportDialog({
     if (tasks.length === 0) {
       setError(importMode === "paste" ? "En az bir satır metin girin (boş satırlar yok sayılır)." : "Dosyada geçerli veri bulunamadı (en az bir satırda veri olmalı).");
       return;
+    }
+    if (importMode === "file") {
+      const normalized = headerAliases
+        .map((h) => h.trim())
+        .filter(Boolean)
+        .map((h) => h.toLocaleLowerCase("tr"));
+      const duplicates = normalized.filter((h, i) => normalized.indexOf(h) !== i);
+      if (duplicates.length > 0) {
+        setError(`İçe aktarma durduruldu. Aynı sütun adı birden fazla kez kullanılmış: ${Array.from(new Set(duplicates)).join(", ")}`);
+        return;
+      }
     }
     const formatErrors: string[] = [];
     const formattedTasks = tasks.map((task, index) => {
@@ -1571,6 +2015,7 @@ function CSVImportDialog({
     importMode,
     buildTasksFromPaste,
     buildTasks,
+    headerAliases,
     referenceColumns,
     referenceKnownKeys,
     replaceExisting,
@@ -1720,6 +2165,49 @@ function CSVImportDialog({
                 <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-1">
                   Tüm sütunlar tabloya eklenecek: {headers.slice(0, 5).join(", ")}{headers.length > 5 ? ` +${headers.length - 5} daha` : ""}
                 </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={applySmartHeaderFixes}
+                  >
+                    Başlık düzeltmelerini uygula
+                  </Button>
+                  <span className="text-[11px] text-emerald-700 dark:text-emerald-300">
+                    Excel/CSV açmadan sütun adını burada düzenleyebilirsiniz.
+                  </span>
+                </div>
+              </div>
+              <div className="rounded border border-slate-200 dark:border-slate-700 p-3 mb-3">
+                <p className="mb-2 text-xs font-medium text-slate-600 dark:text-slate-300">Sütun başlıklarını düzenle (import öncesi)</p>
+                <div className="max-h-40 overflow-y-auto space-y-1.5">
+                  {headers.map((original, idx) => {
+                    const alias = headerAliases[idx] ?? original;
+                    const detected = getExtraColumnFormatKind(alias);
+                    return (
+                      <div key={`${original}-${idx}`} className="grid grid-cols-[1fr_1fr_auto] items-center gap-2">
+                        <div className="truncate rounded bg-slate-100 px-2 py-1 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300" title={original}>
+                          {original}
+                        </div>
+                        <input
+                          value={alias}
+                          onChange={(e) =>
+                            setHeaderAliases((prev) => {
+                              const next = [...prev];
+                              next[idx] = e.target.value;
+                              return next;
+                            })
+                          }
+                          className="rounded border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                        />
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                          {detected ? `tip:${detected}` : "tip:yok"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
               <div className="rounded border border-slate-200 dark:border-slate-700 overflow-hidden">
                 <p className="text-xs font-medium text-slate-500 dark:text-slate-400 px-3 py-2 bg-slate-50 dark:bg-slate-800">
@@ -1837,6 +2325,19 @@ const STATUS_BADGE_STYLES: Record<string, string> = {
     "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
 };
 
+const STATUS_BADGE_STYLES_MODERN: Record<string, string> = {
+  Yapılacak:
+    "border-slate-200 bg-white text-slate-600 shadow-[0_1px_2px_rgba(16,24,40,0.04)] dark:border-slate-600 dark:bg-slate-800/80 dark:text-slate-300",
+  Beklemede:
+    "border-slate-200 bg-white text-slate-600 shadow-[0_1px_2px_rgba(16,24,40,0.04)] dark:border-slate-600 dark:bg-slate-800/80 dark:text-slate-300",
+  Devam:
+    "border-amber-200/90 bg-amber-50/85 text-amber-700 shadow-[0_1px_2px_rgba(146,64,14,0.08)] dark:border-amber-700 dark:bg-amber-900/35 dark:text-amber-300",
+  "Devam ediyor":
+    "border-amber-200/90 bg-amber-50/85 text-amber-700 shadow-[0_1px_2px_rgba(146,64,14,0.08)] dark:border-amber-700 dark:bg-amber-900/35 dark:text-amber-300",
+  Tamamlandı:
+    "border-emerald-200/90 bg-emerald-50/85 text-emerald-700 shadow-[0_1px_2px_rgba(6,95,70,0.08)] dark:border-emerald-700 dark:bg-emerald-900/35 dark:text-emerald-300",
+};
+
 function SelectAllCheckbox({
   checked,
   indeterminate,
@@ -1916,6 +2417,7 @@ function StatusCell({
   statusOptions = STATUS_OPTIONS.slice(),
   defaultTaskStatus = "Yapılacak",
   density = "normal",
+  template = "classic",
   disabled = false,
 }: {
   value: string;
@@ -1926,10 +2428,12 @@ function StatusCell({
   statusOptions?: string[];
   defaultTaskStatus?: string;
   density?: LiveTableDensity;
+  template?: LiveTableTemplate;
   disabled?: boolean;
 }) {
   const display = getStatusDisplay(value);
-  const badgeStyle = STATUS_BADGE_STYLES[display] ?? STATUS_BADGE_STYLES.Yapılacak;
+  const badgeStyles = template === "modern" ? STATUS_BADGE_STYLES_MODERN : STATUS_BADGE_STYLES;
+  const badgeStyle = badgeStyles[display] ?? badgeStyles.Yapılacak;
   const dotClass = STATUS_DOT_CLASS[display] ?? STATUS_DOT_CLASS.Yapılacak;
   const [menuOpen, setMenuOpen] = useState(false);
   const statusListboxId = useId();
@@ -2099,7 +2603,10 @@ function StatusCell({
         onFocus={onFocus}
         onBlur={onBlur}
         className={cn(
-          "inline-flex select-none items-center rounded-md border font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1",
+          "inline-flex select-none items-center border font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1",
+          template === "modern"
+            ? "rounded-lg focus:ring-slate-400 dark:focus:ring-slate-500"
+            : "rounded-md focus:ring-blue-500",
           disabled ? "cursor-default opacity-70" : "cursor-pointer hover:opacity-90",
           badgePad,
           badgeStyle
@@ -2153,6 +2660,8 @@ type TasksTableProps = {
   projectFilter?: string[];
   onProjectFilterChange?: (next: string[]) => void;
   viewTabs?: ReactNode;
+  /** URL veya dış bağlantıdan gelen görev — yüklendiğinde detay paneli açılır. */
+  initialOpenTaskId?: string | null;
 };
 
 type ActiveEditableCell = {
@@ -2160,7 +2669,12 @@ type ActiveEditableCell = {
   columnId: string;
 };
 
-export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterChange, viewTabs }: TasksTableProps = {}) {
+export function TasksTable({
+  projectFilter: extProjectFilter,
+  onProjectFilterChange,
+  viewTabs,
+  initialOpenTaskId,
+}: TasksTableProps = {}) {
   const {
     tasks,
     updateTaskOptimistic,
@@ -2186,6 +2700,9 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
 
   const { settings, updateSetting } = useSettings();
   const tableDensity = settings.liveTableDensity;
+  const tableTemplate = settings.liveTableTemplate ?? "classic";
+  const isModernTemplate = tableTemplate === "modern";
+  const tableSkin = LIVE_TABLE_TEMPLATE_UI[tableTemplate];
   const dui = LIVE_TABLE_DENSITY_UI[tableDensity];
   const statusOptions = useMemo(() => getStatusOptions(settings), [settings.customStatusList]);
   const priorityOptions = getPriorityOptions(settings);
@@ -2208,6 +2725,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const canManageColumns = hasPermission("liveTable.manageColumns");
   const canAutoSizeColumns = hasPermission("liveTable.autoSizeColumns");
   const canEditProject = hasPermission("projects.edit");
+  const canViewSensitiveCells = isAdmin;
   const canManageSensitiveChips =
     hasPermission("sensitiveChips.manage") || user?.roleId === "admin" || user?.roleId === "project_manager";
   const canRunClientAutomations =
@@ -2230,6 +2748,12 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   });
   const [detailTask, setDetailTask] = useState<Task | null>(null);
   const [isFullWidth, setIsFullWidth] = useState(false);
+
+  useEffect(() => {
+    if (!initialOpenTaskId || isLoading) return;
+    const match = tasks.find((t) => t.id === initialOpenTaskId);
+    if (match) setDetailTask(match);
+  }, [initialOpenTaskId, isLoading, tasks]);
 
   /**
    * Klavye kısayolları — tablonun tam ekran toggle'ı:
@@ -2305,6 +2829,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   /** Kurumsal kimlik (logo/orgName/footerText) — app_settings.org_branding */
   const [orgBranding, setOrgBranding] = useState<OrgBranding>(DEFAULT_ORG_BRANDING);
   const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [pdfDialogScope, setPdfDialogScope] = useState<PdfExportScope>("current");
   const [pdfTitleInput, setPdfTitleInput] = useState("");
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
@@ -2319,6 +2844,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   /** SÜPERADMIN-only: hassas sütunları (TCKN/sicil) export'ta ham mı yazsın?
    *  Varsayılan false (maskeli) — admin bilinçli onayla aktif eder. */
   const [exportUnmaskSensitive, setExportUnmaskSensitive] = useState(false);
+  const [exportIncludeAutoRowNumber, setExportIncludeAutoRowNumber] = useState(false);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   /** Ek sütun silme onay diyaloğu: hedef anahtar adı (extra:KEY -> KEY) veya null */
   const [removeExtraColumnKey, setRemoveExtraColumnKey] = useState<string | null>(null);
@@ -2342,10 +2868,13 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     [rowChipValues, chipCatalog]
   );
   const [automationRules, setAutomationRules] = useState<AutomationRule[]>([]);
+  const [spotlightEnabled, setSpotlightEnabled] = useState(true);
+  const [spotlightNowMs, setSpotlightNowMs] = useState(() => Date.now());
   const automationApplyingRef = useRef(false);
   const automationRunKeyRef = useRef("");
   const toast = useToast();
   const promptUser = usePrompt();
+  const sensitiveViewShadowSeenAtRef = useRef<Map<string, number>>(new Map());
   const [globalSearch, setGlobalSearch] = useState("");
   /** Varsayılan: sadece projeye bağlı görevler (standart tablo verisi gösterilmez) */
   const [projectLinkedFilter, setProjectLinkedFilter] = useState<"proje" | "tümü">("proje");
@@ -2436,10 +2965,25 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     () => Array.from(new Set(projects.map((project) => String(project.id ?? "")).filter(Boolean))),
     [projects]
   );
+  const projectIdsKey = useMemo(() => projectIds.join(","), [projectIds]);
   const taskIds = useMemo(() => tasks.map((task) => task.id), [tasks]);
+  const taskIdsKey = useMemo(() => taskIds.join(","), [taskIds]);
   const rowAutomationStateByTaskId = useMemo(
     () => new Map(rowAutomationStates.map((state) => [state.taskId, state])),
     [rowAutomationStates]
+  );
+  const hasTimedSpotlightRules = useMemo(
+    () =>
+      automationRules.some((rule) =>
+        rule.enabled &&
+        rule.actions.some((action) => {
+          if (action.actionType !== "color_row") return false;
+          if (!Boolean(action.payload?.spotlight)) return false;
+          return Boolean(String(action.payload?.spotlightStartsAt ?? "").trim()) ||
+            Boolean(String(action.payload?.spotlightEndsAt ?? "").trim());
+        })
+      ),
+    [automationRules]
   );
 
   useEffect(() => {
@@ -2471,6 +3015,57 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
 
   useEffect(() => {
     let cancelled = false;
+    const settingKey = SPOTLIGHT_ENABLED_APP_SETTINGS_KEY;
+    void (async () => {
+      const enabled = await fetchSpotlightEnabledFromServer().catch(() => null);
+      if (cancelled || enabled == null) return;
+      setSpotlightEnabled(Boolean(enabled));
+    })();
+    const channel = supabase
+      .channel(`app_settings_${settingKey}_live_table`, { config: { private: true } })
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "app_settings",
+          filter: `key=eq.${settingKey}`,
+        },
+        (payload) => {
+          const row = payload.new as { value?: unknown } | null;
+          if (!row) return;
+          setSpotlightEnabled(row.value === true || row.value === "true" || row.value === 1 || row.value === "1");
+        }
+      )
+      .subscribe();
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(channel);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (projectIds.length === 0) return;
+    const refreshRules = async () => {
+      const nextRules = await listAutomationRules(projectIds);
+      setAutomationRules(nextRules);
+    };
+    const channel = supabase
+      .channel(`automation_rules_live_table_${projectIdsKey}`, { config: { private: true } })
+      .on("postgres_changes", { event: "*", schema: "public", table: "automation_rules" }, () => {
+        void refreshRules().catch((err) => console.warn("[live table automation rules]", err instanceof Error ? err.message : err));
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "automation_actions" }, () => {
+        void refreshRules().catch((err) => console.warn("[live table automation actions]", err instanceof Error ? err.message : err));
+      })
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [projectIds, projectIdsKey]);
+
+  useEffect(() => {
+    let cancelled = false;
     if (taskIds.length === 0) {
       setRowChipValues([]);
       setRowAutomationStates([]);
@@ -2496,7 +3091,34 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   }, [taskIds]);
 
   useEffect(() => {
+    if (taskIds.length === 0) return;
+    const refreshRowsAndStates = async () => {
+      const [rows, states] = await Promise.all([listRowChipValues(taskIds), listTaskAutomationStates(taskIds)]);
+      setRowChipValues(rows);
+      setRowAutomationStates(states);
+    };
+    const channel = supabase
+      .channel(`row_state_live_table_${taskIdsKey}`, { config: { private: true } })
+      .on("postgres_changes", { event: "*", schema: "public", table: "row_chip_values" }, () => {
+        void refreshRowsAndStates().catch((err) => console.warn("[live table row chips]", err instanceof Error ? err.message : err));
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "task_automation_state" }, () => {
+        void refreshRowsAndStates().catch((err) => console.warn("[live table task automation state]", err instanceof Error ? err.message : err));
+      })
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [taskIds, taskIdsKey]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setSpotlightNowMs(Date.now()), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
     if (!canRunClientAutomations || automationApplyingRef.current || tasks.length === 0 || chipCatalog.templates.length === 0) return;
+    const spotlightTick = hasTimedSpotlightRules ? Math.floor(spotlightNowMs / 30000) : 0;
     const runKey = JSON.stringify({
       tasks: tasks.map((task) => [
         task.id,
@@ -2512,6 +3134,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         value.updatedAt,
       ]),
       rules: automationRules.map((rule) => [rule.id, rule.enabled, rule.updatedAt]),
+      spotlightTick,
     });
     if (automationRunKeyRef.current === runKey) return;
     automationRunKeyRef.current = runKey;
@@ -2543,7 +3166,9 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     automationRules,
     canRunClientAutomations,
     chipCatalog,
+    hasTimedSpotlightRules,
     rowChipValues,
+    spotlightNowMs,
     taskIds,
     tasks,
   ]);
@@ -2651,12 +3276,12 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
 
   const canCopyRow = useCallback(
     (task: Task) => {
-      if (!canCopyCell || !canEditRow(task)) return false;
+      if (!canCopyCell) return false;
       if (isAdmin) return true;
       const projectPermission = getProjectPermissionForTask(task);
       return projectPermission ? projectPermission.can_view && projectPermission.can_copy : true;
     },
-    [canCopyCell, canEditRow, getProjectPermissionForTask, isAdmin]
+    [canCopyCell, getProjectPermissionForTask, isAdmin]
   );
 
   const canBulkUpdateRow = useCallback(
@@ -2698,6 +3323,73 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       return projectPermission ? projectPermission.can_view && projectPermission.can_export_unmasked : true;
     },
     [canExportSensitiveUnmasked, getProjectPermissionForTask, isAdmin]
+  );
+
+  const logSensitivePolicyDecision = useCallback(
+    async ({
+      fieldKey,
+      action,
+      legacyDecision,
+      task,
+      context,
+      projectId,
+    }: {
+      fieldKey: string;
+      action: "view" | "edit" | "copy" | "export_masked" | "export_unmasked";
+      legacyDecision: "allow" | "deny";
+      task?: Task | null;
+      context?: Record<string, unknown>;
+      projectId?: string | null;
+    }) => {
+      if (!user?.id || !user?.email) return;
+      const resolvedProjectId =
+        projectId != null
+          ? projectId
+          : task?.project_id
+            ? String(task.project_id)
+            : null;
+      const policy = await evaluateSensitivePolicy({
+        fieldKey,
+        action,
+        roleId: user?.roleId ?? "member",
+        projectId: resolvedProjectId,
+      });
+      await logSensitivePolicyShadow({
+        userId: user.id,
+        userEmail: user.email,
+        fieldName: fieldKey,
+        action,
+        legacyDecision,
+        policyDecision: policy.decision,
+        policyId: policy.policyId,
+        enforced: false,
+        context: {
+          ...(context ?? {}),
+          projectId: resolvedProjectId,
+          reasonRequired: policy.reasonRequired,
+          policyPriority: policy.priority,
+        },
+      });
+    },
+    [user?.id, user?.email, user?.roleId]
+  );
+
+  const trackSensitiveViewShadow = useCallback(
+    (task: Task, fieldKey: string) => {
+      const nowMs = Date.now();
+      const dedupeKey = `${task.id}:${fieldKey}:${user?.id ?? "anon"}`;
+      const lastSeenAt = sensitiveViewShadowSeenAtRef.current.get(dedupeKey) ?? 0;
+      if (nowMs - lastSeenAt < 30000) return;
+      sensitiveViewShadowSeenAtRef.current.set(dedupeKey, nowMs);
+      void logSensitivePolicyDecision({
+        fieldKey,
+        action: "view",
+        legacyDecision: canViewSensitiveCells ? "allow" : "deny",
+        task,
+        context: { source: "table-hover-view" },
+      });
+    },
+    [canViewSensitiveCells, logSensitivePolicyDecision, user?.id]
   );
 
   const isProjectWorkflowEnabled = useCallback(
@@ -3329,6 +4021,95 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       advancedFilterRules,
     ]
   );
+
+  const spotlightRules = useMemo(
+    () => automationRules.filter((rule) => rule.enabled && parseSpotlightDescriptor(rule).length > 0),
+    [automationRules]
+  );
+  const spotlightRulesByPriority = useMemo(
+    () =>
+      [...spotlightRules].sort((a, b) => {
+        const byPriority = (a.priority ?? 0) - (b.priority ?? 0);
+        if (byPriority !== 0) return byPriority;
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      }),
+    [spotlightRules]
+  );
+  const spotlightMatchByTaskId = useMemo(() => {
+    const matches = new Map<string, {
+      ruleId: string;
+      ruleName: string;
+      priority: number;
+      descriptor: SpotlightDescriptor;
+    }>();
+    if (!spotlightEnabled || spotlightRulesByPriority.length === 0) return matches;
+    for (const task of filteredData) {
+      for (const rule of spotlightRulesByPriority) {
+        if (!ruleMatchesTask(rule, task, { rowChipValues, catalog: chipCatalog })) continue;
+        const descriptors = parseSpotlightDescriptor(rule).filter((descriptor) =>
+          isSpotlightDescriptorActive(descriptor, spotlightNowMs)
+        );
+        if (descriptors.length === 0) continue;
+        const matchedDescriptor = descriptors.find((descriptor) => {
+          const value = normalizeSpotlightToken(taskValueForSpotlight(task, descriptor.columnKey));
+          if (!value) return false;
+          return descriptor.values.some((candidate) => normalizeSpotlightToken(candidate) === value);
+        });
+        if (!matchedDescriptor) continue;
+        matches.set(task.id, {
+          ruleId: rule.id,
+          ruleName: rule.name,
+          priority: rule.priority ?? 0,
+          descriptor: matchedDescriptor,
+        });
+        break;
+      }
+    }
+    return matches;
+  }, [chipCatalog, filteredData, rowChipValues, spotlightEnabled, spotlightNowMs, spotlightRulesByPriority]);
+  const spotlightTaskIds = useMemo(
+    () => new Set(Array.from(spotlightMatchByTaskId.keys())),
+    [spotlightMatchByTaskId]
+  );
+
+  const spotlightActive = spotlightEnabled && spotlightTaskIds.size > 0;
+  const spotlightRuleHitSummary = useMemo(() => {
+    const counts = new Map<string, { ruleId: string; ruleName: string; priority: number; count: number }>();
+    for (const match of Array.from(spotlightMatchByTaskId.values())) {
+      const current = counts.get(match.ruleId);
+      if (current) current.count += 1;
+      else counts.set(match.ruleId, { ruleId: match.ruleId, ruleName: match.ruleName, priority: match.priority, count: 1 });
+    }
+    return Array.from(counts.values()).sort((a, b) => {
+      const byPriority = a.priority - b.priority;
+      if (byPriority !== 0) return byPriority;
+      return b.count - a.count;
+    });
+  }, [spotlightMatchByTaskId]);
+  const spotlightSummary = useMemo(() => {
+    if (!spotlightActive || spotlightRuleHitSummary.length === 0) return null;
+    const dominantRule = spotlightRuleHitSummary[0];
+    const dominantMatch = Array.from(spotlightMatchByTaskId.values()).find((match) => match.ruleId === dominantRule.ruleId) ?? null;
+    if (!dominantMatch) return null;
+    const first = dominantMatch.descriptor;
+    let remainingLabel: string | null = null;
+    if (first.endsAt) {
+      const remainMs = new Date(first.endsAt).getTime() - spotlightNowMs;
+      if (Number.isFinite(remainMs) && remainMs > 0) {
+        const remainMin = Math.max(1, Math.ceil(remainMs / 60000));
+        remainingLabel = remainMin >= 60
+          ? `${Math.floor(remainMin / 60)}s ${remainMin % 60}dk`
+          : `${remainMin}dk`;
+      }
+    }
+    return {
+      label: `${first.columnKey}: ${first.values.join(", ")}`,
+      ruleName: dominantRule.ruleName,
+      additionalRuleCount: Math.max(0, spotlightRuleHitSummary.length - 1),
+      highlightedCount: spotlightTaskIds.size,
+      remainingLabel,
+    };
+  }, [spotlightActive, spotlightMatchByTaskId, spotlightNowMs, spotlightRuleHitSummary, spotlightTaskIds.size]);
 
   const getExportRows = useCallback(
     (scope: PdfExportScope) => {
@@ -4035,6 +4816,26 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   const handleDynamicCellSave = useCallback((taskId: string, key: string, value: string) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
+    if (isSensitiveExtraColumnKey(key) && !isAdmin) {
+      void logSensitivePolicyDecision({
+        fieldKey: key,
+        action: "edit",
+        legacyDecision: "deny",
+        task,
+        context: { source: "dynamic-cell-save", reason: "non-admin-sensitive-block" },
+      });
+      toast.warning("Hassas alanlar sadece kopyalanabilir; düzenleme kapalı.");
+      return;
+    }
+    if (isSensitiveExtraColumnKey(key)) {
+      void logSensitivePolicyDecision({
+        fieldKey: key,
+        action: "edit",
+        legacyDecision: "allow",
+        task,
+        context: { source: "dynamic-cell-save" },
+      });
+    }
     const formattedExtraData = normalizeExtraDataBySmartRules({ [key]: value });
     if (formattedExtraData.errors.length > 0) {
       toast.error(formattedExtraData.errors[0].message);
@@ -4043,12 +4844,32 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     const nextValue = formattedExtraData.data?.[key] ?? "";
     const newExtraData = { ...(task.extra_data ?? {}), [key]: nextValue };
     handleSave(taskId, { extra_data: newExtraData });
-  }, [tasks, handleSave, toast]);
+  }, [tasks, handleSave, isAdmin, toast, logSensitivePolicyDecision]);
 
   const handleReferenceCellSave = useCallback(
     (taskId: string, key: string, value: string, column: ProjectColumn | null) => {
       const task = tasks.find((t) => t.id === taskId);
       if (!task) return;
+      if (isSensitiveExtraColumnKey(key) && !isAdmin) {
+        void logSensitivePolicyDecision({
+          fieldKey: key,
+          action: "edit",
+          legacyDecision: "deny",
+          task,
+          context: { source: "reference-cell-save", reason: "non-admin-sensitive-block" },
+        });
+        toast.warning("Hassas alanlar sadece kopyalanabilir; düzenleme kapalı.");
+        return;
+      }
+      if (isSensitiveExtraColumnKey(key)) {
+        void logSensitivePolicyDecision({
+          fieldKey: key,
+          action: "edit",
+          legacyDecision: "allow",
+          task,
+          context: { source: "reference-cell-save" },
+        });
+      }
       const formattedExtraData = normalizeExtraDataBySmartRules({ [key]: value });
       if (formattedExtraData.errors.length > 0) {
         toast.error(formattedExtraData.errors[0].message);
@@ -4086,10 +4907,10 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
 
       handleSave(taskId, { extra_data: nextExtraData });
     },
-    [extraDataKeys, handleSave, tasks, toast]
+    [extraDataKeys, handleSave, isAdmin, tasks, toast, logSensitivePolicyDecision]
   );
 
-  const columns: ColumnDef<Task, string | null>[] = useMemo(
+  const columns = useMemo(
     () => [
     columnHelper.display({
       id: "select",
@@ -4188,6 +5009,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
             statusOptions={statusOptions}
             defaultTaskStatus={settings.defaultTaskStatus}
             density={tableDensity}
+            template={tableTemplate}
             disabled={!rowCanEdit}
           />
         );
@@ -4196,6 +5018,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       minSize: 100,
       maxSize: 220,
       enableResizing: true,
+      enableSorting: true,
     }),
     columnHelper.display({
       id: "workflow",
@@ -4382,7 +5205,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       enableSorting: true,
     }),
     ...extraDataKeys.map((key) =>
-      columnHelper.display({
+      columnHelper.accessor((row) => String(row.extra_data?.[key] ?? ""), {
         id: `extra:${key}`,
         header: key,
         /**
@@ -4397,14 +5220,94 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
           if (!a && !b) return 0;
           if (!a) return 1;
           if (!b) return -1;
+          const na = normalizeSortText(a);
+          const nb = normalizeSortText(b);
+          if (na !== nb) {
+            return na.localeCompare(nb, "tr", { sensitivity: "base", numeric: true });
+          }
           return a.localeCompare(b, "tr", { sensitivity: "base", numeric: true });
         },
+        enableSorting: true,
         cell: ({ row }) => {
           const task = row.original;
           const value = task.extra_data?.[key] ?? "";
           const referenceWarning = String(task.extra_data?.[REFERENCE_WARNINGS_KEY] ?? "").trim();
           const taskId = task.id;
           const rowCanEdit = canEditRow(task);
+          const sensitive = isSensitiveExtraColumnKey(key);
+          const rowCanEditCell = rowCanEdit && (!sensitive || canViewSensitiveCells);
+          const raw = String(value ?? "");
+          const showCopy = raw.trim() !== "";
+          const spotlightMatch = spotlightMatchByTaskId.get(taskId);
+          const spotlightBadgeForCell = Boolean(
+            spotlightActive &&
+              spotlightMatch &&
+              isSpotlightCellMatch(spotlightMatch.descriptor, key, raw)
+          );
+          const spotlightBadgeTone =
+            spotlightMatch?.descriptor.badgeColor === "red"
+              ? "red"
+              : spotlightMatch?.descriptor.badgeColor === "amber"
+                ? "amber"
+                : spotlightMatch?.descriptor.badgeColor === "emerald"
+                  ? "emerald"
+                  : spotlightMatch?.descriptor.badgeColor === "blue"
+                    ? "blue"
+                    : spotlightMatch?.descriptor.badgeColor === "slate"
+                      ? "slate"
+                      : "purple";
+
+          if (sensitive && !canViewSensitiveCells) {
+            const restrictedDisplayValue =
+              settings.piiSensitiveDisplayMode === "masked_copy"
+                ? maskSensitiveExtraValue(raw)
+                : "Gizli (kopyala)";
+            return (
+              <div
+                className="group/extra-cell flex min-w-0 items-center gap-0.5"
+                onMouseEnter={() => trackSensitiveViewShadow(task, key)}
+              >
+                {referenceWarning && (
+                  <AlertTriangle
+                    className="h-3.5 w-3.5 shrink-0 text-amber-500"
+                    aria-label="Referans veri uyarısı"
+                  >
+                    <title>{referenceWarning}</title>
+                  </AlertTriangle>
+                )}
+                <div className="min-w-0 flex-1">
+                  <EditableCell
+                    value={raw}
+                    displayValue={restrictedDisplayValue}
+                  highlightAsBadge={spotlightBadgeForCell}
+                  highlightBadgeTone={spotlightBadgeTone}
+                    taskId={taskId}
+                    field={key}
+                    navigationColumnId={`extra:${key}`}
+                    activeEdit={false}
+                    onSave={() => {}}
+                    onFocus={() => {}}
+                    onBlur={() => {}}
+                    density={tableDensity}
+                    onNavigateNext={focusNextEditableCell}
+                    disabled
+                  />
+                </div>
+                {showCopy && canCopyRow(task) && (
+                  <ExtraCellCopyButton
+                    text={raw}
+                    density={tableDensity}
+                    isSensitive
+                    fieldName={key}
+                    recordId={taskId}
+                    projectId={task.project_id ? String(task.project_id) : null}
+                    roleId={user?.roleId ?? null}
+                  />
+                )}
+              </div>
+            );
+          }
+
           const normalizedExtraKey = key.trim().toLocaleLowerCase("tr");
           const candidateProjectIds = [
             task.project_id ? String(task.project_id) : "",
@@ -4503,6 +5406,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                     options={chipOptions}
                     value={chipRow?.optionId ?? ""}
                     disabled={chipDisabled}
+                    spotlight={spotlightActive && spotlightTaskIds.has(taskId)}
                     onChange={(optionId) => {
                       void (async () => {
                         try {
@@ -4538,7 +5442,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                 <input
                   type="checkbox"
                   checked={checked}
-                  disabled={!rowCanEdit}
+                  disabled={!rowCanEditCell}
                   onChange={(e) => handleDynamicCellSave(taskId, key, e.target.checked ? "✓" : "")}
                   className={dui.rowCheckbox}
                 />
@@ -4554,7 +5458,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
             return (
               <select
                 value={value}
-                disabled={!rowCanEdit}
+                disabled={!rowCanEditCell}
                 onChange={(e) => handleDynamicCellSave(taskId, key, e.target.value)}
                 className={cn(
                   "w-full rounded border border-slate-200 bg-white px-2 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100",
@@ -4584,7 +5488,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                 <ReferenceSelectCell
                   value={String(value ?? "")}
                   options={typedOptions}
-                  disabled={!rowCanEdit}
+                  disabled={!rowCanEditCell}
                   density={tableDensity}
                   title={typedColumn.config.reference ? `${typedColumn.config.reference.sourceName} kaynağından` : undefined}
                   onSave={(nextValue) => handleReferenceCellSave(taskId, key, nextValue, typedColumn)}
@@ -4593,13 +5497,15 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
             );
           }
           // Inline editable text + hover ile kopyala (TCKN/sicil: maskeli gösterim)
-          const raw = String(value ?? "");
-          const sensitive = isSensitiveExtraColumnKey(key);
           const masked = sensitive ? maskSensitiveExtraValue(raw) : raw;
-          const showCopy = raw.trim() !== "";
 
           return (
-            <div className="group/extra-cell flex min-w-0 items-center gap-0.5">
+            <div
+              className="group/extra-cell flex min-w-0 items-center gap-0.5"
+              onMouseEnter={() => {
+                if (sensitive) trackSensitiveViewShadow(task, key);
+              }}
+            >
               {referenceWarning && (
                 <AlertTriangle
                   className="h-3.5 w-3.5 shrink-0 text-amber-500"
@@ -4612,6 +5518,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                 <EditableCell
                   value={raw}
                   displayValue={sensitive ? masked : undefined}
+                  highlightAsBadge={spotlightBadgeForCell}
+                  highlightBadgeTone={spotlightBadgeTone}
                   taskId={taskId}
                   field={key}
                   navigationColumnId={`extra:${key}`}
@@ -4621,11 +5529,11 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                       handleDynamicCellSave(id, key, String(patch[key] ?? ""));
                     }
                   }}
-                  onFocus={() => rowCanEdit && activateEditableCell(taskId, `extra:${key}`)}
+                  onFocus={() => rowCanEditCell && activateEditableCell(taskId, `extra:${key}`)}
                   onBlur={() => scheduleEditableCellBlur(taskId, `extra:${key}`)}
                   density={tableDensity}
                   onNavigateNext={focusNextEditableCell}
-                  disabled={!rowCanEdit}
+                  disabled={!rowCanEditCell}
                 />
               </div>
               {showCopy && canCopyRow(task) && (
@@ -4635,6 +5543,8 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
                   isSensitive={sensitive}
                   fieldName={key}
                   recordId={taskId}
+                  projectId={task.project_id ? String(task.project_id) : null}
+                  roleId={user?.roleId ?? null}
                 />
               )}
             </div>
@@ -4644,7 +5554,6 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         minSize: 80,
         maxSize: 400,
         enableResizing: true,
-        enableSorting: true,
       })
     ),
     columnHelper.display({
@@ -4747,6 +5656,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       chipCatalog,
       rowChipValues,
       canManageSensitiveChips,
+      canViewSensitiveCells,
       toast,
     ]
   );
@@ -4889,6 +5799,10 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   }, [filteredData, liveTableVisibleKey, liveTableViewportWidth, tableDensity, isLoading, error, table]);
 
   const visibleColumnIds = table.getVisibleLeafColumns().map((c) => (c.id ?? (c as { accessorKey?: string }).accessorKey ?? "").toString()).filter(Boolean);
+  const exportColumnIds = useMemo(
+    () => buildExportColumnIds(visibleColumnIds, exportIncludeAutoRowNumber),
+    [visibleColumnIds, exportIncludeAutoRowNumber]
+  );
   /** Export sırasında hassas sütunların ham olarak yazılıp yazılmayacağı.
    *  Ayrı izin yoksa toggle görünse bile ham veri yazılmaz.
    */
@@ -5086,7 +6000,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     () =>
       createEmailTemplate(
         selectedPdfRows,
-        visibleColumnIds,
+        exportColumnIds,
         settings.dateFormat,
         projectById,
         effectiveUnmaskSensitive,
@@ -5098,7 +6012,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       ),
     [
       selectedPdfRows,
-      visibleColumnIds,
+      exportColumnIds,
       settings.dateFormat,
       projectById,
       effectiveUnmaskSensitive,
@@ -5117,13 +6031,11 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
   }, [pdfPreviewUrl]);
 
   /**
-   * Ham (unmasked) export sonrası PII denetim logu — her hassas extra_data
-   * anahtarı için tek bir kayıt (record_count = satır sayısı).
-   * "Bu işlem kaydedildi" caydırıcı toast'u da burada.
+   * Export sonrası shadow policy logu (masked/unmasked) + unmasked ise PII denetim logu.
    */
   const logSensitiveExport = useCallback(
-    (rows: Task[], unmasked: boolean) => {
-      if (!unmasked || !user?.email) return;
+    async (rows: Task[], unmasked: boolean, scope: "current" | "all") => {
+      if (!user?.id || !user?.email) return;
       const sensitiveKeys = new Set<string>();
       for (const id of visibleColumnIds) {
         if (id.startsWith("extra:")) {
@@ -5132,17 +6044,39 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
         }
       }
       if (sensitiveKeys.size === 0) return;
-      sensitiveKeys.forEach((key) => {
-        void logPiiAccess({
-          userEmail: user.email!,
-          action: "export",
-          fieldName: key,
-          recordCount: rows.length,
-        });
-      });
-      toast.info("Hassas alanlar denetim kayıtlarına yazıldı", { durationMs: 2500 });
+      const projectIds = Array.from(
+        new Set(rows.map((row) => (row.project_id ? String(row.project_id) : "")).filter(Boolean))
+      );
+      const resolvedProjectId = projectIds.length === 1 ? projectIds[0] : null;
+      const action = unmasked ? "export_unmasked" : "export_masked";
+      await Promise.all(
+        Array.from(sensitiveKeys).map(async (key) => {
+          await logSensitivePolicyDecision({
+            fieldKey: key,
+            action,
+            legacyDecision: "allow",
+            projectId: resolvedProjectId,
+            context: {
+              source: "export",
+              scope,
+              rowCount: rows.length,
+              projectIds,
+            },
+          });
+          if (!unmasked || !user?.email) return;
+          await logPiiAccess({
+            userEmail: user.email,
+            action: "export",
+            fieldName: key,
+            recordCount: rows.length,
+          });
+        })
+      );
+      if (unmasked) {
+        toast.info("Hassas alanlar denetim kayıtlarına yazıldı", { durationMs: 2500 });
+      }
     },
-    [user, visibleColumnIds, toast]
+    [user, visibleColumnIds, toast, logSensitivePolicyDecision]
   );
 
   const handleExportCSV = useCallback(
@@ -5155,19 +6089,19 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       const unmaskSensitive = canUnmaskExportRows(rows);
       downloadCSV(
         rows,
-        visibleColumnIds,
+        exportColumnIds,
         settings.dateFormat,
         `gorevler-${scope === "all" ? "tum" : "gorunum"}${unmaskSensitive ? "-ham" : ""}-${Date.now()}.csv`,
         projectById,
         unmaskSensitive,
         chipResolver
       );
+      void logSensitiveExport(rows, unmaskSensitive, scope);
       if (unmaskSensitive) {
         toast.success("Hassas veriler AÇIK olarak indirildi (yetkili onay)");
-        logSensitiveExport(rows, unmaskSensitive);
       }
     },
-    [getExportRows, canUnmaskExportRows, visibleColumnIds, settings.dateFormat, projectById, chipResolver, toast, logSensitiveExport]
+    [getExportRows, canUnmaskExportRows, exportColumnIds, settings.dateFormat, projectById, chipResolver, toast, logSensitiveExport]
   );
   const handleExportExcel = useCallback(
     (scope: "current" | "all") => {
@@ -5179,19 +6113,19 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       const unmaskSensitive = canUnmaskExportRows(rows);
       downloadExcel(
         rows,
-        visibleColumnIds,
+        exportColumnIds,
         settings.dateFormat,
         `gorevler-${scope === "all" ? "tum" : "gorunum"}${unmaskSensitive ? "-ham" : ""}-${Date.now()}.xlsx`,
         projectById,
         unmaskSensitive,
         chipResolver
       );
+      void logSensitiveExport(rows, unmaskSensitive, scope);
       if (unmaskSensitive) {
         toast.success("Hassas veriler AÇIK olarak indirildi (yetkili onay)");
-        logSensitiveExport(rows, unmaskSensitive);
       }
     },
-    [getExportRows, canUnmaskExportRows, visibleColumnIds, settings.dateFormat, projectById, chipResolver, toast, logSensitiveExport]
+    [getExportRows, canUnmaskExportRows, exportColumnIds, settings.dateFormat, projectById, chipResolver, toast, logSensitiveExport]
   );
   const applyReportTemplate = useCallback((selection: ReportTemplateSelection) => {
     const isCustom = selection.startsWith("custom:");
@@ -5226,6 +6160,10 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     if (reusableConfig) {
       setPdfDialogScope(reusableConfig.exportScope);
       setExportUnmaskSensitive(canExportSensitiveUnmasked && reusableConfig.unmaskSensitive);
+      setExportIncludeAutoRowNumber(
+        customTemplate?.includeAutoRowNumber === true ||
+          (managedConfig != null && managedConfig.includeAutoRowNumber === true)
+      );
       const savedVisible = new Set(reusableConfig.visibleColumnIds);
       if (savedVisible.size > 0) {
         const allColumnIds = table
@@ -5304,6 +6242,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
       pdfPageSize: presentationConfig?.pdfPageSize ?? "A4",
       pdfShowFilterSummary: presentationConfig?.pdfShowFilterSummary ?? true,
       pdfShowStatusSummary: presentationConfig?.pdfShowStatusSummary ?? true,
+      includeAutoRowNumber: exportIncludeAutoRowNumber,
       updatedAt: new Date().toISOString(),
     };
     const next = [template, ...savedReportTemplates].slice(0, 30);
@@ -5327,6 +6266,7 @@ export function TasksTable({ projectFilter: extProjectFilter, onProjectFilterCha
     selectedManagedReportTemplate,
     selectedReportTemplate.label,
     toast,
+    exportIncludeAutoRowNumber,
     visibleColumnIds,
   ]);
 
@@ -5508,7 +6448,7 @@ ${emailTemplate.html}
     try {
       const nextUrl = await createPDFPreviewUrl(
         selectedPdfRows,
-        visibleColumnIds,
+        exportColumnIds,
         settings.dateFormat,
         projectById,
         effectiveUnmaskSensitive,
@@ -5527,7 +6467,7 @@ ${emailTemplate.html}
     } finally {
       setPdfPreviewLoading(false);
     }
-  }, [selectedPdfRows, visibleColumnIds, settings.dateFormat, projectById, effectiveUnmaskSensitive, selectedPdfTitle, pdfExportMetadata, pdfRenderOptions, chipResolver, toast]);
+  }, [selectedPdfRows, exportColumnIds, settings.dateFormat, projectById, effectiveUnmaskSensitive, selectedPdfTitle, pdfExportMetadata, pdfRenderOptions, chipResolver, toast]);
 
   const confirmExportPDF = useCallback(
     async () => {
@@ -5539,7 +6479,7 @@ ${emailTemplate.html}
       try {
         await downloadPDF(
           selectedPdfRows,
-          visibleColumnIds,
+          exportColumnIds,
           settings.dateFormat,
           `gorevler-${pdfDialogScope === "all" ? "tum" : "gorunum"}${effectiveUnmaskSensitive ? "-ham" : ""}-${Date.now()}.pdf`,
           projectById,
@@ -5549,9 +6489,9 @@ ${emailTemplate.html}
           pdfRenderOptions,
           chipResolver
         );
+        void logSensitiveExport(selectedPdfRows, effectiveUnmaskSensitive, pdfDialogScope);
         if (effectiveUnmaskSensitive) {
           toast.success("Hassas veriler AÇIK olarak indirildi (yetkili onay)");
-          logSensitiveExport(selectedPdfRows, effectiveUnmaskSensitive);
         }
       } catch (e) {
         console.error("[Export] PDF oluşturulamadı:", e);
@@ -5561,7 +6501,7 @@ ${emailTemplate.html}
         handlePdfDialogOpenChange(false);
       }
     },
-    [selectedPdfRows, visibleColumnIds, settings.dateFormat, pdfDialogScope, effectiveUnmaskSensitive, projectById, selectedPdfTitle, pdfExportMetadata, pdfRenderOptions, chipResolver, toast, logSensitiveExport, handlePdfDialogOpenChange]
+    [selectedPdfRows, exportColumnIds, settings.dateFormat, pdfDialogScope, effectiveUnmaskSensitive, projectById, selectedPdfTitle, pdfExportMetadata, pdfRenderOptions, chipResolver, toast, logSensitiveExport, handlePdfDialogOpenChange]
   );
 
   const openColumnPicker = useCallback(() => {
@@ -6096,13 +7036,52 @@ ${emailTemplate.html}
               const isActive = activeSmartFilter === chip.id;
               const isEmpty = chip.count === 0;
               // Tone bazlı renk paleti — aktif/pasif/empty
-              const toneMap = {
+              const toneMap = isModernTemplate
+                ? {
+                    rose: {
+                      active:
+                        "border-slate-400 bg-slate-700 text-white ring-slate-300/50 dark:ring-slate-500/40 shadow-slate-700/20",
+                      idle:
+                        "border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/75 dark:text-slate-200 dark:hover:bg-slate-800/85",
+                      badge: "bg-slate-600 text-white dark:bg-slate-500",
+                    },
+                    indigo: {
+                      active:
+                        "border-slate-400 bg-slate-700 text-white ring-slate-300/50 dark:ring-slate-500/40 shadow-slate-700/20",
+                      idle:
+                        "border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/75 dark:text-slate-200 dark:hover:bg-slate-800/85",
+                      badge: "bg-slate-600 text-white dark:bg-slate-500",
+                    },
+                    amber: {
+                      active:
+                        "border-slate-400 bg-slate-700 text-white ring-slate-300/50 dark:ring-slate-500/40 shadow-slate-700/20",
+                      idle:
+                        "border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/75 dark:text-slate-200 dark:hover:bg-slate-800/85",
+                      badge: "bg-slate-600 text-white dark:bg-slate-500",
+                    },
+                    emerald: {
+                      active:
+                        "border-slate-400 bg-slate-700 text-white ring-slate-300/50 dark:ring-slate-500/40 shadow-slate-700/20",
+                      idle:
+                        "border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/75 dark:text-slate-200 dark:hover:bg-slate-800/85",
+                      badge: "bg-slate-600 text-white dark:bg-slate-500",
+                    },
+                    slate: {
+                      active:
+                        "border-slate-400 bg-slate-700 text-white ring-slate-300/50 dark:ring-slate-500/40 shadow-slate-700/20",
+                      idle:
+                        "border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/75 dark:text-slate-200 dark:hover:bg-slate-800/85",
+                      badge: "bg-slate-600 text-white dark:bg-slate-500",
+                    },
+                  }
+                : {
                 rose:    { active: "border-rose-500 bg-rose-500 text-white ring-rose-300/50 dark:ring-rose-400/40 shadow-rose-500/20",       idle: "border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300 hover:bg-rose-100 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-950/70",                badge: "bg-rose-600 text-white dark:bg-rose-500" },
                 indigo:  { active: "border-indigo-500 bg-indigo-500 text-white ring-indigo-300/50 dark:ring-indigo-400/40 shadow-indigo-500/20", idle: "border-indigo-200 bg-indigo-50 text-indigo-700 hover:border-indigo-300 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-950/70", badge: "bg-indigo-600 text-white dark:bg-indigo-500" },
                 amber:   { active: "border-amber-500 bg-amber-500 text-white ring-amber-300/50 dark:ring-amber-400/40 shadow-amber-500/20",    idle: "border-amber-200 bg-amber-50 text-amber-800 hover:border-amber-300 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-950/70",            badge: "bg-amber-600 text-white dark:bg-amber-500" },
                 emerald: { active: "border-emerald-500 bg-emerald-500 text-white ring-emerald-300/50 dark:ring-emerald-400/40 shadow-emerald-500/20", idle: "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/70", badge: "bg-emerald-600 text-white dark:bg-emerald-500" },
                 slate:   { active: "border-slate-600 bg-slate-700 text-white ring-slate-400/50 dark:ring-slate-500/40 shadow-slate-700/20",   idle: "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-300 dark:hover:bg-slate-800/70",          badge: "bg-slate-600 text-white dark:bg-slate-500" },
-              }[chip.tone];
+                };
+              const tone = toneMap[chip.tone];
               return (
                 <button
                   key={chip.id}
@@ -6114,8 +7093,8 @@ ${emailTemplate.html}
                   className={cn(
                     "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-all",
                     isActive
-                      ? cn("shadow-sm ring-2 ring-offset-1 dark:ring-offset-slate-900", toneMap.active)
-                      : toneMap.idle,
+                      ? cn("shadow-sm ring-2 ring-offset-1 dark:ring-offset-slate-900", tone.active)
+                      : tone.idle,
                     isEmpty && !isActive && "cursor-not-allowed opacity-50"
                   )}
                 >
@@ -6125,7 +7104,7 @@ ${emailTemplate.html}
                     <span
                       className={cn(
                         "inline-flex h-4 min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold tabular-nums",
-                        isActive ? "bg-white/25 text-white" : toneMap.badge
+                        isActive ? "bg-white/25 text-white" : tone.badge
                       )}
                     >
                       {chip.count > 99 ? "99+" : chip.count}
@@ -6138,7 +7117,12 @@ ${emailTemplate.html}
               <button
                 type="button"
                 onClick={clearFilters}
-                className="inline-flex h-7 items-center gap-1 rounded-full border border-transparent px-2 text-[11px] font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                className={cn(
+                  "inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] font-medium",
+                  isModernTemplate
+                    ? "border-slate-300 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:border-slate-600 dark:bg-slate-900/75 dark:text-slate-300 dark:hover:bg-slate-800"
+                    : "border-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                )}
                 title="Hızlı filtreyi kapat"
               >
                 <X className="h-3 w-3" aria-hidden />
@@ -6149,7 +7133,7 @@ ${emailTemplate.html}
         </div>
 
         {/* Filtreler — arama, kapsam ve alan filtreleri tek sakin bantta */}
-        <div className="px-3 py-2">
+        <div className={cn("px-3 py-2", isModernTemplate && "live-table-modern-toolbar")}>
         <div className="sr-only mb-2 items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
           <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden />
           Filtreler
@@ -6615,7 +7599,12 @@ ${emailTemplate.html}
 
           {/* Görünüm kontrolleri — sağa hizalı */}
           <div
-            className="ml-auto flex shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 dark:border-slate-700 dark:bg-slate-800/70"
+            className={cn(
+              "ml-auto flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1",
+              isModernTemplate
+                ? "rounded-xl border-slate-200 bg-white/95 shadow-sm dark:border-slate-700 dark:bg-slate-900/80"
+                : "border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/70"
+            )}
             onDoubleClick={(e) => {
               const tag = (e.target as HTMLElement).tagName;
               if (["BUTTON", "INPUT", "SELECT", "TEXTAREA", "LABEL"].includes(tag)) return;
@@ -6653,18 +7642,46 @@ ${emailTemplate.html}
               value={tableDensity}
               onChange={(e) => updateSetting("liveTableDensity", e.target.value as LiveTableDensity)}
               title="Satır aralığı ve yazı boyutu"
-              className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+              className={cn(
+                "h-8 rounded-md border px-2 text-xs focus:outline-none",
+                isModernTemplate
+                  ? "border-slate-300 bg-slate-50 text-slate-700 focus:border-slate-400 focus:ring-2 focus:ring-slate-300/40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:focus:border-slate-500 dark:focus:ring-slate-600/40"
+                  : "border-slate-300 bg-white text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+              )}
             >
               <option value="compact">Yoğun</option>
               <option value="normal">Normal</option>
               <option value="comfortable">Büyük</option>
+            </select>
+            <label htmlFor="live-table-template" className="sr-only">
+              Canlı Tablo şablonu
+            </label>
+            <select
+              id="live-table-template"
+              value={tableTemplate}
+              onChange={(e) => updateSetting("liveTableTemplate", e.target.value as LiveTableTemplate)}
+              title="Tablo şablonu"
+              className={cn(
+                "h-8 rounded-md border px-2 text-xs focus:outline-none",
+                isModernTemplate
+                  ? "border-slate-300 bg-slate-50 text-slate-700 focus:border-slate-400 focus:ring-2 focus:ring-slate-300/40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:focus:border-slate-500 dark:focus:ring-slate-600/40"
+                  : "border-slate-300 bg-white text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+              )}
+            >
+              <option value="classic">Klasik</option>
+              <option value="modern">Modern</option>
             </select>
             <Button
               type="button"
               variant="outline"
               size="icon"
               onClick={() => setIsFullWidth((p) => !p)}
-              className="h-8 w-8 text-slate-700 dark:text-slate-300"
+              className={cn(
+                "h-8 w-8",
+                isModernTemplate
+                  ? "border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                  : "text-slate-700 dark:text-slate-300"
+              )}
               aria-label={isFullWidth ? "Daralt (Esc)" : "Tabloyu genişlet (F)"}
               title={isFullWidth ? "Daralt — Esc" : "Tabloyu genişlet — F · çift tık"}
               aria-pressed={isFullWidth}
@@ -6672,14 +7689,21 @@ ${emailTemplate.html}
               {isFullWidth ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
             </Button>
           </div>
-          <span className="shrink-0 text-xs font-medium text-slate-500 dark:text-slate-400">
+          <span
+            className={cn(
+              "shrink-0 text-xs font-medium",
+              isModernTemplate
+                ? "rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300"
+                : "text-slate-500 dark:text-slate-400"
+            )}
+          >
             {table.getFilteredRowModel().rows.length} / {tasks.length} kayıt
           </span>
         </div>
         </div>
         {/* Aktif filtre özeti — sadece varsa gösterilir, minimum yer kaplar */}
         {activeFilterCount > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 px-0.5">
+          <div className={cn("flex flex-wrap items-center gap-1.5 px-0.5", isModernTemplate && "live-table-modern-active-filters")}>
             <span className="flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-400">
               <Filter className="h-3.5 w-3.5" />
               Aktif filtreler:
@@ -7137,82 +8161,236 @@ ${emailTemplate.html}
             </>
           )}
           {canExportCsv && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="outline" size="sm" className="text-slate-700 dark:text-slate-300">
-                <Download className="mr-1.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-                Dışa aktar
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-72">
-              <div className="border-b border-slate-100 px-3 py-2 text-xs dark:border-slate-700">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="font-medium text-slate-700 dark:text-slate-200">Yetki kapsamı</span>
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-200">
-                    {exportCurrentRows.length} satır
-                  </span>
-                </div>
-                <div className="mt-1.5 space-y-0.5 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
-                  <p>{exportScopeLabel}</p>
-                  <p>{exportSensitivityLabel}</p>
-                  {canExportAllRows && (
-                    <p>Tüm veri seçeneği: {exportAllRows.length} satır</p>
-                  )}
-                </div>
-              </div>
-              {canExportSensitiveUnmasked && (
-                <>
-                  <div
-                    className={cn(
-                      "flex items-start gap-2 border-b px-2 py-2",
-                      exportUnmaskSensitive
-                        ? "border-amber-200 bg-amber-50 dark:border-amber-800/60 dark:bg-amber-950/30"
-                        : "border-slate-100 dark:border-slate-700"
-                    )}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <input
-                      id="export-unmask-toggle"
-                      type="checkbox"
-                      checked={exportUnmaskSensitive}
-                      onChange={(e) => setExportUnmaskSensitive(e.target.checked)}
-                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-amber-600 focus:ring-amber-500 dark:border-slate-500"
-                    />
-                    <label
-                      htmlFor="export-unmask-toggle"
-                      className="cursor-pointer text-xs leading-snug text-slate-700 dark:text-slate-200"
-                    >
-                      <span className="font-semibold text-amber-700 dark:text-amber-300">
-                        🔓 Hassas verileri AÇIK indir
-                      </span>
-                      <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">
-                        TCKN/sicil/personel no maskeli yerine ham yazılır.
-                        <strong className="ml-0.5 text-amber-700 dark:text-amber-400">Özel yetki gerekir.</strong>
-                      </span>
-                    </label>
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="text-slate-700 dark:text-slate-300"
+              onClick={() => setExportDialogOpen(true)}
+            >
+              <Download className="mr-1.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+              Dışa aktar
+            </Button>
+            <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+              <DialogContent
+                className="max-w-3xl overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 p-0 shadow-[0_24px_64px_-24px_rgba(15,23,42,0.28)] backdrop-blur-xl dark:border-slate-700/80 dark:bg-slate-900/95"
+                showClose
+              >
+                <div className="border-b border-slate-200/80 bg-gradient-to-br from-slate-50/90 via-white/80 to-blue-50/40 px-6 py-5 dark:border-slate-700/80 dark:from-slate-900/90 dark:via-slate-900/80 dark:to-blue-950/20">
+                  <DialogHeader className="space-y-1 text-left">
+                    <DialogTitle className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+                      Dışa aktar
+                    </DialogTitle>
+                    <DialogDescription className="text-sm text-slate-500 dark:text-slate-400">
+                      Verileri güvenli kapsamınız içinde indirin veya paylaşın.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="mt-4 flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                        Yetki kapsamı
+                      </p>
+                      <p className="mt-1 text-sm font-medium text-slate-800 dark:text-slate-100">{exportScopeLabel}</p>
+                      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{exportSensitivityLabel}</p>
+                    </div>
+                    <span className="inline-flex items-center rounded-full border border-slate-200/80 bg-white/80 px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm backdrop-blur dark:border-slate-600 dark:bg-slate-800/80 dark:text-slate-100">
+                      {exportCurrentRows.length} satır
+                    </span>
                   </div>
-                </>
-              )}
-              {!canExportAllRows && (
-                <div className="border-b border-slate-100 px-2 py-2 text-[11px] leading-snug text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                  Üye export kapsamı sadece düzenleyebildiğin satırlarla sınırlıdır.
                 </div>
-              )}
-              <DropdownMenuItem onClick={() => handleExportCSV("current")}>CSV indir (mevcut görünüm)</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExportExcel("current")}>Excel indir (mevcut görünüm)</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => openPdfDialog("current")}>PDF indir (mevcut görünüm)</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => openEmailDialog("current")}>E-posta şablonu (mevcut görünüm)</DropdownMenuItem>
-              {canExportAllRows && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => handleExportCSV("all")}>CSV indir (tüm veri)</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleExportExcel("all")}>Excel indir (tüm veri)</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => openPdfDialog("all")}>PDF indir (tüm veri)</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => openEmailDialog("all")}>E-posta şablonu (tüm veri)</DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+
+                <div className="space-y-4 px-6 py-5">
+                  {canExportSensitiveUnmasked && (
+                    <div
+                      className={cn(
+                        "flex items-start gap-3 rounded-xl border px-4 py-3 shadow-sm backdrop-blur-sm",
+                        exportUnmaskSensitive
+                          ? "border-amber-300/80 bg-amber-50/90 dark:border-amber-700/60 dark:bg-amber-950/35"
+                          : "border-slate-200/80 bg-slate-50/70 dark:border-slate-700 dark:bg-slate-800/50"
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl",
+                          exportUnmaskSensitive
+                            ? "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300"
+                            : "bg-white text-slate-500 shadow-sm dark:bg-slate-900 dark:text-slate-400"
+                        )}
+                      >
+                        <LockKeyhole className="h-4 w-4" aria-hidden />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                              Hassas verileri AÇIK indir
+                            </p>
+                            <p className="mt-0.5 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
+                              TCKN/sicil/personel no maskeli yerine ham yazılır.{" "}
+                              <span className="font-medium text-amber-700 dark:text-amber-300">Özel yetki gerekir.</span>
+                            </p>
+                          </div>
+                          <ExportToggleSwitch
+                            id="export-unmask-toggle"
+                            checked={exportUnmaskSensitive}
+                            onChange={setExportUnmaskSensitive}
+                            aria-label="Hassas verileri açık indir"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {!canExportAllRows && (
+                    <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 px-4 py-3 text-xs leading-relaxed text-slate-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
+                      Üye export kapsamı yalnızca düzenleyebildiğiniz satırlarla sınırlıdır.
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200/80 bg-white/70 px-4 py-3 shadow-sm backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/50">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Otomatik Sıra</p>
+                      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                        Dışa aktarılan her satıra 1&apos;den başlayan sıra numarası ekler.
+                      </p>
+                    </div>
+                    <ExportToggleSwitch
+                      id="export-auto-row-toggle"
+                      checked={exportIncludeAutoRowNumber}
+                      onChange={setExportIncludeAutoRowNumber}
+                      aria-label="Otomatik sıra numarası ekle"
+                    />
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <section className="rounded-xl border border-slate-200/80 bg-gradient-to-b from-white/90 to-slate-50/50 p-4 shadow-sm dark:border-slate-700 dark:from-slate-900/80 dark:to-slate-950/40">
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <div>
+                          <h3 className="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+                            Mevcut görünüm
+                          </h3>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">Filtre ve sıralama uygulanmış</p>
+                        </div>
+                        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+                          {exportCurrentRows.length}
+                        </span>
+                      </div>
+                      <div className="grid gap-2">
+                        <ExportFormatButton
+                          label="CSV"
+                          sublabel=".csv indir"
+                          icon={<FileText className="h-5 w-5" aria-hidden />}
+                          iconWrapClass="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                          onClick={() => {
+                            setExportDialogOpen(false);
+                            handleExportCSV("current");
+                          }}
+                        />
+                        <ExportFormatButton
+                          label="Excel"
+                          sublabel=".xlsx indir"
+                          icon={<Table2 className="h-5 w-5" aria-hidden />}
+                          iconWrapClass="bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300"
+                          onClick={() => {
+                            setExportDialogOpen(false);
+                            handleExportExcel("current");
+                          }}
+                        />
+                        <ExportFormatButton
+                          label="PDF"
+                          sublabel="Önizleme ile indir"
+                          icon={<FileText className="h-5 w-5" aria-hidden />}
+                          iconWrapClass="bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-300"
+                          onClick={() => {
+                            setExportDialogOpen(false);
+                            openPdfDialog("current");
+                          }}
+                        />
+                        <ExportFormatButton
+                          label="E-posta şablonu"
+                          sublabel="HTML kopyala"
+                          icon={<Mail className="h-5 w-5" aria-hidden />}
+                          iconWrapClass="bg-violet-50 text-violet-600 dark:bg-violet-950/40 dark:text-violet-300"
+                          onClick={() => {
+                            setExportDialogOpen(false);
+                            openEmailDialog("current");
+                          }}
+                        />
+                      </div>
+                    </section>
+
+                    <section
+                      className={cn(
+                        "rounded-xl border p-4 shadow-sm",
+                        canExportAllRows
+                          ? "border-slate-200/80 bg-gradient-to-b from-white/90 to-slate-50/50 dark:border-slate-700 dark:from-slate-900/80 dark:to-slate-950/40"
+                          : "border-dashed border-slate-200 bg-slate-50/40 opacity-70 dark:border-slate-700 dark:bg-slate-900/30"
+                      )}
+                    >
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <div>
+                          <h3 className="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+                            Tüm veri
+                          </h3>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">Ham / yetkili tam kapsam</p>
+                        </div>
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                          {exportAllRows.length}
+                        </span>
+                      </div>
+                      <div className="grid gap-2">
+                        <ExportFormatButton
+                          label="CSV"
+                          sublabel=".csv indir"
+                          icon={<FileText className="h-5 w-5" aria-hidden />}
+                          iconWrapClass="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                          disabled={!canExportAllRows}
+                          onClick={() => {
+                            setExportDialogOpen(false);
+                            handleExportCSV("all");
+                          }}
+                        />
+                        <ExportFormatButton
+                          label="Excel"
+                          sublabel=".xlsx indir"
+                          icon={<Table2 className="h-5 w-5" aria-hidden />}
+                          iconWrapClass="bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300"
+                          disabled={!canExportAllRows}
+                          onClick={() => {
+                            setExportDialogOpen(false);
+                            handleExportExcel("all");
+                          }}
+                        />
+                        <ExportFormatButton
+                          label="PDF"
+                          sublabel="Önizleme ile indir"
+                          icon={<FileText className="h-5 w-5" aria-hidden />}
+                          iconWrapClass="bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-300"
+                          disabled={!canExportAllRows}
+                          onClick={() => {
+                            setExportDialogOpen(false);
+                            openPdfDialog("all");
+                          }}
+                        />
+                        <ExportFormatButton
+                          label="E-posta şablonu"
+                          sublabel="HTML kopyala"
+                          icon={<Mail className="h-5 w-5" aria-hidden />}
+                          iconWrapClass="bg-violet-50 text-violet-600 dark:bg-violet-950/40 dark:text-violet-300"
+                          disabled={!canExportAllRows}
+                          onClick={() => {
+                            setExportDialogOpen(false);
+                            openEmailDialog("all");
+                          }}
+                        />
+                      </div>
+                    </section>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </>
           )}
           <RestrictedButton
             permission="liveTable.createTask"
@@ -7451,6 +8629,26 @@ ${emailTemplate.html}
                     Sütunlar canlı tablodaki görünür kolonlardan alınır.
                   </div>
                 </div>
+                <label className="flex cursor-pointer items-start gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900/40">
+                  <input
+                    type="checkbox"
+                    checked={exportIncludeAutoRowNumber}
+                    onChange={(e) => {
+                      setExportIncludeAutoRowNumber(e.target.checked);
+                      if (pdfPreviewUrl) {
+                        URL.revokeObjectURL(pdfPreviewUrl);
+                        setPdfPreviewUrl(null);
+                      }
+                    }}
+                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-500"
+                  />
+                  <span className="leading-snug text-slate-700 dark:text-slate-200">
+                    <span className="font-semibold text-slate-800 dark:text-slate-100">Otomatik Sıra</span>
+                    <span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">
+                      İlk sütuna 1..{selectedPdfRows.length || "N"} arası sıra numarası ekler.
+                    </span>
+                  </span>
+                </label>
                 <Button
                   type="button"
                   variant="outline"
@@ -7893,7 +9091,8 @@ ${emailTemplate.html}
       <div
         ref={liveTableScrollRef}
         className={cn(
-          "hidden md:flex flex-1 min-h-0 w-full min-w-0 overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 bg-slate-50/80 shadow-sm isolate [overflow-anchor:none] dark:border-slate-700/80 dark:bg-slate-950/40 dark:shadow-[0_18px_42px_-32px_rgba(0,0,0,0.8)]",
+          "hidden md:flex flex-1 min-h-0 w-full min-w-0 overflow-y-auto overflow-x-auto isolate [overflow-anchor:none]",
+          tableSkin.shell,
           requiresSingleProjectSelection && "!hidden",
           /* Sayfa düzeni flex’te bazen yükseklik sınırlanmıyor; viewport tavanı iç scroll + thead sticky’yi garanti eder (genişlet modunda portal zaten sınırlı). */
           !isFullWidth &&
@@ -7903,7 +9102,7 @@ ${emailTemplate.html}
         )}
       >
         <table
-          className={cn("border-separate border-spacing-0 min-w-full bg-white dark:bg-slate-900", dui.table)}
+          className={cn("border-separate border-spacing-0 min-w-full", tableSkin.table, dui.table)}
           aria-describedby="live-table-caption"
           style={{
             tableLayout: "fixed",
@@ -7930,11 +9129,8 @@ ${emailTemplate.html}
                   return (
                     <th
                       key={header.id}
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, col.id)}
                       onDragOver={handleDragOver}
                       onDrop={(e) => handleDrop(e, col.id)}
-                      onDragEnd={handleDragEnd}
                       aria-sort={
                         col.getCanSort?.() && col.getIsSorted() === "asc"
                           ? "ascending"
@@ -7945,13 +9141,16 @@ ${emailTemplate.html}
                               : undefined
                       }
                       className={cn(
-                        "relative sticky top-0 z-[15] select-none border-r border-b border-slate-200/90 bg-slate-100/95 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-600 shadow-[0_2px_8px_-5px_rgba(15,23,42,0.35)] backdrop-blur dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-300 dark:shadow-[0_2px_10px_-6px_rgba(0,0,0,0.8)]",
+                        "relative sticky top-0 z-[15] select-none text-left backdrop-blur",
+                        tableSkin.headCell,
                         dui.th,
+                        isModernTemplate && MODERN_DENSITY_UI[tableDensity].th,
                         draggedColumnId === col.id && "opacity-50",
                         isPinnedLeft &&
-                          "left-0 z-[25] bg-slate-100 shadow-[4px_0_10px_-4px_rgba(15,23,42,0.22),0_2px_8px_-5px_rgba(15,23,42,0.35)] dark:bg-slate-900 dark:shadow-[4px_0_12px_-5px_rgba(0,0,0,0.75),0_2px_10px_-6px_rgba(0,0,0,0.8)]",
+                          "left-0 z-[25] shadow-[4px_0_10px_-4px_rgba(15,23,42,0.22),0_2px_8px_-5px_rgba(15,23,42,0.35)] dark:shadow-[4px_0_12px_-5px_rgba(0,0,0,0.75),0_2px_10px_-6px_rgba(0,0,0,0.8)]",
                         isPinnedRight &&
-                          "right-0 z-[25] bg-slate-100 shadow-[-4px_0_10px_-4px_rgba(15,23,42,0.22),0_2px_8px_-5px_rgba(15,23,42,0.35)] dark:bg-slate-900 dark:shadow-[-4px_0_12px_-5px_rgba(0,0,0,0.75),0_2px_10px_-6px_rgba(0,0,0,0.8)]"
+                          "right-0 z-[25] shadow-[-4px_0_10px_-4px_rgba(15,23,42,0.22),0_2px_8px_-5px_rgba(15,23,42,0.35)] dark:shadow-[-4px_0_12px_-5px_rgba(0,0,0,0.75),0_2px_10px_-6px_rgba(0,0,0,0.8)]",
+                        (isPinnedLeft || isPinnedRight) && tableSkin.pinnedCell
                       )}
                       style={{
                         width: wPx,
@@ -7959,7 +9158,16 @@ ${emailTemplate.html}
                       }}
                     >
                       <div className="flex min-w-0 items-center gap-1">
-                        <GripVertical className={cn(dui.grip, "shrink-0 cursor-grab text-slate-400/80 active:cursor-grabbing dark:text-slate-500")} aria-hidden />
+                        <span
+                          draggable
+                          onDragStart={(e) => handleDragStart(e, col.id)}
+                          onDragEnd={handleDragEnd}
+                          className="inline-flex shrink-0 cursor-grab items-center active:cursor-grabbing"
+                          title="Sütunu sürükleyerek taşı"
+                          aria-label="Sütunu sürükle"
+                        >
+                          <GripVertical className={cn(dui.grip, "text-slate-400/80 dark:text-slate-500")} aria-hidden />
+                        </span>
                         {col.getCanSort?.() ? (
                           <button
                             type="button"
@@ -8139,11 +9347,8 @@ ${emailTemplate.html}
               const rowCanEdit = canEditRow(row.original);
               const isEditedByOthers = rowEditors.length > 0;
               const isSelected = row.getIsSelected();
-              const isCompleted = isTaskCompleted(row.original);
-              const urgency = getDueUrgency(row.original);
-              const showUrgency = !isCompleted && !isEditedByOthers && !isSelected;
+              const isSpotlightHit = spotlightActive && spotlightTaskIds.has(row.original.id);
               const automationState = rowAutomationStateByTaskId.get(row.original.id);
-              const automationRowColorClass = automationState?.rowColor ? AUTOMATION_ROW_COLOR_CLASS[automationState.rowColor] : "";
               const visibleCells = row.getVisibleCells();
               let rowTooltipBody: ReactNode | undefined;
               if (isEditedByOthers) {
@@ -8190,14 +9395,11 @@ ${emailTemplate.html}
                   );
                 }
               }
-              const rowLockedByOthersBg = "bg-violet-50/75 dark:bg-violet-950/35";
-              const completedCellBg = "bg-emerald-50/60 dark:bg-emerald-950/20";
+              const rowLockedByOthersBg = "";
               const pinnedDefaultBg = "bg-white dark:bg-slate-900";
               const pinnedBg = isEditedByOthers
                 ? rowLockedByOthersBg
-                : isCompleted
-                  ? completedCellBg
-                  : pinnedDefaultBg;
+                : pinnedDefaultBg;
               const isRecentlyUpdated = recentlyUpdatedIds.has(row.original.id);
               /** Satır hover'ında "Son güncelleyen: X · Y önce" göstergesi (native tooltip) */
               const lastEditorTitle = (() => {
@@ -8219,33 +9421,18 @@ ${emailTemplate.html}
                 return [lockLabel, whoLabel, whenLabel].filter(Boolean).join(" · ");
               })();
               const rowClassName = cn(
-                "group/row border-b border-slate-100 transition-[background-color,box-shadow,border-color] duration-150 dark:border-slate-800",
+                "group/row transition-[background-color,box-shadow,border-color] duration-150",
+                tableSkin.row,
+                isModernTemplate && "live-table-modern-row",
                 rowCanEdit ? "cursor-default" : "cursor-default select-none",
-                // Realtime ile az önce gelen UPDATE: 3 sn'lik amber flash
-                isRecentlyUpdated &&
-                  "animate-[pulse_1.5s_ease-in-out_2] bg-amber-50/75 dark:bg-amber-950/30",
-                !isEditedByOthers && "hover:bg-blue-50/35 dark:hover:bg-slate-800/65",
-                !isEditedByOthers &&
-                  isCompleted &&
-                  "bg-emerald-50/55 dark:bg-emerald-950/20 hover:bg-emerald-50/80 dark:hover:bg-emerald-950/30",
-                !isEditedByOthers &&
-                  isCompleted &&
-                  !isSelected &&
-                  "border-l-4 border-l-emerald-400 dark:border-l-emerald-500",
-                !isEditedByOthers && !isSelected && !isCompleted && automationRowColorClass,
+                isRecentlyUpdated && "animate-[pulse_1.5s_ease-in-out_2]",
                 automationState?.locked &&
                   !isEditedByOthers &&
                   "border-l-4 border-l-slate-500 shadow-[inset_0_0_0_1px_rgba(100,116,139,0.18)] dark:border-l-slate-400 dark:shadow-[inset_0_0_0_1px_rgba(148,163,184,0.2)]",
-                isSelected && !isCompleted && !isEditedByOthers && "bg-blue-50/75 shadow-[inset_3px_0_0_rgb(59,130,246)] dark:bg-blue-950/30 dark:shadow-[inset_3px_0_0_rgb(96,165,250)]",
-                isSelected && !isCompleted && !isEditedByOthers && "border-l-4 border-l-blue-500 dark:border-l-blue-400",
-                isSelected &&
-                  isCompleted &&
-                  !isEditedByOthers &&
-                  "bg-emerald-50/85 ring-2 ring-inset ring-blue-400/45 dark:bg-emerald-950/30 dark:ring-blue-500/40",
+                isSelected && !isEditedByOthers && "border-l-4 border-l-blue-500 dark:border-l-blue-400",
                 isEditedByOthers &&
-                  "relative z-[1] cursor-default border-l-4 border-l-violet-500 bg-violet-50/75 shadow-[inset_0_0_0_1px_rgba(139,92,246,0.16)] dark:border-l-violet-400 dark:bg-violet-950/35 dark:shadow-[inset_0_0_0_1px_rgba(167,139,250,0.2)] hover:bg-violet-50/95 dark:hover:bg-violet-950/45",
-                showUrgency && URGENCY_ROW_CLASS[urgency],
-                showUrgency && URGENCY_LEFT_BORDER_CLASS[urgency]
+                  "relative z-[1] cursor-default border-l-4 border-l-violet-500 shadow-[inset_0_0_0_1px_rgba(139,92,246,0.16)] dark:border-l-violet-400 dark:shadow-[inset_0_0_0_1px_rgba(167,139,250,0.2)]",
+                isSpotlightHit && ""
               );
               const rowTooltipClass =
                 "z-[400] max-w-[min(22rem,calc(100vw-2rem))] border-2 border-violet-500 bg-violet-100 px-3 py-2.5 text-sm font-semibold leading-snug text-violet-950 shadow-[0_8px_32px_rgba(0,0,0,0.18)] animate-in fade-in-0 zoom-in-95 dark:border-violet-400 dark:bg-violet-900/95 dark:text-violet-50 md:text-base";
@@ -8257,14 +9444,15 @@ ${emailTemplate.html}
                   <td
                     key={cell.id}
                     className={cn(
-                      "border-r border-slate-100 align-middle transition-colors dark:border-slate-800",
+                      "align-middle transition-colors",
+                      tableSkin.bodyCell,
                       dui.td,
+                      isModernTemplate && MODERN_DENSITY_UI[tableDensity].td,
                       !rowCanEdit && "select-none",
                       isEditedByOthers && rowLockedByOthersBg,
-                      isCompleted && !isEditedByOthers && completedCellBg,
                       isPinnedLeft && "sticky left-0 z-10 shadow-[4px_0_10px_-5px_rgba(15,23,42,0.18)] dark:shadow-[4px_0_12px_-6px_rgba(0,0,0,0.75)]",
                       isPinnedRight && "sticky right-0 z-10 shadow-[-4px_0_10px_-5px_rgba(15,23,42,0.18)] dark:shadow-[-4px_0_12px_-6px_rgba(0,0,0,0.75)]",
-                      (isPinnedLeft || isPinnedRight) && pinnedBg
+                      (isPinnedLeft || isPinnedRight) && cn(pinnedBg, tableSkin.pinnedCell)
                     )}
                     style={{
                       width: wPx,
@@ -8299,6 +9487,7 @@ ${emailTemplate.html}
                       <tr
                         className={rowClassName}
                         data-selected={isSelected ? "true" : undefined}
+                        data-spotlight-row={isSpotlightHit ? "true" : undefined}
                         {...rowPointerHandlers}
                         onPointerEnter={() => setPresenceHoverRowId(row.id)}
                         onPointerLeave={() =>
@@ -8315,7 +9504,13 @@ ${emailTemplate.html}
                 );
               }
               return (
-                <tr key={row.id} className={rowClassName} data-selected={isSelected ? "true" : undefined} {...rowPointerHandlers}>
+                <tr
+                  key={row.id}
+                  className={rowClassName}
+                  data-selected={isSelected ? "true" : undefined}
+                  data-spotlight-row={isSpotlightHit ? "true" : undefined}
+                  {...rowPointerHandlers}
+                >
                   {rowCells}
                 </tr>
               );
@@ -8362,14 +9557,26 @@ ${emailTemplate.html}
         /* Minimalist footer — Claude Design referans:
            Satır N ▼ | SIK ORTA GENİŞ | 32 kayıt · sayfa 1/1 ◀ ▶
            Tek satır, küçük font, soft border, inline metin pagination. */
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-slate-200/80 bg-white/60 px-4 py-1.5 text-[11px] text-slate-500 backdrop-blur dark:border-slate-700/80 dark:bg-slate-900/40 dark:text-slate-400">
+        <div
+          className={cn(
+            "flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t px-4 py-1.5 text-[11px] backdrop-blur",
+            isModernTemplate
+              ? "live-table-modern-footer border-slate-200 bg-slate-50/80 text-slate-600 dark:border-slate-700 dark:bg-slate-900/65 dark:text-slate-300"
+              : "border-slate-200/80 bg-white/60 text-slate-500 dark:border-slate-700/80 dark:bg-slate-900/40 dark:text-slate-400"
+          )}
+        >
           <div className="flex items-center gap-2">
             <label className="inline-flex items-center gap-1.5">
               <span>Satır</span>
               <select
                 value={table.getState().pagination.pageSize}
                 onChange={(e) => table.setPageSize(Number(e.target.value))}
-                className="h-6 rounded-md border border-slate-200 bg-white px-1.5 pr-5 text-[11px] text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                className={cn(
+                  "h-6 rounded-md border px-1.5 pr-5 text-[11px] focus:outline-none",
+                  isModernTemplate
+                    ? "border-slate-300 bg-white text-slate-700 focus:border-slate-400 focus:ring-2 focus:ring-slate-300/40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500 dark:focus:ring-slate-600/40"
+                    : "border-slate-200 bg-white text-slate-700 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                )}
               >
                 {PAGE_SIZE_OPTIONS.map((n) => (
                   <option key={n} value={n}>{n}</option>
@@ -8392,7 +9599,9 @@ ${emailTemplate.html}
                     className={cn(
                       "rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide transition-all",
                       active
-                        ? "bg-white text-slate-800 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                        ? isModernTemplate
+                          ? "bg-white text-slate-800 shadow-sm ring-1 ring-slate-200 dark:bg-slate-700 dark:text-slate-100 dark:ring-slate-600"
+                          : "bg-white text-slate-800 shadow-sm dark:bg-slate-700 dark:text-slate-100"
                         : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
                     )}
                   >
@@ -8404,17 +9613,41 @@ ${emailTemplate.html}
           </div>
           <div className="flex items-center gap-2">
             <span className="tabular-nums">
-              <span className="font-semibold text-slate-700 dark:text-slate-200">{filteredData.length}</span> kayıt
+              <span
+                className={cn(
+                  "font-semibold text-slate-700 dark:text-slate-200",
+                  isModernTemplate && "live-table-modern-metric-primary"
+                )}
+              >
+                {filteredData.length}
+              </span>{" "}
+              <span className={cn(isModernTemplate && "live-table-modern-metric-label")}>kayıt</span>
               <span className="mx-1.5 opacity-50">·</span>
-              sayfa <span className="font-semibold text-slate-700 dark:text-slate-200">{table.getState().pagination.pageIndex + 1}</span>
-              <span className="opacity-60"> / {table.getPageCount() || 1}</span>
+              <span className={cn(isModernTemplate && "live-table-modern-metric-label")}>sayfa</span>{" "}
+              <span
+                className={cn(
+                  "font-semibold text-slate-700 dark:text-slate-200",
+                  isModernTemplate && "live-table-modern-metric-primary"
+                )}
+              >
+                {table.getState().pagination.pageIndex + 1}
+              </span>
+              <span className={cn("opacity-60", isModernTemplate && "live-table-modern-metric-secondary")}>
+                {" "}
+                / {table.getPageCount() || 1}
+              </span>
             </span>
             <div className="flex items-center gap-0.5">
               <button
                 type="button"
                 onClick={() => table.previousPage()}
                 disabled={!table.getCanPreviousPage()}
-                className="inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                className={cn(
+                  "inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors disabled:opacity-30",
+                  isModernTemplate
+                    ? "border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-slate-100"
+                    : "text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                )}
                 aria-label="Önceki sayfa"
                 title="Önceki sayfa ( [ veya , )"
               >
@@ -8424,7 +9657,12 @@ ${emailTemplate.html}
                 type="button"
                 onClick={() => table.nextPage()}
                 disabled={!table.getCanNextPage()}
-                className="inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                className={cn(
+                  "inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors disabled:opacity-30",
+                  isModernTemplate
+                    ? "border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-slate-100"
+                    : "text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                )}
                 aria-label="Sonraki sayfa"
                 title="Sonraki sayfa ( ] veya . )"
               >
@@ -8531,6 +9769,15 @@ ${emailTemplate.html}
         ? { dot: "bg-amber-500", ring: "ring-amber-400/30", label: "Bağlanıyor", textColor: "text-amber-700 dark:text-amber-300", bg: "bg-amber-50 dark:bg-amber-950/40", border: "border-amber-200 dark:border-amber-800", pulse: true }
         : { dot: "bg-rose-500", ring: "ring-rose-400/30", label: "Bağlantı yok", textColor: "text-rose-700 dark:text-rose-300", bg: "bg-rose-50 dark:bg-rose-950/40", border: "border-rose-200 dark:border-rose-800", pulse: false };
 
+  const jumpToSpotlightRows = () => {
+    const target = document.querySelector('tr[data-spotlight-row="true"]');
+    if (target instanceof HTMLElement) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    toast.info("Mevcut görünümde spotlight satırı bulunamadı.");
+  };
+
   const topStrip = (
     <header className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-slate-200/80 bg-white/60 px-3 py-2 backdrop-blur sm:px-4 dark:border-slate-700/80 dark:bg-slate-900/40">
       <div className="flex items-center gap-2">
@@ -8590,6 +9837,32 @@ ${emailTemplate.html}
           <Filter className="h-2.5 w-2.5" aria-hidden />
           {topStripMetrics.filteredCount.toLocaleString("tr-TR")}
         </span>
+      )}
+
+      {spotlightSummary && (
+        <button
+          type="button"
+          onClick={jumpToSpotlightRows}
+          className="inline-flex items-center gap-1.5 rounded-full border border-violet-300 bg-violet-50 px-2.5 py-0.5 text-[10px] font-semibold text-violet-800 transition-colors hover:bg-violet-100 dark:border-violet-700 dark:bg-violet-950/35 dark:text-violet-200 dark:hover:bg-violet-900/40"
+          title="Spotlight satırlarına kaydır"
+        >
+          <Zap className="h-3 w-3" aria-hidden />
+          Spotlight aktif · {spotlightSummary.highlightedCount} satır
+          <span className="hidden max-w-[14rem] truncate rounded bg-violet-100/80 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-violet-700 dark:bg-violet-900/45 dark:text-violet-200 sm:inline">
+            {spotlightSummary.ruleName}
+          </span>
+          {spotlightSummary.additionalRuleCount > 0 ? (
+            <span className="hidden text-[9px] font-bold uppercase tracking-wide sm:inline">
+              +{spotlightSummary.additionalRuleCount} kural
+            </span>
+          ) : null}
+          {spotlightSummary.remainingLabel ? (
+            <span className="hidden rounded bg-violet-100/80 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-violet-700 dark:bg-violet-900/45 dark:text-violet-200 sm:inline">
+              kalan {spotlightSummary.remainingLabel}
+            </span>
+          ) : null}
+          <span className="hidden max-w-[18rem] truncate sm:inline">({spotlightSummary.label})</span>
+        </button>
       )}
 
       {/* Aktif proje rozeti (tek proje filtreliyse) */}

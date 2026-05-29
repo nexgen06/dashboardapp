@@ -469,6 +469,22 @@ function normalizeRowColor(value: unknown): AutomationRowColor | null {
   return AUTOMATION_ROW_COLORS.has(color as AutomationRowColor) ? color as AutomationRowColor : null;
 }
 
+function spotlightWindowAllowsNow(payload: Record<string, unknown>): boolean {
+  if (!Boolean(payload.spotlight)) return true;
+  const now = Date.now();
+  const startsAtRaw = String(payload.spotlightStartsAt ?? "").trim();
+  if (startsAtRaw) {
+    const startMs = new Date(startsAtRaw).getTime();
+    if (Number.isFinite(startMs) && now < startMs) return false;
+  }
+  const endsAtRaw = String(payload.spotlightEndsAt ?? "").trim();
+  if (endsAtRaw) {
+    const endMs = new Date(endsAtRaw).getTime();
+    if (Number.isFinite(endMs) && now > endMs) return false;
+  }
+  return true;
+}
+
 /**
  * Tek bir kuralı verilen görev listesi üzerinde manuel çalıştırır.
  * "Bu kuralı şimdi uygula" butonu için.
@@ -540,6 +556,7 @@ export async function applyAutomationRulesForTasks(tasks: Task[], rules: Automat
           continue;
         }
         if (action.actionType === "color_row") {
+          if (!spotlightWindowAllowsNow(action.payload)) continue;
           const rowColor = normalizeRowColor(action.payload.rowColor ?? action.payload.color);
           if (!rowColor) {
             await logAutomation({ ruleId: rule.id, taskId: task.id, status: "failed", message: "Satır rengi geçersiz." });

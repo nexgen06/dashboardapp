@@ -57,6 +57,8 @@ export type ReportTemplateConfig = {
   pdfPageSize: PdfPageSizeOption;
   pdfShowFilterSummary: boolean;
   pdfShowStatusSummary: boolean;
+  /** Dışa aktarımda 1..N otomatik sıra numarası sütunu ekle. */
+  includeAutoRowNumber: boolean;
 };
 
 export type ManagedReportTemplate = {
@@ -105,6 +107,7 @@ export function defaultReportTemplateConfig(): ReportTemplateConfig {
     pdfPageSize: "A4",
     pdfShowFilterSummary: true,
     pdfShowStatusSummary: true,
+    includeAutoRowNumber: false,
   };
 }
 
@@ -154,6 +157,7 @@ function normalizeConfig(raw: unknown): ReportTemplateConfig {
     pdfPageSize: coercePdfPageSize(row.pdfPageSize),
     pdfShowFilterSummary: row.pdfShowFilterSummary !== false, // default true
     pdfShowStatusSummary: row.pdfShowStatusSummary !== false, // default true
+    includeAutoRowNumber: row.includeAutoRowNumber === true,
   };
 }
 

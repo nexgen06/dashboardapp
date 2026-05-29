@@ -37,6 +37,66 @@ export type SmartFilterCountsInput = {
   currentUserEmail: string;
 };
 
+function normalizeSearchText(value: unknown): string {
+  const text = String(value ?? "")
+    .trim()
+    .toLocaleLowerCase("tr")
+    // Turkish I/i normalizasyonu
+    .replace(/ı/g, "i")
+    // Türkçe karakterleri ASCII eşdeğerine indir
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ç/g, "c")
+    .replace(/ğ/g, "g")
+    .replace(/ş/g, "s")
+    .replace(/ö/g, "o")
+    .replace(/ü/g, "u")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text;
+}
+
+function levenshteinDistanceAtMostOne(a: string, b: string): boolean {
+  if (a === b) return true;
+  const al = a.length;
+  const bl = b.length;
+  if (Math.abs(al - bl) > 1) return false;
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < al && j < bl) {
+    if (a[i] === b[j]) {
+      i += 1;
+      j += 1;
+      continue;
+    }
+    edits += 1;
+    if (edits > 1) return false;
+    if (al > bl) i += 1;
+    else if (bl > al) j += 1;
+    else {
+      i += 1;
+      j += 1;
+    }
+  }
+  if (i < al || j < bl) edits += 1;
+  return edits <= 1;
+}
+
+function searchTextMatches(text: unknown, normalizedQuery: string, queryTokens: string[]): boolean {
+  const normalizedText = normalizeSearchText(text);
+  if (!normalizedText) return false;
+  if (normalizedText.includes(normalizedQuery)) return true;
+  if (queryTokens.length === 0) return false;
+  const words = normalizedText.split(" ").filter(Boolean);
+  for (const token of queryTokens) {
+    if (token.length < 5) continue;
+    if (words.some((word) => levenshteinDistanceAtMostOne(word, token))) return true;
+  }
+  return false;
+}
+
 /** Toolbar "Durum" filtresindeki seçimin görev durumuyla eşleşmesi. */
 export function taskStatusMatchesToolbarChip(taskStatus: string, filterLabel: string): boolean {
   const s = taskStatus.trim();
@@ -94,18 +154,20 @@ export function filterLiveTableTasks(input: LiveTableFilterInput): Task[] {
     result = result.filter((t) => t.project_id != null && selected.has(String(t.project_id)));
   }
 
-  const q = globalSearch.trim().toLowerCase();
-  if (q) {
+  const normalizedQuery = normalizeSearchText(globalSearch);
+  if (normalizedQuery) {
+    const queryTokens = normalizedQuery.split(" ").filter(Boolean);
     result = result.filter((t) => {
-      if ((t.content ?? "").toLowerCase().includes(q) || (t.assignee ?? "").toLowerCase().includes(q)) return true;
+      if (searchTextMatches(t.content ?? "", normalizedQuery, queryTokens)) return true;
+      if (searchTextMatches(t.assignee ?? "", normalizedQuery, queryTokens)) return true;
       // 1) Ham extra_data değerleri
       if (t.extra_data) {
         for (const [key, v] of Object.entries(t.extra_data)) {
-          if (String(v ?? "").toLowerCase().includes(q)) return true;
+          if (searchTextMatches(String(v ?? ""), normalizedQuery, queryTokens)) return true;
           // Çip-bound override: aynı key için chip label varsa onu da dene
           if (input.chipResolver) {
             const chipLabel = input.chipResolver(t, key);
-            if (chipLabel && chipLabel.toLowerCase().includes(q)) return true;
+            if (chipLabel && searchTextMatches(chipLabel, normalizedQuery, queryTokens)) return true;
           }
         }
       }
@@ -115,7 +177,7 @@ export function filterLiveTableTasks(input: LiveTableFilterInput): Task[] {
       if (input.rowChipValues && input.chipCatalog) {
         const allChipLabels = getAllChipLabelsForTask(t, input.rowChipValues, input.chipCatalog);
         for (const label of allChipLabels) {
-          if (label.toLowerCase().includes(q)) return true;
+          if (searchTextMatches(label, normalizedQuery, queryTokens)) return true;
         }
       }
       return false;

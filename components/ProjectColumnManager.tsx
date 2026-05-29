@@ -18,6 +18,7 @@ import {
 } from "@/lib/projectColumns";
 import { cn } from "@/lib/utils";
 import { listReferenceSources, type ReferenceSource } from "@/lib/referenceSources";
+import { useProjects } from "@/hooks/useProjects";
 
 type Props = {
   projectId: string;
@@ -26,6 +27,14 @@ type Props = {
   observedKeys: string[];
   /** Görevlerin extra_data değerleri — tip tahmini için sample */
   sampleValuesByKey?: Record<string, string[]>;
+  /** Yeni bir sütun eklendiğinde tetiklenir. Üst form bu anahtarı
+   *  "Canlı tablo ek sütunları" (extra_column_keys) şemasına ekler ki sütun
+   *  proje kaydedilince tabloda görünür olsun. */
+  onColumnAdded?: (key: string) => void;
+  /** Projenin KALICI (DB'deki) extra_column_keys listesi. Yeni sütun eklenince
+   *  bu listeye eklenip hemen kaydedilir; böylece tabloda anında görünür.
+   *  Güvenilir okuma için üst formdan geçirilir (boş okuyup silmeyi önler). */
+  existingExtraColumnKeys?: string[];
 };
 
 /**
@@ -33,12 +42,25 @@ type Props = {
  * Mevcut UI render'ını (Tablo / Kanban) bozmaz — sadece metadata kaydeder.
  * A.3.2'de bu metadata type-aware render'a beslenecek.
  */
-export function ProjectColumnManager({ projectId, observedKeys, sampleValuesByKey = {} }: Props) {
+export function ProjectColumnManager({
+  projectId,
+  observedKeys,
+  sampleValuesByKey = {},
+  onColumnAdded,
+  existingExtraColumnKeys = [],
+}: Props) {
   const toast = useToast();
   const confirm = useConfirm();
+  const { updateProject } = useProjects();
   const [columns, setColumns] = useState<ProjectColumn[]>([]);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  /** "Yeni sütun ekle" formu: başlık + tip + (Seçmeli ise) seçenekler. */
+  const [newCol, setNewCol] = useState<{ key: string; type: ProjectColumnType; optionsText: string }>({
+    key: "",
+    type: "select",
+    optionsText: "",
+  });
   /** Yerel düzenleme tamponu: kullanıcı yazarken her tuşa DB'ye yazmayalım */
   const [drafts, setDrafts] = useState<Record<string, { type: ProjectColumnType; optionsText: string }>>({});
   const [jsonDrafts, setJsonDrafts] = useState<
@@ -106,6 +128,55 @@ export function ProjectColumnManager({ projectId, observedKeys, sampleValuesByKe
       await refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Eklenemedi");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  /** Tek adımda yeni sütun oluşturur: başlık + tip + (Seçmeli ise) seçenekler.
+   *  project_columns'a yazar ve anahtarı extra_column_keys şemasına ekletir. */
+  const handleCreateColumn = async () => {
+    const key = newCol.key.trim();
+    if (!key) {
+      toast.error("Sütun başlığı girin.");
+      return;
+    }
+    if (columns.some((c) => c.key.trim().toLocaleLowerCase("tr") === key.toLocaleLowerCase("tr"))) {
+      toast.error(`"${key}" adında bir sütun zaten var.`);
+      return;
+    }
+    const isSelect = newCol.type === "select" || newCol.type === "multi_select";
+    const options = newCol.optionsText
+      .split(/[,\n]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (isSelect && options.length === 0) {
+      toast.error("Seçmeli sütun için en az bir seçenek girin.");
+      return;
+    }
+    setBusyId("__create__");
+    try {
+      await upsertProjectColumn({
+        projectId,
+        key,
+        type: newCol.type,
+        config: isSelect ? { options } : {},
+        position: columns.length,
+      });
+      // Sütunun tabloda hemen görünmesi için extra_column_keys şemasına kalıcı ekle.
+      const existingKeys = (existingExtraColumnKeys ?? []).map((k) => String(k).trim()).filter(Boolean);
+      const alreadyInSchema = existingKeys.some(
+        (k) => k.toLocaleLowerCase("tr") === key.toLocaleLowerCase("tr")
+      );
+      if (!alreadyInSchema) {
+        await updateProject(projectId, { extra_column_keys: [...existingKeys, key] });
+      }
+      onColumnAdded?.(key);
+      setNewCol({ key: "", type: "select", optionsText: "" });
+      await refresh();
+      toast.success(`"${key}" sütunu eklendi ve tabloya işlendi.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Sütun eklenemedi.");
     } finally {
       setBusyId(null);
     }
@@ -336,6 +407,78 @@ export function ProjectColumnManager({ projectId, observedKeys, sampleValuesByKe
             Otomatik tipla ({untyped.length})
           </Button>
         )}
+      </div>
+
+      <div className="rounded-md border border-blue-200 bg-blue-50/50 p-3 dark:border-blue-800 dark:bg-blue-950/20">
+        <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-blue-900 dark:text-blue-100">
+          <Plus className="h-3.5 w-3.5" aria-hidden /> Yeni sütun ekle
+        </p>
+        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+          <input
+            type="text"
+            value={newCol.key}
+            onChange={(e) => setNewCol((p) => ({ ...p, key: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void handleCreateColumn();
+              }
+            }}
+            placeholder="Sütun başlığı — örn: Sorun Tanımı"
+            className="rounded border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 focus:border-blue-400 focus:outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+          />
+          <select
+            value={newCol.type}
+            onChange={(e) => setNewCol((p) => ({ ...p, type: e.target.value as ProjectColumnType }))}
+            className="rounded border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 focus:border-blue-400 focus:outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+            aria-label="Yeni sütun tipi"
+          >
+            {(Object.keys(PROJECT_COLUMN_TYPE_LABELS) as ProjectColumnType[]).map((t) => (
+              <option key={t} value={t}>
+                {PROJECT_COLUMN_TYPE_LABELS[t]}
+              </option>
+            ))}
+          </select>
+        </div>
+        {(newCol.type === "select" || newCol.type === "multi_select") && (
+          <div className="mt-2">
+            <label className="mb-0.5 block text-[11px] font-medium text-slate-600 dark:text-slate-300">
+              Seçenekler (virgülle veya satırla ayrı — kullanıcı satırda birini seçer)
+            </label>
+            <input
+              type="text"
+              value={newCol.optionsText}
+              onChange={(e) => setNewCol((p) => ({ ...p, optionsText: e.target.value }))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void handleCreateColumn();
+                }
+              }}
+              placeholder="Sevk Sayfası Boş, Terhis Sayfası Boş, Görev Yeri Bilgileri Hatalı"
+              className="w-full rounded border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 focus:border-blue-400 focus:outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+            />
+          </div>
+        )}
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <p className="text-[10px] text-slate-500 dark:text-slate-400">
+            {PROJECT_COLUMN_TYPE_HINTS[newCol.type]}
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            className="h-8 gap-1.5 text-xs"
+            disabled={busyId === "__create__"}
+            onClick={() => void handleCreateColumn()}
+          >
+            {busyId === "__create__" ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Plus className="h-3.5 w-3.5" aria-hidden />
+            )}
+            Sütunu ekle
+          </Button>
+        </div>
       </div>
 
       {loading && columns.length === 0 ? (

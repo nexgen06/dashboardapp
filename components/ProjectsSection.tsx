@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useProjects } from "@/hooks/useProjects";
 import { useTaskCountByProject } from "@/hooks/useTaskCountByProject";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
@@ -391,6 +392,9 @@ function ProjectFormModal({
   const [permissionsLoading, setPermissionsLoading] = useState(false);
   const [permissionsSaving, setPermissionsSaving] = useState(false);
   const [permissionsMissingTable, setPermissionsMissingTable] = useState(false);
+  const lastSavedPermissionSignatureRef = useRef("");
+  const permissionsInitializedRef = useRef(false);
+  const permissionAutosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toast = useToast();
   /** 2-adım sihirbazı: 1 = proje bilgileri, 2 = opsiyonel görev içe aktarma. Edit modunda kullanılmaz. */
   const [step, setStep] = useState<1 | 2>(1);
@@ -407,6 +411,29 @@ function ProjectFormModal({
     }
     return map;
   }, [directoryUsers]);
+
+  const directoryEmailOptions = useMemo(() => {
+    const rows = directoryUsers
+      .map((u) => {
+        const email = u.email.trim().toLowerCase();
+        const label = (u.displayName ?? "").trim();
+        return email ? { email, label } : null;
+      })
+      .filter((item): item is { email: string; label: string } => item != null);
+    rows.sort((a, b) => a.email.localeCompare(b.email, "tr", { sensitivity: "base" }));
+    return rows;
+  }, [directoryUsers]);
+
+  const assignableEmailOptions = useMemo(() => {
+    const set = new Set<string>(assignedEmails.map((email) => email.trim().toLowerCase()).filter(Boolean));
+    for (const item of directoryEmailOptions) set.add(item.email);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "tr", { sensitivity: "base" }));
+  }, [assignedEmails, directoryEmailOptions]);
+
+  const suggestedDirectoryEmails = useMemo(
+    () => directoryEmailOptions.filter((item) => !assignedEmails.includes(item.email)).slice(0, 8),
+    [assignedEmails, directoryEmailOptions]
+  );
 
   const assignedPermissionRows = useMemo(() => {
     if (!project) return [];
@@ -427,6 +454,31 @@ function ProjectFormModal({
       return { email, profile, permission };
     });
   }, [assignedEmails, directoryByEmail, memberPermissions, project]);
+
+  const permissionRowsPayload = useMemo(() => {
+    if (!project) return [];
+    return assignedPermissionRows
+      .filter((row): row is typeof row & { profile: DirectoryUserProfile; permission: ProjectMemberPermission } => !!row.profile && !!row.permission)
+      .map((row) => ({
+        project_id: project.id,
+        user_id: row.profile.uid,
+        user_email: row.email,
+        project_role: row.permission.project_role,
+        can_view: row.permission.can_view,
+        can_edit: row.permission.can_edit,
+        can_comment: row.permission.can_comment,
+        can_copy: row.permission.can_copy,
+        can_export: row.permission.can_export,
+        can_export_unmasked: isAdmin ? row.permission.can_export_unmasked : false,
+        can_bulk_update: row.permission.can_bulk_update,
+        can_bulk_delete: isAdmin ? row.permission.can_bulk_delete : false,
+      }));
+  }, [assignedPermissionRows, isAdmin, project]);
+
+  const permissionRowsSignature = useMemo(
+    () => JSON.stringify(permissionRowsPayload),
+    [permissionRowsPayload]
+  );
 
   useEffect(() => {
     if (open && project) {
@@ -534,6 +586,23 @@ function ProjectFormModal({
       cancelled = true;
     };
   }, [open, project]);
+
+  useEffect(() => {
+    if (!open || !project) {
+      permissionsInitializedRef.current = false;
+      lastSavedPermissionSignatureRef.current = "";
+      if (permissionAutosaveTimerRef.current) {
+        clearTimeout(permissionAutosaveTimerRef.current);
+        permissionAutosaveTimerRef.current = null;
+      }
+      return;
+    }
+    if (permissionsLoading) return;
+    if (!permissionsInitializedRef.current) {
+      lastSavedPermissionSignatureRef.current = permissionRowsSignature;
+      permissionsInitializedRef.current = true;
+    }
+  }, [open, permissionRowsSignature, permissionsLoading, project]);
 
   /**
    * Dosya seçilince anında parse et — önizleme + sütun seçici için.
@@ -648,8 +717,14 @@ function ProjectFormModal({
     setExtraColumnKeysText(next.join("\n"));
   };
 
+  const normalizeEmailInputValue = (raw: string): string => {
+    const value = raw.trim().toLowerCase();
+    const match = value.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
+    return match ? match[0].toLowerCase() : value;
+  };
+
   const addAssignedEmail = () => {
-    const email = emailInput.trim().toLowerCase();
+    const email = normalizeEmailInputValue(emailInput);
     if (!email) return;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
     if (assignedEmails.includes(email)) return;
@@ -755,26 +830,12 @@ function ProjectFormModal({
     return checked ? { can_view: true, [key]: true } : { [key]: false };
   };
 
-  const saveMemberPermissions = async () => {
-    if (!project) return;
-    const rows = assignedPermissionRows
-      .filter((row): row is typeof row & { profile: DirectoryUserProfile; permission: ProjectMemberPermission } => !!row.profile && !!row.permission)
-      .map((row) => ({
-        project_id: project.id,
-        user_id: row.profile.uid,
-        user_email: row.email,
-        project_role: row.permission.project_role,
-        can_view: row.permission.can_view,
-        can_edit: row.permission.can_edit,
-        can_comment: row.permission.can_comment,
-        can_copy: row.permission.can_copy,
-        can_export: row.permission.can_export,
-        can_export_unmasked: isAdmin ? row.permission.can_export_unmasked : false,
-        can_bulk_update: row.permission.can_bulk_update,
-        can_bulk_delete: isAdmin ? row.permission.can_bulk_delete : false,
-      }));
+  const saveMemberPermissions = async (opts?: { silentSuccess?: boolean }) => {
+    const rows = permissionRowsPayload;
     if (rows.length === 0) {
-      toast.warning("Kaydedilecek proje yetkisi bulunamadı.");
+      if (!opts?.silentSuccess) {
+        toast.warning("Kaydedilecek proje yetkisi bulunamadı.");
+      }
       return;
     }
     setPermissionsSaving(true);
@@ -786,13 +847,44 @@ function ProjectFormModal({
         return;
       }
       setPermissionsMissingTable(false);
-      toast.success("Proje bazlı yetkiler kaydedildi", {
-        description: `${rows.length} kullanıcı için yetki matrisi güncellendi.`,
-      });
+      lastSavedPermissionSignatureRef.current = JSON.stringify(rows);
+      if (!opts?.silentSuccess) {
+        toast.success("Proje bazlı yetkiler kaydedildi", {
+          description: `${rows.length} kullanıcı için yetki matrisi güncellendi.`,
+        });
+      }
     } finally {
       setPermissionsSaving(false);
     }
   };
+
+  useEffect(() => {
+    if (!open || !project || permissionsLoading || permissionsMissingTable) return;
+    if (!permissionsInitializedRef.current) return;
+    if (permissionsSaving) return;
+    if (permissionRowsPayload.length === 0) return;
+    if (permissionRowsSignature === lastSavedPermissionSignatureRef.current) return;
+    if (permissionAutosaveTimerRef.current) {
+      clearTimeout(permissionAutosaveTimerRef.current);
+    }
+    permissionAutosaveTimerRef.current = setTimeout(() => {
+      void saveMemberPermissions({ silentSuccess: true });
+    }, 700);
+    return () => {
+      if (permissionAutosaveTimerRef.current) {
+        clearTimeout(permissionAutosaveTimerRef.current);
+        permissionAutosaveTimerRef.current = null;
+      }
+    };
+  }, [
+    open,
+    permissionRowsPayload.length,
+    permissionRowsSignature,
+    permissionsLoading,
+    permissionsMissingTable,
+    permissionsSaving,
+    project,
+  ]);
 
   /**
    * Step 1 → Step 2 geçişinde stray submit'i yakala:
@@ -1216,6 +1308,7 @@ function ProjectFormModal({
             onChange={(e) => setEmailInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addAssignedEmail(); } }}
             placeholder="ornek@email.com"
+            list="directory-email-options"
             className="flex-1 min-w-[180px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
           />
           <Button
@@ -1228,6 +1321,23 @@ function ProjectFormModal({
             Ekle
           </Button>
         </div>
+        {suggestedDirectoryEmails.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Hızlı ekle:</span>
+            {suggestedDirectoryEmails.map((item) => (
+              <button
+                key={`people-${item.email}`}
+                type="button"
+                onClick={() => setAssignedEmails((prev) => (prev.includes(item.email) ? prev : [...prev, item.email]))}
+                className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                title={item.label ? `${item.label} <${item.email}>` : item.email}
+              >
+                <PlusCircle className="h-3 w-3" />
+                <span className="max-w-[160px] truncate">{item.label || item.email}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {assignedEmails.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {assignedEmails.map((email) => (
@@ -1302,7 +1412,7 @@ function ProjectFormModal({
             <span className="text-sm text-slate-800 dark:text-slate-200">
               <span className="font-medium">Mevcut görevleri yeniden ata</span>
               <span className="mt-1 block text-xs font-normal text-slate-600 dark:text-slate-400">
-                Kaydet dediğinde bu projedeki görev satırlarının ataması seçilen yönteme göre güncellenir.
+                Projeyi kaydettiğinde bu projedeki görev satırlarının ataması seçilen yönteme göre güncellenir.
               </span>
             </span>
           </label>
@@ -1342,11 +1452,22 @@ function ProjectFormModal({
               {reassignExistingTaskMode === "single" && (
                 <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
                   Atanacak kişi
+                  <select
+                    value={assignableEmailOptions.includes((reassignExistingTaskAssignee ?? "").trim().toLowerCase()) ? (reassignExistingTaskAssignee ?? "").trim().toLowerCase() : ""}
+                    onChange={(e) => setReassignExistingTaskAssignee(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                  >
+                    <option value="">Kişi seçin…</option>
+                    {assignableEmailOptions.map((email) => (
+                      <option key={`reassign-single-${email}`} value={email}>{email}</option>
+                    ))}
+                  </select>
                   <input
                     type="email"
                     value={reassignExistingTaskAssignee}
                     onChange={(e) => setReassignExistingTaskAssignee(e.target.value)}
                     placeholder="atanan@ornek.com"
+                    list="directory-email-options"
                     className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
                   />
                 </label>
@@ -1437,6 +1558,8 @@ function ProjectFormModal({
         projectId={project.id}
         observedKeys={mergedKeys}
         sampleValuesByKey={observedSampleValues ?? {}}
+        onColumnAdded={addExtraColumnKey}
+        existingExtraColumnKeys={project.extra_column_keys ?? []}
       />
     );
   })() : null;
@@ -1453,16 +1576,10 @@ function ProjectFormModal({
             Bu panel proje ekibindeki kullanıcılar için yorum, kopya, export ve toplu işlem izinlerini hazırlar.
           </p>
         </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => void saveMemberPermissions()}
-          disabled={permissionsSaving || permissionsLoading || assignedPermissionRows.every((row) => !row.profile)}
-        >
-          {permissionsSaving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="mr-1.5 h-3.5 w-3.5" />}
-          Yetkileri kaydet
-        </Button>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+          {permissionsSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+          {permissionsSaving ? "Yetkiler kaydediliyor..." : "Yetkiler otomatik kaydedilir"}
+        </span>
       </div>
       {permissionsMissingTable && (
         <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
@@ -1837,6 +1954,7 @@ function ProjectFormModal({
                 onChange={(e) => setEmailInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addAssignedEmail(); } }}
                 placeholder="ornek@email.com"
+                list="directory-email-options"
                 className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 w-48"
               />
               <Button
@@ -1849,6 +1967,23 @@ function ProjectFormModal({
                 Ekle
               </Button>
             </div>
+            {suggestedDirectoryEmails.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Hızlı ekle:</span>
+                {suggestedDirectoryEmails.map((item) => (
+                  <button
+                    key={`wizard-${item.email}`}
+                    type="button"
+                    onClick={() => setAssignedEmails((prev) => (prev.includes(item.email) ? prev : [...prev, item.email]))}
+                    className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                    title={item.label ? `${item.label} <${item.email}>` : item.email}
+                  >
+                    <PlusCircle className="h-3 w-3" />
+                    <span className="max-w-[160px] truncate">{item.label || item.email}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             {assignedEmails.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {assignedEmails.map((email) => (
@@ -2244,12 +2379,23 @@ function ProjectFormModal({
                   <label htmlFor="project-assignee" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
                     Atanacak kişi
                   </label>
+                  <select
+                    value={assignableEmailOptions.includes((assignee ?? "").trim().toLowerCase()) ? (assignee ?? "").trim().toLowerCase() : ""}
+                    onChange={(e) => setAssignee(e.target.value)}
+                    className="mb-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                  >
+                    <option value="">Kişi seçin…</option>
+                    {assignableEmailOptions.map((email) => (
+                      <option key={`import-single-${email}`} value={email}>{email}</option>
+                    ))}
+                  </select>
                   <input
                     id="project-assignee"
                     type="email"
                     value={assignee}
                     onChange={(e) => setAssignee(e.target.value)}
                     placeholder="atanan@ornek.com"
+                    list="directory-email-options"
                     className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
                   />
                   <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -2369,6 +2515,13 @@ function ProjectFormModal({
             )}
           </DialogFooter>
         </form>
+        <datalist id="directory-email-options">
+          {directoryEmailOptions.map((item) => (
+            <option key={`directory-email-${item.email}`} value={item.email}>
+              {item.label ? `${item.label} <${item.email}>` : item.email}
+            </option>
+          ))}
+        </datalist>
       </DialogContent>
     </Dialog>
   );
@@ -2851,6 +3004,22 @@ export function ProjectsSection({ variant = "default" }: { variant?: ProjectsSec
     setEditingProject(p);
     setFormOpen(true);
   };
+
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  useEffect(() => {
+    const editId = searchParams.get("editProject");
+    if (!editId || isLoading) return;
+    const target = projects.find((p) => p.id === editId);
+    if (!target) return;
+    openEdit(target);
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("editProject");
+    const query = next.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname || "/");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, isLoading, projects, pathname, router]);
 
   /**
    * Şablondan yeni proje oluştur: şablon proje şeması + opsiyonel görev seti.

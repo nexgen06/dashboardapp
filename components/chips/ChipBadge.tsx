@@ -16,6 +16,7 @@ import {
   LockKeyhole,
   Loader2,
   PauseCircle,
+  Radar,
   Shield,
   ShieldAlert,
   Sparkles,
@@ -100,11 +101,13 @@ export function ChipBadge({
   template,
   option,
   rowValue,
+  spotlight,
   className,
 }: {
   template?: ChipTemplate | null;
   option: ChipOption;
   rowValue?: RowChipValue | null;
+  spotlight?: boolean;
   className?: string;
 }) {
   const Icon = resolveIcon(option.icon ?? template?.icon);
@@ -123,10 +126,12 @@ export function ChipBadge({
         reflector && (option.color === "red" || /critical|kritik|rejected|reddedildi|blocked|engellendi/i.test(`${option.value} ${option.label}`)) && "chip-reflector-red",
         reflector && (option.color === "amber" || /overdue|gecikti|gecikmiş|missing|eksik|revision|revize/i.test(`${option.value} ${option.label}`)) && "chip-reflector-amber",
         reflector && option.color === "violet" && "chip-reflector-violet",
+        spotlight && "chip-spotlight chip-reflector",
         className
       )}
       title={title || undefined}
     >
+      {spotlight && <Radar className="h-3 w-3 shrink-0 text-violet-600 dark:text-violet-300 animate-pulse" aria-label="Spotlight" />}
       <Icon className="h-3 w-3 shrink-0" aria-hidden />
       <span className="truncate">{option.label}</span>
       {rowValue?.source === "automation" && <Sparkles className="h-3 w-3 shrink-0 opacity-75" aria-label="Otomasyon" />}
@@ -140,17 +145,19 @@ export function ChipSelectCell({
   options,
   value,
   disabled,
+  spotlight,
   onChange,
 }: {
   template: ChipTemplate;
   options: ChipOption[];
   value?: string | null;
   disabled?: boolean;
+  spotlight?: boolean;
   onChange: (optionId: string) => void;
 }) {
   const current = options.find((option) => option.id === value) ?? null;
   if (disabled) {
-    return current ? <ChipBadge template={template} option={current} /> : <span className="text-xs text-slate-400">—</span>;
+    return current ? <ChipBadge template={template} option={current} spotlight={spotlight} /> : <span className="text-xs text-slate-400">—</span>;
   }
   return (
     <select
@@ -170,7 +177,8 @@ export function ChipSelectCell({
         current && isReflectorChip(current) && "chip-reflector",
         current && isReflectorChip(current) && (current.color === "red" || /critical|kritik|rejected|reddedildi|blocked|engellendi/i.test(`${current.value} ${current.label}`)) && "chip-reflector-red",
         current && isReflectorChip(current) && (current.color === "amber" || /overdue|gecikti|gecikmiş|missing|eksik|revision|revize/i.test(`${current.value} ${current.label}`)) && "chip-reflector-amber",
-        current && isReflectorChip(current) && current.color === "violet" && "chip-reflector-violet"
+        current && isReflectorChip(current) && current.color === "violet" && "chip-reflector-violet",
+        spotlight && "chip-spotlight chip-reflector"
       )}
       title={template.name}
     >

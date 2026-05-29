@@ -22,6 +22,8 @@ export type SavedReportTemplate = {
   pdfPageSize: PdfPageSizeOption;
   pdfShowFilterSummary: boolean;
   pdfShowStatusSummary: boolean;
+  /** Dışa aktarımda ilk sütun olarak 1..N otomatik sıra numarası ekle. */
+  includeAutoRowNumber: boolean;
   updatedAt: string;
 };
 
@@ -75,6 +77,7 @@ function normalizeTemplate(raw: unknown): SavedReportTemplate | null {
     pdfPageSize: row.pdfPageSize === "A3" || row.pdfPageSize === "Letter" ? row.pdfPageSize : "A4",
     pdfShowFilterSummary: row.pdfShowFilterSummary !== false,
     pdfShowStatusSummary: row.pdfShowStatusSummary !== false,
+    includeAutoRowNumber: row.includeAutoRowNumber === true,
     updatedAt: String(row.updatedAt ?? new Date().toISOString()),
   };
 }

@@ -11,8 +11,14 @@ import {
 } from "@/lib/realtimeFallback";
 import {
   fetchLiveTableDensityFromServer,
+  fetchPiiPolicyModeFromServer,
+  fetchPiiSensitiveDisplayModeFromServer,
   persistLiveTableDensityToServer,
+  persistPiiPolicyModeToServer,
+  persistPiiSensitiveDisplayModeToServer,
   LIVE_TABLE_DENSITY_APP_SETTINGS_KEY,
+  PII_POLICY_MODE_APP_SETTINGS_KEY,
+  PII_SENSITIVE_DISPLAY_MODE_APP_SETTINGS_KEY,
 } from "@/lib/appSettingsSupabase";
 
 const STORAGE_KEY = "dashboard-settings";
@@ -33,6 +39,10 @@ export type DateFormat = "DD.MM.YYYY" | "YYYY-MM-DD" | "MM/DD/YYYY";
 export type LogLevel = "error" | "warn" | "info" | "debug";
 /** Canlı Tablo satır / yazı yoğunluğu */
 export type LiveTableDensity = "compact" | "normal" | "comfortable";
+/** Canlı Tablo görünüm şablonu */
+export type LiveTableTemplate = "classic" | "modern";
+export type PiiPolicyMode = "shadow" | "enforce";
+export type PiiSensitiveDisplayMode = "hidden_copy" | "masked_copy";
 
 const DEFAULT_STATUS_LIST = "Yapılacak, Devam, Tamamlandı";
 const DEFAULT_PRIORITY_LIST = "High, Medium, Low";
@@ -60,6 +70,8 @@ export type Settings = {
   defaultTaskPriority: string;
   /** Canlı Tablo görünüm yoğunluğu (satır aralığı, yazı boyutu). */
   liveTableDensity: LiveTableDensity;
+  /** Canlı Tablo görsel şablonu (hücre yapısı değişmez). */
+  liveTableTemplate: LiveTableTemplate;
   /**
    * Görev özeti / Acil görevler satır başlığı: `content` boşsa `extra_data` içinde bu anahtarlar sırayla aranır.
    * Virgül veya satır ile ayırın. Boşsa varsayılan sabit liste kullanılır.
@@ -75,6 +87,10 @@ export type Settings = {
    * 0 = limit yok. Bu eşik aşılırsa kopya işlemi engellenir + admin'e alarm.
    */
   piiCopyHourlyLimit: number;
+  /** Hassas policy karar modu: shadow (sadece log) / enforce (deny uygula). */
+  piiPolicyMode: PiiPolicyMode;
+  /** Hassas hücre görünümü: tam gizli etiket veya maskeli değer + kopya. */
+  piiSensitiveDisplayMode: PiiSensitiveDisplayMode;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -94,14 +110,22 @@ const DEFAULT_SETTINGS: Settings = {
   defaultTaskStatus: "Yapılacak",
   defaultTaskPriority: "Medium",
   liveTableDensity: "normal",
+  liveTableTemplate: "classic",
   taskSummaryPreferredExtraKeys: "",
   urgentPriorityTokens: "",
   piiCopyHourlyLimit: 50,
+  piiPolicyMode: "shadow",
+  piiSensitiveDisplayMode: "hidden_copy",
 };
 
 function coerceLiveTableDensity(v: unknown): LiveTableDensity {
   if (v === "compact" || v === "normal" || v === "comfortable") return v;
   return "normal";
+}
+
+function coerceLiveTableTemplate(v: unknown): LiveTableTemplate {
+  if (v === "classic" || v === "modern") return v;
+  return "classic";
 }
 
 function loadSettings(): Settings {
@@ -114,6 +138,7 @@ function loadSettings(): Settings {
       ...DEFAULT_SETTINGS,
       ...parsed,
       liveTableDensity: coerceLiveTableDensity(parsed.liveTableDensity),
+      liveTableTemplate: coerceLiveTableTemplate(parsed.liveTableTemplate),
     };
   } catch {
     return DEFAULT_SETTINGS;
@@ -169,7 +194,7 @@ const SettingsContext = createContext<SettingsContextType | undefined>(undefined
 
 const SECTION_KEYS: Record<SettingsSection, (keyof Settings)[]> = {
   genel: ["language", "dateFormat"],
-  gorunum: ["theme", "accentColor", "sidebarCollapsedByDefault", "liveTableDensity"],
+  gorunum: ["theme", "accentColor", "sidebarCollapsedByDefault", "liveTableDensity", "liveTableTemplate"],
   bildirimler: ["notificationsEmail", "notificationsPush", "notificationsSound"],
   gorevler: [
     "customStatusList",
@@ -193,6 +218,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   /** İlk sunucu çekiminden önce kullanıcı yoğunluğu elle değiştirdiyse sunucu yanıtı ezmesin. */
   const liveTableDensityEditedLocallyRef = useRef(false);
   const densityPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const piiPolicyModePersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const piiSensitiveDisplayModePersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const loaded = loadSettings();
@@ -260,6 +287,117 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   }, [mounted, authLoaded, user?.id]);
 
   useEffect(() => {
+    if (!mounted || !authLoaded) return;
+    const skipServer =
+      !isSupabaseConfigured() || !user || user.id === "demo";
+    if (skipServer) return;
+
+    let cancelled = false;
+    const filterKey = PII_SENSITIVE_DISPLAY_MODE_APP_SETTINGS_KEY;
+
+    void (async () => {
+      const mode = await fetchPiiSensitiveDisplayModeFromServer();
+      if (cancelled) return;
+      setSettings((prev) => ({ ...prev, piiSensitiveDisplayMode: mode ?? "hidden_copy" }));
+    })();
+
+    if (isRealtimeDisabledForClient()) {
+      const interval = window.setInterval(async () => {
+        if (!shouldPollInBrowser()) return;
+        const mode = await fetchPiiSensitiveDisplayModeFromServer();
+        if (cancelled) return;
+        setSettings((prev) => ({ ...prev, piiSensitiveDisplayMode: mode ?? "hidden_copy" }));
+      }, SETTINGS_FALLBACK_POLL_MS);
+      return () => {
+        cancelled = true;
+        window.clearInterval(interval);
+      };
+    }
+
+    const channel = supabase
+      .channel(`app_settings_${filterKey}`, { config: { private: true } })
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "app_settings",
+          filter: `key=eq.${filterKey}`,
+        },
+        (payload) => {
+          const row = payload.new as { value?: string } | null;
+          const v = row?.value;
+          setSettings((prev) => ({
+            ...prev,
+            piiSensitiveDisplayMode: v === "masked_copy" ? "masked_copy" : "hidden_copy",
+          }));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(channel);
+    };
+  }, [mounted, authLoaded, user?.id]);
+
+  useEffect(() => {
+    if (!mounted || !authLoaded) return;
+    const skipServer =
+      !isSupabaseConfigured() || !user || user.id === "demo";
+    if (skipServer) return;
+
+    let cancelled = false;
+    const filterKey = PII_POLICY_MODE_APP_SETTINGS_KEY;
+
+    void (async () => {
+      const mode = await fetchPiiPolicyModeFromServer();
+      if (cancelled) return;
+      setSettings((prev) => ({ ...prev, piiPolicyMode: mode ?? "shadow" }));
+    })();
+
+    if (isRealtimeDisabledForClient()) {
+      const interval = window.setInterval(async () => {
+        if (!shouldPollInBrowser()) return;
+        const mode = await fetchPiiPolicyModeFromServer();
+        if (cancelled) return;
+        setSettings((prev) => ({ ...prev, piiPolicyMode: mode ?? "shadow" }));
+      }, SETTINGS_FALLBACK_POLL_MS);
+      return () => {
+        cancelled = true;
+        window.clearInterval(interval);
+      };
+    }
+
+    const channel = supabase
+      .channel(`app_settings_${filterKey}`, { config: { private: true } })
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "app_settings",
+          filter: `key=eq.${filterKey}`,
+        },
+        (payload) => {
+          const row = payload.new as { value?: string } | null;
+          const v = row?.value;
+          if (!v) return;
+          setSettings((prev) => ({
+            ...prev,
+            piiPolicyMode: v === "enforce" ? "enforce" : "shadow",
+          }));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(channel);
+    };
+  }, [mounted, authLoaded, user?.id]);
+
+  useEffect(() => {
     if (!mounted) return;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
@@ -277,6 +415,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     return () => {
       if (densityPersistTimerRef.current) clearTimeout(densityPersistTimerRef.current);
+      if (piiPolicyModePersistTimerRef.current) clearTimeout(piiPolicyModePersistTimerRef.current);
+      if (piiSensitiveDisplayModePersistTimerRef.current) clearTimeout(piiSensitiveDisplayModePersistTimerRef.current);
     };
   }, []);
 
@@ -289,6 +429,20 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       densityPersistTimerRef.current = setTimeout(() => {
         densityPersistTimerRef.current = null;
         void persistLiveTableDensityToServer(value as LiveTableDensity);
+      }, SAVE_DEBOUNCE_MS);
+    }
+    if (key === "piiPolicyMode") {
+      if (piiPolicyModePersistTimerRef.current) clearTimeout(piiPolicyModePersistTimerRef.current);
+      piiPolicyModePersistTimerRef.current = setTimeout(() => {
+        piiPolicyModePersistTimerRef.current = null;
+        void persistPiiPolicyModeToServer(value as PiiPolicyMode);
+      }, SAVE_DEBOUNCE_MS);
+    }
+    if (key === "piiSensitiveDisplayMode") {
+      if (piiSensitiveDisplayModePersistTimerRef.current) clearTimeout(piiSensitiveDisplayModePersistTimerRef.current);
+      piiSensitiveDisplayModePersistTimerRef.current = setTimeout(() => {
+        piiSensitiveDisplayModePersistTimerRef.current = null;
+        void persistPiiSensitiveDisplayModeToServer(value as PiiSensitiveDisplayMode);
       }, SAVE_DEBOUNCE_MS);
     }
     setSettings((prev) => ({ ...prev, [key]: value }));

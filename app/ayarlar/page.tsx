@@ -11,7 +11,18 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useSettings, getStatusOptions, getPriorityOptions, ACCENT_COLORS } from "@/contexts/settings-context";
-import type { Theme, Language, DateFormat, LogLevel, SettingsSection, LiveTableDensity, AccentColor } from "@/contexts/settings-context";
+import type {
+  Theme,
+  Language,
+  DateFormat,
+  LogLevel,
+  SettingsSection,
+  LiveTableDensity,
+  LiveTableTemplate,
+  AccentColor,
+  PiiPolicyMode,
+  PiiSensitiveDisplayMode,
+} from "@/contexts/settings-context";
 import { useAuth } from "@/contexts/auth-context";
 import { Settings2, Globe, Palette, Bell, RotateCcw, Check, Shield, Key, Zap, LogOut, Monitor, Smartphone, Search, AlertTriangle, Trash2, Loader2, Database, ListTodo } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -234,7 +245,12 @@ function GorusAyarlar({ searchQuery, resetSection, canResetSettings }: { searchQ
     "Canlı Tablo yoğunluğu",
     "Satır aralığı ve yazı boyutu: Yoğun, Normal veya Büyük."
   );
-  const noneMatch = searchQuery.trim() && !themeMatch && !accentMatch && !sidebarMatch && !densityMatch;
+  const templateMatch = matchesSearch(
+    searchQuery,
+    "Canlı Tablo şablonu",
+    "Klasik Excel görünümü veya modern kart dokusu."
+  );
+  const noneMatch = searchQuery.trim() && !themeMatch && !accentMatch && !sidebarMatch && !densityMatch && !templateMatch;
 
   return (
     <div className="space-y-2">
@@ -332,6 +348,21 @@ function GorusAyarlar({ searchQuery, resetSection, canResetSettings }: { searchQ
           <option value="compact">Yoğun</option>
           <option value="normal">Normal</option>
           <option value="comfortable">Büyük</option>
+        </select>
+      </SettingRow>
+      )}
+      {templateMatch && (
+      <SettingRow
+        label="Canlı Tablo şablonu"
+        description="Hücre düzeni değişmeden görünüm seçin: Klasik (Excel benzeri) veya Modern (Untitled-UI tarzı)."
+      >
+        <select
+          value={settings.liveTableTemplate}
+          onChange={(e) => updateSetting("liveTableTemplate", e.target.value as LiveTableTemplate)}
+          className="w-full max-w-xs rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+        >
+          <option value="classic">Klasik</option>
+          <option value="modern">Modern</option>
         </select>
       </SettingRow>
       )}
@@ -436,6 +467,7 @@ function BildirimAyarlar({ searchQuery, resetSection, canResetSettings }: { sear
 
 function GuvenlikAyarlar({ searchQuery }: { searchQuery: string }) {
   const { settings, updateSetting } = useSettings();
+  const [activeSecurityPanel, setActiveSecurityPanel] = useState<"pii" | "hesap" | "oturum" | "tehlikeli">("pii");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -476,14 +508,77 @@ function GuvenlikAyarlar({ searchQuery }: { searchQuery: string }) {
   const sessionMatch = matchesSearch(searchQuery, "Oturum yönetimi", "Açık cihazlar ve oturumları kapat.");
   const dangerMatch = matchesSearch(searchQuery, "Tehlikeli işlemler", "Geri alınamaz işlemler. Onay gerekir.");
   const piiLimitMatch = matchesSearch(searchQuery, "PII kopyalama limiti", "TCKN/Sicil gibi hassas alanlar için saatlik kopyalama eşiği.");
-  const noneMatch = searchQuery.trim() && !pwdMatch && !twoFaMatch && !sessionMatch && !dangerMatch && !piiLimitMatch;
+  const piiPolicyModeMatch = matchesSearch(
+    searchQuery,
+    "PII policy modu",
+    "shadow sadece loglar, enforce deny kararını uygular."
+  );
+  const piiSensitiveDisplayModeMatch = matchesSearch(
+    searchQuery,
+    "Hassas hücre görünümü",
+    "hassas alanlar Gizli (kopyala) veya maskeli değer şeklinde gösterilir."
+  );
+  const hasSearch = searchQuery.trim().length > 0;
+  const noneMatch = searchQuery.trim() && !pwdMatch && !twoFaMatch && !sessionMatch && !dangerMatch && !piiLimitMatch && !piiPolicyModeMatch && !piiSensitiveDisplayModeMatch;
 
   return (
     <div className="space-y-2">
       <p className="rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
         <strong className="font-semibold">Önizleme:</strong> Aşağıdaki şifre, 2FA ve oturum örnekleri henüz Supabase ile bağlı değildir; arayüz demonstrasyonudur.
       </p>
-      {pwdMatch && (
+      {!hasSearch && (
+        <div className="mb-1 flex flex-wrap gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800/50">
+          <button
+            type="button"
+            onClick={() => setActiveSecurityPanel("pii")}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+              activeSecurityPanel === "pii"
+                ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
+            )}
+          >
+            PII ve Koruma
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSecurityPanel("hesap")}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+              activeSecurityPanel === "hesap"
+                ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
+            )}
+          >
+            Hesap Güvenliği
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSecurityPanel("oturum")}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+              activeSecurityPanel === "oturum"
+                ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
+            )}
+          >
+            Oturumlar
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSecurityPanel("tehlikeli")}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+              activeSecurityPanel === "tehlikeli"
+                ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
+            )}
+          >
+            Tehlikeli İşlemler
+          </button>
+        </div>
+      )}
+      {(hasSearch ? pwdMatch : activeSecurityPanel === "hesap") && (
       <SettingRow label="Şifre değiştir" description="Mevcut şifrenizi girip yeni şifre belirleyin.">
         <form onSubmit={handlePasswordSubmit} className="flex flex-col gap-3 max-w-sm">
           <input
@@ -519,7 +614,7 @@ function GuvenlikAyarlar({ searchQuery }: { searchQuery: string }) {
         </form>
       </SettingRow>
       )}
-      {twoFaMatch && (
+      {(hasSearch ? twoFaMatch : activeSecurityPanel === "hesap") && (
       <SettingRow
         label="İki adımlı doğrulama (2FA)"
         description="Hesabınıza girişte ek doğrulama kodu istenir."
@@ -540,7 +635,7 @@ function GuvenlikAyarlar({ searchQuery }: { searchQuery: string }) {
         )}
       </SettingRow>
       )}
-      {sessionMatch && (
+      {(hasSearch ? sessionMatch : activeSecurityPanel === "oturum") && (
       <SettingRow
         label="Oturum yönetimi"
         description="Açık cihazlar ve oturumları kapat."
@@ -582,7 +677,7 @@ function GuvenlikAyarlar({ searchQuery }: { searchQuery: string }) {
         </div>
       </SettingRow>
       )}
-      {piiLimitMatch && (
+      {(hasSearch ? piiLimitMatch : activeSecurityPanel === "pii") && (
       <SettingRow
         label="PII kopyalama limiti"
         description="TCKN/Sicil gibi hassas alanlar için bir kullanıcının saatlik kopyalama eşiği. Aşılırsa kopya engellenir ve admin'e alarm yansır. 0 = limit yok."
@@ -603,7 +698,37 @@ function GuvenlikAyarlar({ searchQuery }: { searchQuery: string }) {
         </div>
       </SettingRow>
       )}
-      {matchesSearch(searchQuery, "Tehlikeli işlemler", "Geri alınamaz işlemler. Onay gerekir.") && (
+      {(hasSearch ? piiPolicyModeMatch : activeSecurityPanel === "pii") && (
+      <SettingRow
+        label="PII policy modu (copy)"
+        description="shadow: sadece karar farklarını loglar. enforce: deny kararı olan hassas kopyalama isteklerini bloklar."
+      >
+        <select
+          value={settings.piiPolicyMode}
+          onChange={(e) => updateSetting("piiPolicyMode", e.target.value as PiiPolicyMode)}
+          className="w-full max-w-xs rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+        >
+          <option value="shadow">shadow (önerilen başlangıç)</option>
+          <option value="enforce">enforce (deny uygula)</option>
+        </select>
+      </SettingRow>
+      )}
+      {(hasSearch ? piiSensitiveDisplayModeMatch : activeSecurityPanel === "pii") && (
+      <SettingRow
+        label="Hassas hücre görünümü"
+        description="Süper admin dışı kullanıcılar için hassas hücrelerin arayüzde nasıl gösterileceğini belirler."
+      >
+        <select
+          value={settings.piiSensitiveDisplayMode}
+          onChange={(e) => updateSetting("piiSensitiveDisplayMode", e.target.value as PiiSensitiveDisplayMode)}
+          className="w-full max-w-xs rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+        >
+          <option value="hidden_copy">Gizli (kopyala)</option>
+          <option value="masked_copy">Maskeli değer + kopyala</option>
+        </select>
+      </SettingRow>
+      )}
+      {(hasSearch ? dangerMatch : activeSecurityPanel === "tehlikeli") && (
       <SettingRow
         label="Tehlikeli işlemler"
         description="Geri alınamaz işlemler. Onay modalı ve checkbox ile onaylanır."
