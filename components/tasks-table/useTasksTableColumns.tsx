@@ -281,6 +281,7 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
           <StatusCell
             value={task.status ?? ""}
             taskId={task.id}
+            dueDate={task.due_date ?? null}
             onSave={handleSave}
             onFocus={() => rowCanEdit && setEditingRow(task.id)}
             onBlur={() => setEditingRow(null)}

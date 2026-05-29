@@ -1,23 +1,49 @@
 "use client";
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { AlertTriangle, Check, Circle, Clock, Pause, XCircle } from "lucide-react";
 import type { LiveTableDensity, LiveTableTemplate } from "@/contexts/settings-context";
 import type { Task } from "@/types/tasks";
 import { cn } from "@/lib/utils";
 import { STATUS_OPTIONS } from "@/components/tasks-table/constants";
 import {
-  STATUS_BADGE_STYLES,
-  STATUS_BADGE_STYLES_MODERN,
-  STATUS_DOT_CLASS,
+  STATUS_VISUAL_STYLES,
+  STATUS_VISUAL_STYLES_MODERN,
+  STATUS_VISUAL_DOT,
   getStatusDisplay,
+  getStatusVisualKindFromStatus,
+  getTaskVisualKind,
   rawStatusIsCompleted,
   resolveRestoreStatus,
+  type StatusVisualKind,
 } from "@/components/tasks-table/statusHelpers";
+
+/** Status kind'ına göre ikon — Notion/Linear pattern. */
+function StatusIcon({ kind, className }: { kind: StatusVisualKind; className?: string }) {
+  const props = { className: cn("shrink-0", className), "aria-hidden": true } as const;
+  switch (kind) {
+    case "in_progress":
+      return <Clock {...props} />;
+    case "done":
+      return <Check {...props} strokeWidth={3} />;
+    case "overdue":
+      return <AlertTriangle {...props} />;
+    case "cancelled":
+      return <XCircle {...props} />;
+    case "waiting":
+      return <Pause {...props} />;
+    case "todo":
+    case "other":
+    default:
+      return <Circle {...props} />;
+  }
+}
 
 export function StatusCell({
   value,
   taskId,
+  dueDate, // YENİ — opsiyonel; overdue otomatik tespit için
   onSave,
   onFocus,
   onBlur,
@@ -29,6 +55,7 @@ export function StatusCell({
 }: {
   value: string;
   taskId: string;
+  dueDate?: string | null;
   onSave: (taskId: string, patch: Partial<Task>) => void;
   onFocus: () => void;
   onBlur: () => void;
@@ -39,9 +66,21 @@ export function StatusCell({
   disabled?: boolean;
 }) {
   const display = getStatusDisplay(value);
-  const badgeStyles = template === "modern" ? STATUS_BADGE_STYLES_MODERN : STATUS_BADGE_STYLES;
-  const badgeStyle = badgeStyles[display] ?? badgeStyles.Yapılacak;
-  const dotClass = STATUS_DOT_CLASS[display] ?? STATUS_DOT_CLASS.Yapılacak;
+
+  // Görsel kind: due_date varsa overdue otomatik tespit edilir
+  const visualKind = useMemo<StatusVisualKind>(() => {
+    if (dueDate !== undefined) {
+      return getTaskVisualKind({ status: value, due_date: dueDate });
+    }
+    return getStatusVisualKindFromStatus(value);
+  }, [value, dueDate]);
+
+  // Overdue durumunda label'a "(Gecikti)" suffix
+  const displayLabel = visualKind === "overdue" ? `${display} · Gecikti` : display;
+
+  const stylesMap = template === "modern" ? STATUS_VISUAL_STYLES_MODERN : STATUS_VISUAL_STYLES;
+  const badgeStyle = stylesMap[visualKind];
+  const dotClass = STATUS_VISUAL_DOT[visualKind];
   const [menuOpen, setMenuOpen] = useState(false);
   const statusListboxId = useId();
   const anchorRef = useRef<HTMLButtonElement | null>(null);
@@ -162,6 +201,8 @@ export function StatusCell({
         : "px-2.5 py-1 text-sm gap-2";
   const dotHw =
     density === "compact" ? "h-1.5 w-1.5" : density === "comfortable" ? "h-2.5 w-2.5" : "h-2 w-2";
+  const iconHw =
+    density === "compact" ? "h-3 w-3" : density === "comfortable" ? "h-4 w-4" : "h-3.5 w-3.5";
 
   const portal =
     menuOpen && typeof document !== "undefined"
@@ -219,8 +260,12 @@ export function StatusCell({
           badgeStyle
         )}
       >
-        <span className={cn("shrink-0 rounded-full", dotClass, dotHw)} aria-hidden />
-        <span>{display || "—"}</span>
+        {/* Status ikonu — Notion/Linear pattern. Cancelled/Overdue net görünür. */}
+        <StatusIcon kind={visualKind} className={iconHw} />
+        {/* Eski dot — yedek olarak dar density'de saklı bir vurgu;
+            yeni ikon ana göstergedir. Dot'u kaldırıyoruz, ikon yeterli. */}
+        {false && <span className={cn("shrink-0 rounded-full", dotClass, dotHw)} aria-hidden />}
+        <span>{displayLabel || "—"}</span>
       </button>
       {portal}
     </>
