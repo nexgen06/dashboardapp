@@ -116,6 +116,7 @@ Refactor öncesi kritik `lib/` modülleri:
 | `liveTableFilters.ts` | `liveTableFilters.test.ts` | Faz 0 |
 | `liveTableAdvancedFilters.ts` | `liveTableAdvancedFilters.test.ts` | Faz 0 |
 | `projectDetailPageHelpers.ts` | `projectDetailPageHelpers.test.ts` + `projectDetailSprint1.test.ts` | Faz 0 |
+| `projectFormHelpers.ts` | `projectFormHelpers.test.ts` | Faz 1 |
 | `filterProjectTasks` | `projectDetailSprint1.test.ts` | Mevcut |
 
 ---
@@ -127,7 +128,8 @@ Refactor öncesi kritik `lib/` modülleri:
 
 ---
 
-## 6. Sonraki faz
+## 6. Faz durumu
 
-**Faz 1 (devam):** `ProjectFormModal` → `components/projects/ProjectFormModal.tsx` ✅  
-**Sırada:** `ReferenceSelectCell`, `SubtitleColumnsPicker` ayrı dosyalar; ardından Faz 2 `ProjectsProvider`
+**Faz 0:** ✅ Tamamlandı  
+**Faz 1:** ✅ Tamamlandı (`ProjectFormModal`, `SubtitleColumnsPicker`, `lib/projectFormHelpers`)  
+**Sırada — Faz 2:** `ProjectsProvider`

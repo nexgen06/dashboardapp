@@ -71,12 +71,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Search, PlusCircle, MoreVertical, Pencil, Archive, Trash2, RotateCw, Upload, FileText, UserPlus, X, Calendar, Flag, FolderKanban, Check, Bookmark, ShieldCheck, Loader2, Crown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProjectColumnManager } from "@/components/ProjectColumnManager";
-import {
-  ProjectFormModal,
-  normalizeProjectPriority,
-  SMART_CHIP_COLUMN_PRESETS,
-  type NewProjectSubmitData,
-} from "@/components/projects/ProjectFormModal";
+import { ProjectFormModal, type NewProjectSubmitData } from "@/components/projects/ProjectFormModal";
+import { normalizeProjectPriority, SMART_CHIP_COLUMN_PRESETS } from "@/lib/projectFormHelpers";
 
 const STATUS_OPTIONS: ProjectStatus[] = ["Aktif", "Tamamlandı", "Beklemede"];
 const STATUS_STYLES: Record<ProjectStatus, string> = {
