@@ -137,11 +137,13 @@ function ActivityCard({
   projectId,
   now,
   isLast,
+  highlighted = false,
 }: {
   item: ProjectActivityItem;
   projectId: string;
   now: Date;
   isLast: boolean;
+  highlighted?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -152,7 +154,11 @@ function ActivityCard({
   const fullDate = new Date(item.timestamp).toLocaleString("tr-TR");
 
   return (
-    <article className="relative flex gap-3 sm:gap-4">
+    <article
+      className={cn("relative flex gap-3 sm:gap-4", highlighted && "scroll-mt-24")}
+      data-activity-record-id={item.recordId}
+      data-highlighted={highlighted ? "true" : undefined}
+    >
       <div className="relative flex w-9 shrink-0 flex-col items-center sm:w-10">
         {!isLast && (
           <span
@@ -182,7 +188,14 @@ function ActivityCard({
       </div>
 
       <div className="min-w-0 flex-1 pb-5">
-        <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm transition-shadow hover:shadow-md sm:p-4 dark:border-slate-700 dark:bg-slate-900/40">
+        <div
+          className={cn(
+            "rounded-xl border bg-white p-3.5 shadow-sm transition-shadow hover:shadow-md sm:p-4 dark:bg-slate-900/40",
+            highlighted
+              ? "border-orange-300 ring-2 ring-orange-400/60 dark:border-orange-700 dark:ring-orange-500/40"
+              : "border-slate-200 dark:border-slate-700"
+          )}
+        >
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0 flex-1 space-y-1">
               <p className="text-sm font-semibold leading-snug text-slate-900 dark:text-slate-100">
@@ -305,6 +318,9 @@ export type ProjectActivityTimelineProps = {
   /** Yan panel: sabit yükseklik + iç scroll (proje detay 2 sütun düzeni). */
   layout?: "default" | "panel";
   className?: string;
+  /** Deep link ile gelen görev — yalnızca bu görevin aktivitelerini göster. */
+  focusTaskId?: string | null;
+  onClearFocusTask?: () => void;
 };
 
 export function ProjectActivityTimeline({
@@ -316,6 +332,8 @@ export function ProjectActivityTimeline({
   preferredExtraKeys = [],
   layout = "default",
   className,
+  focusTaskId = null,
+  onClearFocusTask,
 }: ProjectActivityTimelineProps) {
   const isPanel = layout === "panel";
   const profileLookup = useProfileLookup();
@@ -327,6 +345,15 @@ export function ProjectActivityTimeline({
   const [filterKind, setFilterKind] = useState<ProjectActivityFilterKind>("all");
   const [dateFilter, setDateFilter] = useState<ProjectActivityDateFilterKind>("7d");
   const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    if (focusTaskId) {
+      setDateFilter("all");
+      setSearchQuery("");
+      setFilterKind("all");
+      setVisibleCount(PAGE_SIZE);
+    }
+  }, [focusTaskId]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(new Date()), 60_000);
@@ -395,10 +422,19 @@ export function ProjectActivityTimeline({
         searchQuery,
         filterKind,
         dateFilter,
+        taskId: focusTaskId,
         now,
       }),
-    [activities, searchQuery, filterKind, dateFilter, now]
+    [activities, searchQuery, filterKind, dateFilter, focusTaskId, now]
   );
+
+  const focusTaskLabel = useMemo(() => {
+    if (!focusTaskId) return null;
+    const task = taskById.get(focusTaskId);
+    if (task?.content?.trim()) return task.content.trim();
+    const fromActivity = activities.find((a) => a.recordId === focusTaskId);
+    return fromActivity?.taskLabel?.trim() || "Seçili görev";
+  }, [focusTaskId, taskById, activities]);
 
   const pagedActivities = useMemo(
     () => filteredActivities.slice(0, visibleCount),
@@ -423,6 +459,15 @@ export function ProjectActivityTimeline({
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
   }, [searchQuery, filterKind, dateFilter]);
+
+  useEffect(() => {
+    if (!focusTaskId || pagedActivities.length === 0) return;
+    const frame = window.requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLElement>(`[data-activity-record-id="${focusTaskId}"][data-highlighted="true"]`);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [focusTaskId, pagedActivities.length]);
 
   return (
     <section
@@ -520,6 +565,25 @@ export function ProjectActivityTimeline({
         </div>
       </div>
 
+      {focusTaskId && focusTaskLabel && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-orange-200 bg-orange-50/80 px-3 py-2 text-sm text-orange-950 dark:border-orange-800 dark:bg-orange-950/30 dark:text-orange-100">
+          <span>
+            <strong className="font-medium">{focusTaskLabel}</strong> görevinin geçmişi gösteriliyor
+          </span>
+          {onClearFocusTask && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs text-orange-900 hover:bg-orange-100 dark:text-orange-100 dark:hover:bg-orange-900/40"
+              onClick={onClearFocusTask}
+            >
+              Tüm projeyi göster
+            </Button>
+          )}
+        </div>
+      )}
+
       <div className={cn("mt-5", isPanel && "min-h-0 flex-1 overflow-y-auto overscroll-contain")}>
         {loading && entries.length === 0 ? (
           <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/60 py-10 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800/30 dark:text-slate-400">
@@ -550,6 +614,7 @@ export function ProjectActivityTimeline({
                       projectId={projectId}
                       now={now}
                       isLast={item.id === lastActivityId}
+                      highlighted={!!focusTaskId && item.recordId === focusTaskId}
                     />
                   ))}
                 </div>

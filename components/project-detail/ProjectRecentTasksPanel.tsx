@@ -26,6 +26,7 @@ export type ProjectRecentTasksPanelProps = {
   isOverdue?: (task: Task) => boolean;
   className?: string;
   compact?: boolean;
+  emptyMessage?: string;
 };
 
 export function ProjectRecentTasksPanel({
@@ -41,6 +42,7 @@ export function ProjectRecentTasksPanel({
   isOverdue,
   className,
   compact = false,
+  emptyMessage,
 }: ProjectRecentTasksPanelProps) {
   const visibleTasks = limit ? tasks.slice(0, limit) : tasks;
   const liveTableHref = `/canli-tablo?project=${encodeURIComponent(projectId)}`;
@@ -69,10 +71,14 @@ export function ProjectRecentTasksPanel({
       ) : visibleTasks.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center px-4 py-8 text-center">
           <ListTodo className="h-8 w-8 text-slate-400" />
-          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Henüz görev yok.</p>
-          <Button asChild size="sm" className="mt-3 bg-orange-600 hover:bg-orange-700 text-white">
-            <Link href={liveTableHref}>Görev ekle</Link>
-          </Button>
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+            {emptyMessage ?? "Henüz görev yok."}
+          </p>
+          {!emptyMessage && (
+            <Button asChild size="sm" className="mt-3 bg-orange-600 hover:bg-orange-700 text-white">
+              <Link href={liveTableHref}>Görev ekle</Link>
+            </Button>
+          )}
         </div>
       ) : (
         <ul

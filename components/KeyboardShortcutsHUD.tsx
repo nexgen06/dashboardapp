@@ -106,7 +106,7 @@ export function KeyboardShortcutsHUD() {
       title: "Genel",
       shortcuts: [
         { keys: ["?"], description: "Bu kısayol listesini aç/kapa" },
-        { keys: [modKey, "K"], description: "Komut paleti (sayfa ve aksiyon arama)" },
+        { keys: [modKey, "K"], description: "Komut paleti — proje, görev ve komut ara" },
         { keys: ["N"], description: "Komut paletini aç (hızlı oluşturma)" },
         { keys: ["Esc"], description: "Açık modal/paneli kapat" },
       ],
@@ -125,7 +125,11 @@ export function KeyboardShortcutsHUD() {
     {
       title: "Canlı Tablo",
       shortcuts: [
-        { keys: ["F"], description: "Tabloyu tam ekran aç / daralt" },
+        { keys: ["E"], description: "Dışa aktar diyalogunu aç" },
+        { keys: ["F"], description: "Hızlı filtre panelini aç / kapat" },
+        { keys: ["Shift", "F"], description: "Tabloyu tam ekran aç / daralt" },
+        { keys: ["J"], description: "Sonraki görev (detay panelini açar)" },
+        { keys: ["K"], description: "Önceki görev (detay panelini açar)" },
         { keys: ["Esc"], description: "Tam ekrandan çık" },
         { keys: ["]"], description: "Sonraki sayfa" },
         { keys: ["["], description: "Önceki sayfa" },

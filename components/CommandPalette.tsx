@@ -24,6 +24,8 @@ import {
   PlusCircle,
   Sparkles,
   Keyboard,
+  Loader2,
+  ListTodo,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
@@ -33,6 +35,14 @@ import { resetOnboardingTour } from "@/components/OnboardingTour";
 import { openKeyboardShortcuts } from "@/components/KeyboardShortcutsHUD";
 import type { Permission } from "@/types/permissions";
 import { cn } from "@/lib/utils";
+import {
+  buildCommandPaletteTaskHref,
+  searchCommandPaletteHits,
+  shouldRunCommandPaletteSearch,
+  truncatePaletteLabel,
+  type CommandPaletteSearchResults,
+} from "@/lib/commandPaletteSearch";
+import { getTaskDisplayLabel } from "@/lib/taskDisplayLabel";
 
 /**
  * Diakritikleri normalize edip Türkçe-uyumlu lower-case'e çevirir.
@@ -80,11 +90,19 @@ export function CommandPalette() {
   const { settings, updateSetting } = useSettings();
   const { projects } = useProjects();
 
+  const canSearchProjects = hasPermission("area.projects") && hasPermission("projects.view");
+  const canSearchTasks = hasPermission("area.liveTable") && hasPermission("liveTable.view");
+
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [searchResults, setSearchResults] = useState<CommandPaletteSearchResults | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  const searchActive = shouldRunCommandPaletteSearch(query);
 
   /** ⌘K / Ctrl+K toggle + custom event dinleme */
   useEffect(() => {
@@ -110,10 +128,53 @@ export function CommandPalette() {
     if (open) {
       setQuery("");
       setSelectedIndex(0);
+      setSearchResults(null);
+      setSearchLoading(false);
+      setSearchError(null);
       const id = window.setTimeout(() => inputRef.current?.focus(), 30);
       return () => window.clearTimeout(id);
     }
   }, [open]);
+
+  /** ≥2 karakter → debounced Supabase araması */
+  useEffect(() => {
+    if (!open) return;
+    const trimmed = query.trim();
+    if (!shouldRunCommandPaletteSearch(trimmed)) {
+      setSearchResults(null);
+      setSearchLoading(false);
+      setSearchError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setSearchLoading(true);
+    setSearchError(null);
+
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const results = await searchCommandPaletteHits(trimmed, {
+            includeProjects: canSearchProjects,
+            includeTasks: canSearchTasks,
+          });
+          if (cancelled) return;
+          setSearchResults(results);
+        } catch (e) {
+          if (cancelled) return;
+          setSearchResults({ projects: [], tasks: [] });
+          setSearchError(e instanceof Error ? e.message : "Arama başarısız");
+        } finally {
+          if (!cancelled) setSearchLoading(false);
+        }
+      })();
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [open, query, canSearchProjects, canSearchTasks]);
 
   /** Sayfa değişince paleti kapat */
   useEffect(() => {
@@ -292,17 +353,19 @@ export function CommandPalette() {
       perform: () => setTheme("system"),
     });
 
-    // — Projelere hızlı erişim (filtre aktif değilse, ilk 8 proje) —
-    const recentProjects = projects.slice(0, 8);
-    for (const p of recentProjects) {
-      list.push({
-        id: `project-${p.id}`,
-        label: p.name,
-        keywords: ["proje", "project", "ac", "open"],
-        icon: FolderKanban,
-        group: "Projeyi aç",
-        perform: () => navigate(`/projeler/${p.id}`),
-      });
+    // — Projelere hızlı erişim (arama yokken, ilk 8 proje) —
+    if (!searchActive) {
+      const recentProjects = projects.slice(0, 8);
+      for (const p of recentProjects) {
+        list.push({
+          id: `project-${p.id}`,
+          label: p.name,
+          keywords: ["proje", "project", "ac", "open"],
+          icon: FolderKanban,
+          group: "Projeyi aç",
+          perform: () => navigate(`/projeler/${p.id}`),
+        });
+      }
     }
 
     // — Yardım —
@@ -344,10 +407,44 @@ export function CommandPalette() {
     });
 
     return list;
-  }, [pathname, hasPermission, settings.theme, projects, navigate, setTheme, close, signOut]);
+  }, [pathname, hasPermission, settings.theme, projects, navigate, setTheme, close, signOut, searchActive]);
+
+  /** Supabase arama sonuçlarını palet öğelerine çevir */
+  const searchItems = useMemo<CommandItem[]>(() => {
+    if (!searchActive || !searchResults) return [];
+    const items: CommandItem[] = [];
+
+    for (const project of searchResults.projects) {
+      items.push({
+        id: `search-project-${project.id}`,
+        label: project.name,
+        keywords: [project.description ?? "", project.status ?? ""],
+        icon: FolderKanban,
+        group: "Projeler",
+        hint: project.status ?? undefined,
+        perform: () => navigate(`/projeler/${project.id}`),
+      });
+    }
+
+    for (const task of searchResults.tasks) {
+      const label = truncatePaletteLabel(getTaskDisplayLabel(task));
+      const hintParts = [task.status, task.assignee].filter((x) => x && String(x).trim());
+      items.push({
+        id: `search-task-${task.id}`,
+        label,
+        keywords: [task.content ?? "", task.assignee ?? ""],
+        icon: ListTodo,
+        group: "Görevler",
+        hint: hintParts.length > 0 ? hintParts.join(" · ") : "Canlı Tablo",
+        perform: () => navigate(buildCommandPaletteTaskHref(task)),
+      });
+    }
+
+    return items;
+  }, [searchActive, searchResults, navigate]);
 
   /** Sorguya göre filtreleme — basit fuzzy: tüm token'lar label+keywords içinde olmalı */
-  const filtered = useMemo(() => {
+  const filteredCommands = useMemo(() => {
     const q = normalize(query).trim();
     if (!q) return commands;
     const tokens = q.split(/\s+/).filter(Boolean);
@@ -356,6 +453,17 @@ export function CommandPalette() {
       return tokens.every((t) => haystack.includes(t));
     });
   }, [commands, query]);
+
+  /** Arama modunda komutları tek grupta göster */
+  const commandItems = useMemo(() => {
+    if (!searchActive) return filteredCommands;
+    return filteredCommands.map((c) => ({ ...c, group: "Komutlar" }));
+  }, [filteredCommands, searchActive]);
+
+  const filtered = useMemo(
+    () => (searchActive ? [...searchItems, ...commandItems] : filteredCommands),
+    [searchActive, searchItems, commandItems, filteredCommands]
+  );
 
   /** Grup başlıklarına göre düzenli liste — orijinal sırayı koru */
   const grouped = useMemo(() => {
@@ -436,8 +544,8 @@ export function CommandPalette() {
               setQuery(e.target.value);
               setSelectedIndex(0);
             }}
-            placeholder="Komut veya sayfa ara…"
-            aria-label="Komut ara"
+            placeholder="Proje, görev veya komut ara…"
+            aria-label="Proje, görev veya komut ara"
             className="min-w-0 flex-1 bg-transparent text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
           />
           <kbd className="hidden shrink-0 items-center gap-0.5 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 sm:inline-flex dark:border-slate-600 dark:bg-slate-700 dark:text-slate-400">
@@ -445,11 +553,25 @@ export function CommandPalette() {
           </kbd>
         </div>
         <div ref={listRef} className="max-h-[60vh] overflow-y-auto py-2">
-          {grouped.length === 0 ? (
+          {query.trim().length === 1 && (
+            <div className="px-4 py-2 text-xs text-slate-500 dark:text-slate-400">
+              Proje ve görev araması için en az 2 karakter yazın.
+            </div>
+          )}
+          {searchLoading && searchActive && (
+            <div className="flex items-center gap-2 px-4 py-3 text-sm text-slate-500 dark:text-slate-400">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              Aranıyor…
+            </div>
+          )}
+          {searchError && searchActive && !searchLoading && (
+            <div className="px-4 py-2 text-xs text-rose-600 dark:text-rose-400">{searchError}</div>
+          )}
+          {grouped.length === 0 && !(searchLoading && searchActive) ? (
             <div className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
               Sonuç bulunamadı
             </div>
-          ) : (
+          ) : grouped.length > 0 ? (
             grouped.map((group) => (
               <div key={group.name} className="mb-1">
                 <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
@@ -487,7 +609,7 @@ export function CommandPalette() {
                 </div>
               </div>
             ))
-          )}
+          ) : null}
         </div>
         <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-2 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-400">
           <div className="flex items-center gap-3">
