@@ -144,7 +144,7 @@ describe("getSmartFilterCounts", () => {
       tasks,
       projectFilter: [],
       projectById,
-      urgentPrioritySet: new Set(["acil"]),
+      urgentPrioritySet: new Set(["high"]),
       currentUserEmail: "me@test.com",
     });
     expect(counts.overdue).toBe(1);
