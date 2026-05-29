@@ -28,6 +28,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PriorityBadge } from "@/components/ui/priority-badge";
 import { Section } from "@/components/ui/section";
 import { SectionHeader } from "@/components/ui/section-header";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDate } from "@/lib/formatDate";
 import { getStatusKind, isStatusDone } from "@/lib/statusKind";
@@ -355,9 +356,43 @@ export default function GorevlerimPage() {
         </Tabs>
 
         {isLoading ? (
-          <div className="flex items-center justify-center gap-2 py-12 text-slate-500">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            Görevler yükleniyor…
+          // Görev kartı skeleton — gerçek TaskInboxCard şekline benzer
+          <div
+            className="grid gap-3 sm:grid-cols-2"
+            aria-busy="true"
+            aria-label="Görevler yükleniyor"
+          >
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div
+                key={i}
+                className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800"
+                style={{ opacity: 1 - i * 0.08 }}
+              >
+                {/* Status + priority badge */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Skeleton className="h-5 w-24 rounded-full" />
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                </div>
+                {/* Title */}
+                <Skeleton className="mt-3 h-5" style={{ width: `${65 + (i * 9) % 25}%` }} />
+                {/* Subtitle */}
+                {i % 2 === 0 && <Skeleton className="mt-2 h-3 w-2/3" />}
+                {/* Meta row: assignee + project + date */}
+                <div className="mt-3 flex items-center gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <Skeleton variant="circle" className="h-5 w-5" />
+                    <Skeleton className="h-3 w-20" />
+                  </div>
+                  <Skeleton className="h-3 w-24" />
+                  <Skeleton className="h-3 w-16" />
+                </div>
+                {/* Action buttons */}
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <Skeleton className="h-8" />
+                  <Skeleton className="h-8" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : error ? (
           <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300">

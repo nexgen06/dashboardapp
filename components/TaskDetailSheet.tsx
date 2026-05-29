@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { PriorityBadge } from "@/components/ui/priority-badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   CheckCircle2,
   Circle,
@@ -639,10 +640,25 @@ export function TaskDetailSheet({
               </div>
             </div>
             {auditLoading && auditLog.length === 0 ? (
-              <div className="flex items-center gap-2 px-3 py-4 text-xs text-slate-500 dark:text-slate-400">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Yükleniyor…
-              </div>
+              // Audit log skeleton — gerçek timeline şekline benzeyen yer tutucu
+              <ol className="space-y-2.5" aria-busy="true" aria-label="Değişiklik geçmişi yükleniyor">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <li
+                    key={i}
+                    className="flex items-start gap-2.5 rounded-md border border-slate-100 bg-slate-50/40 p-2.5 dark:border-slate-700 dark:bg-slate-800/40"
+                    style={{ opacity: 1 - i * 0.12 }}
+                  >
+                    <Skeleton variant="circle" className="h-6 w-6 shrink-0" />
+                    <div className="flex-1 space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <Skeleton className="h-3 w-20" />
+                        <Skeleton className="h-3 w-16" />
+                      </div>
+                      <Skeleton className="h-3" style={{ width: `${65 + (i * 11) % 25}%` }} />
+                    </div>
+                  </li>
+                ))}
+              </ol>
             ) : auditLog.length === 0 ? (
               <div className="rounded-md border border-dashed border-slate-300 bg-slate-50/40 px-3 py-4 text-center text-xs text-slate-500 dark:border-slate-600 dark:bg-slate-800/40 dark:text-slate-400">
                 Henüz değişiklik kaydı yok. Görevde yapılacak değişiklikler
