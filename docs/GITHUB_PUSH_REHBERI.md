@@ -83,4 +83,4 @@ git push
 
 ## .env.local GitHub'a gider mi?
 
-**Hayır.** `.gitignore` dosyasında `.env*.local` tanımlı; bu yüzden `git add .` ile bile `.env.local` repoya eklenmez. Supabase/Firebase anahtarlarınız güvende kalır.
+**Hayır.** `.gitignore` dosyasında `.env*.local` tanımlı; bu yüzden `git add .` ile bile `.env.local` repoya eklenmez. Supabase anahtarlarınız güvende kalır.

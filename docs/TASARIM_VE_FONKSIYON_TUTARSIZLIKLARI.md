@@ -1,15 +1,15 @@
 # Tasarım ve Fonksiyon Tutarsızlıkları
 
-Uygulamanın kullanım amacı (kurumsal görev/proje yönetim paneli, Firebase ile giriş, rol bazlı yetkiler) düşünüldüğünde tespit edilen tasarım ve mantık tutarsızlıkları.
+Uygulamanın kullanım amacı (kurumsal görev/proje yönetim paneli, Supabase Auth ile giriş, rol bazlı yetkiler) düşünüldüğünde tespit edilen tasarım ve mantık tutarsızlıkları.
 
 ---
 
 ## 1. Kimlik doğrulama ve erişim
 
 ### 1.1 Giriş zorunlu değil ✅ (Uygulandı)
-- **Durum:** Firebase açıkken bile giriş yapmamış kullanıcı `/`, `/projeler`, `/canli-tablo`, `/ayarlar` sayfalarına doğrudan gidebiliyordu.
+- **Durum:** Supabase yapılandırılmışken bile giriş yapmamış kullanıcı `/`, `/projeler`, `/canli-tablo`, `/ayarlar` sayfalarına doğrudan gidebiliyordu.
 - **Sonuç:** "Giriş yapın" mesajı var ama uygulama girişi zorunlu kılmıyordu; panel girişsiz kullanılabiliyordu.
-- **Yapılan:** `components/AuthGuard.tsx` eklendi; layout’ta `AuthGuard` ile panel sarmalandı. Firebase açıkken ve `user === null` iken tüm rotalar (giriş sayfası hariç) `/giris`e yönlendiriliyor.
+- **Yapılan:** `components/AuthGuard.tsx` eklendi; layout’ta `AuthGuard` ile panel sarmalandı. Supabase oturumu yokken (`user === null`)  tüm rotalar (giriş sayfası hariç) `/giris`e yönlendiriliyor.
 
 ### 1.2 "Profil / Yetki" linki yetkisiz kullanıcıya hata sayfası açıyor
 - **Durum:** Header’daki kullanıcı menüsünde tüm giriş yapmış kullanıcılar için "Profil / Yetki" → `/yonetim/kullanici-yetkileri` linki var. Bu sayfaya sadece `userManagement.view` yetkisi olan (pratikte admin) erişebiliyor.
@@ -69,14 +69,13 @@ Uygulamanın kullanım amacı (kurumsal görev/proje yönetim paneli, Firebase i
 
 ## 5. Veri ve teknik tutarlılık
 
-### 5.1 Firebase + Supabase birlikte kullanımı
-- **Durum:** Kimlik Firebase Auth + Firestore (kullanıcı/rol); görev/proje verisi Supabase. İki farklı backend.
-- **Sonuç:** Operasyonel ve kavramsal olarak kabul edilebilir; dokümantasyonda "Kimlik Firebase, veri Supabase" net yazılırsa geliştirici ve kullanıcı beklentisi netleşir.
-- **Öneri:** README veya `docs/` içinde mimari özet (hangi sistemin ne için kullanıldığı) açıkça yazılsın.
+### 5.1 Kimlik ve veri — Supabase ✅
+- **Durum:** Kimlik (Supabase Auth + `profiles`) ve görev/proje verisi aynı Supabase projesinde.
+- **Sonuç:** Tek backend; RLS ile rol bazlı erişim.
 
-### 5.2 Mock kullanıcı (Firebase kapalıyken) ✅ (Uygulandı)
-- **Durum:** Firebase yokken user null idi; Header'da avatar/giriş yoktu.
-- **Yapılan:** Firebase kapalıyken sabit "Demo kullanıcı" (roleId: member) auth context'te set ediliyor. Header'da "Demo mod" rozeti gösteriliyor; kullanıcı menüsü ve Dashboard "Hoş geldin, Demo kullanıcı" ile tutarlı çalışıyor.
+### 5.2 Demo mod (Supabase yapılandırılmamışken) ✅ (Uygulandı)
+- **Durum:** Supabase env eksikken user null idi; Header'da avatar/giriş yoktu.
+- **Yapılan:** `NEXT_PUBLIC_ALLOW_DEMO_MODE=true` ile sabit "Demo kullanıcı" (roleId: member) auth context'te set ediliyor. Header'da "Demo mod" rozeti gösteriliyor.
 
 
 ---
@@ -85,7 +84,7 @@ Uygulamanın kullanım amacı (kurumsal görev/proje yönetim paneli, Firebase i
 
 | Öncelik | Konu | Önerilen aksiyon |
 |--------|------|-------------------|
-| Yüksek | Giriş zorunluluğu | Firebase açıkken giriş yapmamış kullanıcıyı korumalı sayfalarda `/giris`e yönlendir |
+| Yüksek | Giriş zorunluluğu | Supabase oturumu yokken korumalı sayfalarda `/giris`e yönlendir |
 | Yüksek | Profil / Yetki erişimi | Tüm giriş yapmış kullanıcılar kendi rolünü görebilsin; admin ek olarak tüm kullanıcıları yönetsin |
 | Orta | Header "Profil / Yetki" | Yetkiye göre farklı sayfa/link (Profil vs Kullanıcı yetkileri) veya tek sayfada rol bazlı içerik |
 | Orta | Arama kutusu | Ya işlevsel global arama ya da kaldır / "Yakında" notu |

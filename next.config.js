@@ -6,7 +6,7 @@ const nextConfig = {
   // Production optimizasyonları
   poweredByHeader: false,
 
-  // Vercel build lint adımında takılmasın; ESLint uyarıları build'i kesmesin
+  // CI/Docker build sırasında ESLint uyarıları build'i kesmesin
   eslint: {
     ignoreDuringBuilds: true,
   },

@@ -1,5 +1,7 @@
 # 🚀 Self-Hosted Deployment Rehberi
 
+> **Önerilen bulut:** Production ortamı [Railway](https://railway.com) + Supabase (`railway.json`, `Dockerfile`). Aşağıdaki adımlar kendi VPS'iniz için geçerlidir.
+
 Bu rehber, Dashboard uygulamasını kendi sunucunuzda yayınlamanız için adım adım talimatlar içerir.
 
 ---
