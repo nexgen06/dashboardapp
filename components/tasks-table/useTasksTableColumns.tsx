@@ -73,6 +73,9 @@ import {
   Flame,
   Calendar,
   CalendarClock,
+  Pencil,
+  Copy as CopyIcon,
+  Trash2,
 } from "lucide-react";
 
 const columnHelper = createColumnHelper<Task>();
@@ -843,58 +846,136 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
         const isDeleting = deletingIds.has(task.id);
         const rowCanEdit = canEditRow(task);
         const workflowActions = getWorkflowActionsForTask(task);
+        const canShowCopy = rowCanEdit && canCreateTask && canCopyRow(task);
+        const canShowDelete = rowCanEdit && canDeleteTask;
+        // Notion/Linear pattern: hover quick actions — sadece satır hover'da görünür
+        // group/row class'ı zaten <tr>'e ekli (TasksTableDataPanel.tsx)
+        const iconClass = "h-3.5 w-3.5";
         return (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className={cn(dui.actionsBtn, "shrink-0")} aria-label="Menü">
-                <MoreHorizontal className={cn(dui.sortIcon, "shrink-0")} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+          <div className="relative flex items-center justify-end">
+            {/* Hover quick actions — desktop'ta absolute overlay (alan kaplamaz),
+                mobilde inline ve her zaman görünür (hover yok). */}
+            <div
+              className={cn(
+                "flex items-center gap-0.5 transition-opacity duration-150",
+                // Mobile (< sm): inline, her zaman görünür
+                "opacity-100",
+                // Desktop (>= sm): absolute overlay, hover'da görünür
+                "sm:absolute sm:right-9 sm:top-1/2 sm:-translate-y-1/2",
+                "sm:opacity-0 sm:group-hover/row:opacity-100 sm:focus-within:opacity-100",
+                "sm:rounded-md sm:border sm:border-slate-200 sm:bg-white sm:px-0.5 sm:py-0.5 sm:shadow-sm",
+                "dark:sm:border-slate-700 dark:sm:bg-slate-800",
+              )}
+              aria-label="Hızlı işlemler"
+            >
               {rowCanEdit && (
-                <DropdownMenuItem onClick={() => setDetailTask(task)}>
-                  <MessageSquare className="mr-2 h-3.5 w-3.5" aria-hidden />
-                  Detay / Yorumlar
-                </DropdownMenuItem>
+                <button
+                  type="button"
+                  onClick={() => setDetailTask(task)}
+                  className="rounded p-1 text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-700 dark:text-slate-400 dark:hover:bg-blue-900/40 dark:hover:text-blue-300"
+                  aria-label="Detay ve yorumlar"
+                  title="Detay ve yorumlar"
+                >
+                  <MessageSquare className={iconClass} aria-hidden />
+                </button>
               )}
               {rowCanEdit && (
-                <DropdownMenuItem onClick={() => setEditTask(task)}>Düzenle</DropdownMenuItem>
+                <button
+                  type="button"
+                  onClick={() => setEditTask(task)}
+                  className="rounded p-1 text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-700 dark:text-slate-400 dark:hover:bg-blue-900/40 dark:hover:text-blue-300"
+                  aria-label="Düzenle"
+                  title="Düzenle"
+                >
+                  <Pencil className={iconClass} aria-hidden />
+                </button>
               )}
-              {rowCanEdit && canCreateTask && canCopyRow(task) && (
-                <DropdownMenuItem onClick={() => handleCopyTask(task)}>Kopyala</DropdownMenuItem>
+              {canShowCopy && (
+                <button
+                  type="button"
+                  onClick={() => handleCopyTask(task)}
+                  className="rounded p-1 text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-700 dark:text-slate-400 dark:hover:bg-blue-900/40 dark:hover:text-blue-300"
+                  aria-label="Kopyala"
+                  title="Kopyala"
+                >
+                  <CopyIcon className={iconClass} aria-hidden />
+                </button>
               )}
-              {workflowActions.length > 0 && (
-                <>
-                  <DropdownMenuSeparator />
-                  {workflowActions.map((action) => (
-                    <DropdownMenuItem
-                      key={action}
-                      onClick={() => void handleWorkflowAction(task, action)}
-                      className={cn(
-                        action === "approve" && "text-emerald-700 focus:text-emerald-700 dark:text-emerald-300 dark:focus:text-emerald-300",
-                        action === "reject" && "text-red-700 focus:text-red-700 dark:text-red-300 dark:focus:text-red-300"
-                      )}
-                    >
-                      {WORKFLOW_ACTION_LABELS[action]}
-                    </DropdownMenuItem>
-                  ))}
-                </>
-              )}
-              {rowCanEdit && (canCreateTask || canEditTask) && canDeleteTask && <DropdownMenuSeparator />}
-              {rowCanEdit && canDeleteTask && (
-                <DropdownMenuItem
-                  className="text-red-600 focus:text-red-600"
+              {canShowDelete && (
+                <button
+                  type="button"
                   onClick={() => handleDeleteTask(task.id)}
                   disabled={isDeleting}
+                  className="rounded p-1 text-slate-500 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-40 dark:text-slate-400 dark:hover:bg-red-950/40 dark:hover:text-red-300"
+                  aria-label="Sil"
+                  title="Sil"
                 >
-                  Sil
-                </DropdownMenuItem>
+                  <Trash2 className={iconClass} aria-hidden />
+                </button>
               )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+            </div>
+
+            {/* Diğer/Workflow menüsü — her zaman görünür (workflow yetkisi vs için) */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className={cn(dui.actionsBtn, "shrink-0")} aria-label="Diğer işlemler">
+                  <MoreHorizontal className={cn(dui.sortIcon, "shrink-0")} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {/* Mobile/küçük ekran fallback — hover quick actions burada da var */}
+                {rowCanEdit && (
+                  <DropdownMenuItem onClick={() => setDetailTask(task)}>
+                    <MessageSquare className="mr-2 h-3.5 w-3.5" aria-hidden />
+                    Detay / Yorumlar
+                  </DropdownMenuItem>
+                )}
+                {rowCanEdit && (
+                  <DropdownMenuItem onClick={() => setEditTask(task)}>
+                    <Pencil className="mr-2 h-3.5 w-3.5" aria-hidden />
+                    Düzenle
+                  </DropdownMenuItem>
+                )}
+                {canShowCopy && (
+                  <DropdownMenuItem onClick={() => handleCopyTask(task)}>
+                    <CopyIcon className="mr-2 h-3.5 w-3.5" aria-hidden />
+                    Kopyala
+                  </DropdownMenuItem>
+                )}
+                {workflowActions.length > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    {workflowActions.map((action) => (
+                      <DropdownMenuItem
+                        key={action}
+                        onClick={() => void handleWorkflowAction(task, action)}
+                        className={cn(
+                          action === "approve" && "text-emerald-700 focus:text-emerald-700 dark:text-emerald-300 dark:focus:text-emerald-300",
+                          action === "reject" && "text-red-700 focus:text-red-700 dark:text-red-300 dark:focus:text-red-300"
+                        )}
+                      >
+                        {WORKFLOW_ACTION_LABELS[action]}
+                      </DropdownMenuItem>
+                    ))}
+                  </>
+                )}
+                {canShowDelete && (canShowCopy || rowCanEdit) && <DropdownMenuSeparator />}
+                {canShowDelete && (
+                  <DropdownMenuItem
+                    className="text-red-600 focus:text-red-600"
+                    onClick={() => handleDeleteTask(task.id)}
+                    disabled={isDeleting}
+                  >
+                    <Trash2 className="mr-2 h-3.5 w-3.5" aria-hidden />
+                    Sil
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         );
       },
-      size: 52,
+      size: 52, // Hover ikonları desktop'ta absolute overlay; column dar kalır
       minSize: 44,
       maxSize: 80,
       enableResizing: false,
