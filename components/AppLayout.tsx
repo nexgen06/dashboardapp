@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { SidebarProvider } from "@/contexts/sidebar-context";
 import { SettingsProvider } from "@/contexts/settings-context";
 import { ProjectsProvider } from "@/contexts/projects-context";
+import { TasksProvider } from "@/contexts/tasks-context";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { MobileBottomNav } from "@/components/layout/MobileBottomNav";
 import { MobileFAB } from "@/components/layout/MobileFAB";
@@ -31,6 +32,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     <SidebarProvider>
       <SettingsProvider>
         <ProjectsProvider>
+        <TasksProvider>
         <ProfileLookupProvider>
         <ProjectChatUnreadProvider>
         <NotificationProvider>
@@ -58,6 +60,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </NotificationProvider>
         </ProjectChatUnreadProvider>
         </ProfileLookupProvider>
+        </TasksProvider>
         </ProjectsProvider>
       </SettingsProvider>
     </SidebarProvider>

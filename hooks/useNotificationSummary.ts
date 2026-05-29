@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { useProjects } from "@/hooks/useProjects";
-import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
+import { useNotificationDerivedTasks } from "@/hooks/useNotificationDerivedTasks";
 import { useAuth } from "@/contexts/auth-context";
 import { useProjectChatUnread } from "@/contexts/project-chat-unread-context";
 import { useToast } from "@/components/ui/toast";
@@ -44,6 +44,12 @@ import {
   notificationToastDedupKey,
   type AssignmentToastInput,
 } from "@/lib/notificationPhase2";
+import {
+  buildDerivedFallbackBadges,
+  buildDerivedNotificationAck,
+  buildDerivedUpsertItems,
+  normalizeNotificationEmail,
+} from "@/lib/notificationDerivedHelpers";
 
 export type NotificationSummaryItem = {
   type: NotificationType;
@@ -91,8 +97,8 @@ export function useNotificationSummary(): NotificationSummary {
   const canAdminNotifications = isAdmin && hasPermission("notifications.send");
   const currentUserEmail = user?.email ?? null;
   const userId = user?.id ?? null;
+  const normalizedEmail = normalizeNotificationEmail(currentUserEmail);
   const { projects, isLoading: projectsLoading } = useProjects();
-  const { tasks, isLoading: tasksLoading } = useTasksWithRealtime();
   const { unreadByProjectId, refresh: refreshChatUnread } = useProjectChatUnread();
 
   const [adminUnread, setAdminUnread] = useState<AdminAlertRow[]>([]);
@@ -111,6 +117,13 @@ export function useNotificationSummary(): NotificationSummary {
   const serverTriggersCheckedRef = useRef(false);
   const notificationToastBaselineRef = useRef(false);
   const toastedNotificationKeysRef = useRef<Set<string>>(new Set());
+
+  const derivedTasksEnabled =
+    !serverTriggersActive && !!userId && userId !== "demo" && normalizedEmail.length > 0;
+  const { tasks: notificationTasks, isLoading: notificationTasksLoading } = useNotificationDerivedTasks(
+    normalizedEmail || null,
+    derivedTasksEnabled
+  );
 
   // Duyurular (announcements) — herkes okur
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -422,7 +435,6 @@ export function useNotificationSummary(): NotificationSummary {
   useEffect(() => {
     if (!centralNotificationsAvailable || !userId || userId === "demo") return;
     if (!serverTriggersCheckedRef.current) return;
-    const email = (currentUserEmail ?? "").trim().toLowerCase();
     const items: Parameters<typeof upsertMyNotifications>[0] = [];
 
     for (const a of announcements) {
@@ -456,63 +468,8 @@ export function useNotificationSummary(): NotificationSummary {
       }
     }
 
-    // Faz 2 sunucu tetikleyicileri yoksa yedek: istemci türetilmiş atama/gecikme kayıtları.
-    if (!serverTriggersActive && email) {
-      const assignedProjects = projects.filter((p) =>
-        (p.assigned_emails ?? []).some((e) => e.trim().toLowerCase() === email)
-      );
-      const myTasks = tasks.filter((t) => (t.assignee ?? "").trim().toLowerCase() === email);
-      const today = new Date().toISOString().split("T")[0];
-      const overdueTasks = myTasks.filter(
-        (t) => t.due_date && String(t.due_date).trim() && String(t.due_date) < today
-      );
-
-      const seenProjects = new Set(derivedAck.projectIds);
-      const seenTasks = new Set(derivedAck.taskIds);
-      const seenOverdue = new Set(derivedAck.overdueTaskIds);
-
-      for (const p of assignedProjects.filter((p) => !seenProjects.has(p.id))) {
-        items.push({
-          type: "project_assigned",
-          title: `Size "${p.name}" projesi atandı`,
-          href: `/projeler/${p.id}`,
-          sourceTable: "projects",
-          sourceId: p.id,
-          sourceKey: `project_assigned:${p.id}`,
-        });
-      }
-
-      for (const t of myTasks.filter((t) => !seenTasks.has(t.id))) {
-        const href = t.project_id
-          ? `/canli-tablo?project=${t.project_id}&task=${t.id}`
-          : `/canli-tablo?task=${t.id}`;
-        items.push({
-          type: "task_assigned",
-          title: "Size yeni bir görev atandı",
-          body: t.content || null,
-          href,
-          sourceTable: "tasks",
-          sourceId: t.id,
-          sourceKey: `task_assigned:${t.id}`,
-          payload: { project_id: t.project_id ?? null },
-        });
-      }
-
-      for (const t of overdueTasks.filter((t) => !seenOverdue.has(t.id))) {
-        const href = t.project_id
-          ? `/canli-tablo?project=${t.project_id}&task=${t.id}`
-          : `/canli-tablo?task=${t.id}`;
-        items.push({
-          type: "overdue",
-          title: "Gecikmiş göreviniz var",
-          body: t.content || null,
-          href,
-          sourceTable: "tasks",
-          sourceId: t.id,
-          sourceKey: `overdue:${t.id}`,
-          payload: { due_date: t.due_date ?? null, project_id: t.project_id ?? null },
-        });
-      }
+    if (!serverTriggersActive && normalizedEmail) {
+      items.push(...buildDerivedUpsertItems(projects, notificationTasks, normalizedEmail, derivedAck));
     }
 
     for (const p of projects) {
@@ -538,17 +495,17 @@ export function useNotificationSummary(): NotificationSummary {
   }, [
     centralNotificationsAvailable,
     userId,
-    currentUserEmail,
     announcements,
     readAnnouncementIds,
     canAdminNotifications,
     adminUnread,
     projects,
-    tasks,
+    notificationTasks,
     derivedAck,
     unreadByProjectId,
     fetchCentralNotifications,
     serverTriggersActive,
+    normalizedEmail,
   ]);
 
   const onPanelOpened = useCallback(async () => {
@@ -568,29 +525,15 @@ export function useNotificationSummary(): NotificationSummary {
     }
 
     if (!userId) return;
-    const email = (currentUserEmail ?? "").trim().toLowerCase();
-    if (!email) return;
+    if (!normalizedEmail) return;
 
-    const assignedProjects = projects.filter((p) =>
-      (p.assigned_emails ?? []).some((e) => e.trim().toLowerCase() === email)
-    );
-    const myTasks = tasks.filter((t) => (t.assignee ?? "").trim().toLowerCase() === email);
-    const today = new Date().toISOString().split("T")[0];
-    const overdueTasks = myTasks.filter(
-      (t) => t.due_date && String(t.due_date).trim() && String(t.due_date) < today
-    );
-
-    const next: DerivedNotificationAck = {
-      projectIds: assignedProjects.map((p) => p.id),
-      taskIds: myTasks.map((t) => t.id),
-      overdueTaskIds: overdueTasks.map((t) => t.id),
-    };
+    const next = buildDerivedNotificationAck(projects, notificationTasks, normalizedEmail);
     saveDerivedNotificationAck(userId, next);
     setDerivedAck(next);
     // NOT: Duyuruları (announcements) burada OKUNDU işaretlemiyoruz — kullanıcı
     // sadece dropdown'ı açtı diye duyurular silinmemeli. /bildirimler sayfasında
     // bireysel tıklama veya "Hepsini okundu işaretle" butonuyla manuel olarak işaretlenir.
-  }, [centralNotificationsAvailable, fetchCentralNotifications, userId, canAdminNotifications, currentUserEmail, projects, tasks]);
+  }, [centralNotificationsAvailable, fetchCentralNotifications, userId, canAdminNotifications, projects, notificationTasks, normalizedEmail]);
 
   const summary = useMemo(() => {
     if (centralNotificationsAvailable) {
@@ -612,7 +555,6 @@ export function useNotificationSummary(): NotificationSummary {
       return { totalCount, items };
     }
 
-    const email = (currentUserEmail ?? "").trim().toLowerCase();
     const items: NotificationSummaryItem[] = [];
 
     // TÜM duyurular items'a eklenir; okunmuş olanların count'u 0 — bu sayede
@@ -645,54 +587,14 @@ export function useNotificationSummary(): NotificationSummary {
       }
     }
 
-    if (email && !serverTriggersActive) {
-      const assignedProjects = projects.filter((p) =>
-        (p.assigned_emails ?? []).some((e) => e.trim().toLowerCase() === email)
-      );
-      const myTasks = tasks.filter((t) => (t.assignee ?? "").trim().toLowerCase() === email);
-      const today = new Date().toISOString().split("T")[0];
-      const overdueTasks = myTasks.filter(
-        (t) => t.due_date && String(t.due_date).trim() && String(t.due_date) < today
-      );
-
-      const seenProjects = new Set(derivedAck.projectIds);
-      const seenTasks = new Set(derivedAck.taskIds);
-      const seenOverdue = new Set(derivedAck.overdueTaskIds);
-
-      const newProjects = assignedProjects.filter((p) => !seenProjects.has(p.id));
-      const newTasks = myTasks.filter((t) => !seenTasks.has(t.id));
-      const newOverdue = overdueTasks.filter((t) => !seenOverdue.has(t.id));
-
-      if (newProjects.length > 0) {
-        items.push({
-          type: "project_assigned",
-          label:
-            newProjects.length === 1
-              ? "Size yeni bir proje atandı"
-              : `Size ${newProjects.length} yeni proje atandı`,
-          href: "/projeler",
-          count: newProjects.length,
-        });
-      }
-      if (newTasks.length > 0) {
-        items.push({
-          type: "task_assigned",
-          label:
-            newTasks.length === 1 ? "Size yeni bir görev atandı" : `Size ${newTasks.length} yeni görev atandı`,
-          href: "/canli-tablo",
-          count: newTasks.length,
-        });
-      }
-      if (newOverdue.length > 0) {
-        items.push({
-          type: "overdue",
-          label:
-            newOverdue.length === 1
-              ? "1 yeni gecikmiş görev"
-              : `${newOverdue.length} yeni gecikmiş görev`,
-          href: "/canli-tablo",
-          count: newOverdue.length,
-        });
+    if (normalizedEmail && !serverTriggersActive) {
+      for (const badge of buildDerivedFallbackBadges(
+        projects,
+        notificationTasks,
+        normalizedEmail,
+        derivedAck
+      )) {
+        items.push(badge);
       }
     }
 
@@ -718,9 +620,9 @@ export function useNotificationSummary(): NotificationSummary {
   }, [
     centralNotificationsAvailable,
     centralNotifications,
-    currentUserEmail,
+    normalizedEmail,
     projects,
-    tasks,
+    notificationTasks,
     canAdminNotifications,
     adminUnread,
     derivedAck,
@@ -804,7 +706,7 @@ export function useNotificationSummary(): NotificationSummary {
     ...summary,
     isLoading:
       projectsLoading ||
-      tasksLoading ||
+      (derivedTasksEnabled && notificationTasksLoading) ||
       centralNotificationsLoading ||
       (canAdminNotifications && adminAlertsLoading),
     onPanelOpened: userId ? () => void onPanelOpened() : undefined,

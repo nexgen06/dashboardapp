@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import {
   PROJECTS_FALLBACK_POLL_MS,
@@ -107,9 +107,12 @@ function mapRowToProject(row: Record<string, unknown>): Project {
 export type UseProjectsOptions = {
   /** true → arşivli projeler dahil; false (varsayılan) → yalnızca aktifler. */
   includeArchived?: boolean;
+  /** @internal ProjectsProvider aktifken — fetch/realtime devre dışı */
+  _skip?: boolean;
 };
 
 export function useProjectsInternal(options?: UseProjectsOptions) {
+  const skip = options?._skip === true;
   const includeArchived = options?.includeArchived === true;
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -153,11 +156,13 @@ export function useProjectsInternal(options?: UseProjectsOptions) {
   }, [includeArchived]);
 
   useEffect(() => {
+    if (skip) return;
     fetchProjects();
-  }, [fetchProjects]);
+  }, [fetchProjects, skip]);
 
   // Realtime: başka kullanıcıların proje ekleme/güncelleme/silme değişiklikleri anında yansır.
   useEffect(() => {
+    if (skip) return;
     if (isRealtimeDisabledForClient()) {
       setRealtimeConnected(false);
       return;
@@ -247,24 +252,26 @@ export function useProjectsInternal(options?: UseProjectsOptions) {
       setRealtimeConnected(false);
       supabase.removeChannel(channel);
     };
-  }, [fetchProjects]);
+  }, [fetchProjects, includeArchived, skip]);
 
   // Kurumsal ağlarda WebSocket engellenirse proje listesi HTTPS ile tazelenir.
   useEffect(() => {
+    if (skip) return;
     if (realtimeConnected) return;
     const interval = window.setInterval(() => {
       if (shouldPollInBrowser()) void fetchProjects();
     }, PROJECTS_FALLBACK_POLL_MS);
     return () => window.clearInterval(interval);
-  }, [realtimeConnected, fetchProjects]);
+  }, [realtimeConnected, fetchProjects, skip]);
 
   // Sekme tekrar odaklandığında proje listesini tazele
   useEffect(() => {
+    if (skip) return;
     const onFocus = () => fetchProjects();
     if (typeof window === "undefined") return;
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [fetchProjects]);
+  }, [fetchProjects, skip]);
 
   const createProject = useCallback(
     async (payload: {
@@ -519,15 +526,28 @@ export function useProjectsInternal(options?: UseProjectsOptions) {
     []
   );
 
-  return {
-    projects,
-    isLoading,
-    error,
-    fetchProjects,
-    createProject,
-    updateProject,
-    deleteProject,
-    archiveProject,
-    unarchiveProject,
-  };
+  return useMemo(
+    () => ({
+      projects,
+      isLoading,
+      error,
+      fetchProjects,
+      createProject,
+      updateProject,
+      deleteProject,
+      archiveProject,
+      unarchiveProject,
+    }),
+    [
+      projects,
+      isLoading,
+      error,
+      fetchProjects,
+      createProject,
+      updateProject,
+      deleteProject,
+      archiveProject,
+      unarchiveProject,
+    ]
+  );
 }

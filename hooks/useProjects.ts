@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   filterProjectsByArchived,
   useProjectsContextOptional,
@@ -14,14 +15,22 @@ export type { UseProjectsOptions } from "@/hooks/useProjectsInternal";
  */
 export function useProjects(options?: UseProjectsOptions) {
   const shared = useProjectsContextOptional();
-  if (shared) {
-    const includeArchived = options?.includeArchived === true;
-    return {
-      ...shared,
-      projects: filterProjectsByArchived(shared.projects, includeArchived),
-    };
-  }
-  return useProjectsInternal(options);
+  const includeArchived = options?.includeArchived === true;
+  const standalone = useProjectsInternal(
+    shared ? { includeArchived: true, _skip: true } : options
+  );
+
+  const filteredProjects = useMemo(() => {
+    if (!shared) return null;
+    return filterProjectsByArchived(shared.projects, includeArchived);
+  }, [shared?.projects, includeArchived]);
+
+  return useMemo(() => {
+    if (shared && filteredProjects) {
+      return { ...shared, projects: filteredProjects };
+    }
+    return standalone;
+  }, [shared, filteredProjects, standalone]);
 }
 
 export { useProjectsInternal } from "@/hooks/useProjectsInternal";

@@ -40,7 +40,7 @@ Her sonraki faz PR'ından önce **Smoke test** ve `npm test` + `npm run build` k
 
 | Öncelik | Dosya | Not |
 |---------|-------|-----|
-| **Global shell** | `hooks/useNotificationSummary.ts` | Faz 4'te kaldırılacak |
+| **Global shell** | `hooks/useNotificationSummary.ts` | Faz 4: hafif `useNotificationDerivedTasks` |
 | Sayfa | `app/gorevlerim/page.tsx` | |
 | Sayfa | `app/raporlar/page.tsx` | |
 | Sayfa | `app/yonetim/gorev-istatistikleri/page.tsx` | |
@@ -57,7 +57,7 @@ Her sonraki faz PR'ından önce **Smoke test** ve `npm test` + `npm run build` k
 | Bileşen | `components/TasksRiskView.tsx` | |
 | Bileşen | `components/layout/MobileFAB.tsx` | |
 
-**Kaynak dosyalar:** `hooks/useProjects.ts`, `hooks/useTasksWithRealtime.ts`
+**Kaynak dosyalar:** `hooks/useProjects.ts`, `hooks/useProjectsInternal.ts`, `hooks/useTasksWithRealtime.ts`, `hooks/useTasksInternal.ts`
 
 ---
 
@@ -65,10 +65,11 @@ Her sonraki faz PR'ından önce **Smoke test** ve `npm test` + `npm run build` k
 
 | Dosya | Satır (yaklaşık) | Hedef faz |
 |-------|------------------|-----------|
-| `components/TasksTable.tsx` | ~8.100 | Faz 7 |
-| `components/ProjectsSection.tsx` | ~3.600 | Faz 6 |
-| `app/ayarlar/page.tsx` | ~1.400 | Faz 5 |
-| `app/yonetim/otomasyon-merkezi/page.tsx` | ~1.400 | Faz 5 |
+| `components/TasksTable.tsx` | ~1.130 | Faz 9 ✅ shell inceltme |
+| `components/ProjectsSection.tsx` | ~480 | Faz 6 ✅ |
+| `app/ayarlar/page.tsx` | ~210 | Faz 5 ✅ |
+| `app/yonetim/otomasyon-merkezi/page.tsx` | ~5 | Faz 5 ✅ |
+| `components/automation/AutomationCenterView.tsx` | ~1.280 | Faz 5 |
 | `hooks/useNotificationSummary.ts` | ~820 | Faz 4 |
 
 ---
@@ -133,4 +134,10 @@ Refactor öncesi kritik `lib/` modülleri:
 **Faz 0:** ✅ Tamamlandı  
 **Faz 1:** ✅ Tamamlandı (`ProjectFormModal`, `SubtitleColumnsPicker`, `lib/projectFormHelpers`)  
 **Faz 2:** ✅ `ProjectsProvider` — AppLayout'ta tek paylaşımlı proje fetch + Realtime  
-**Sırada — Faz 3:** `TasksProvider`
+**Faz 3:** ✅ `TasksProvider` — AppLayout'ta tek paylaşımlı görev fetch + Realtime  
+**Faz 4:** ✅ `useNotificationSummary` — tam görev listesi yerine hafif assignee sorgusu  
+**Faz 5:** ✅ Ayarlar sekmeleri + Otomasyon Merkezi view/helpers ayrımı  
+**Faz 6:** ✅ `ProjectsSection` — toolbar, kart, form submit, filtre modülleri  
+**Faz 7:** ✅ `TasksTable` — filtre/export/kolon seçici/action bar, toplu seçim, tablo gövdesi, ek sütun kaldırma diyaloğu  
+**Faz 8:** ✅ Hook ayrımı — `useTasksTableFilters`, `useTasksTableBulkSelection`, `useTasksTableColumnPrefs`, `useTasksTableExport`, `TasksTableDialogs`  
+**Faz 9:** ✅ Shell inceltme — `useTasksTableDataLayer`, `Permissions`, `Workflow`, `Spotlight`, `SavedViews`, `RowHandlers`, `KeyboardShortcuts`, `RemoveExtraColumn`, `TasksTableTopStrip`
