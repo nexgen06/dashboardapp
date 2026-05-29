@@ -145,6 +145,7 @@ export function useTasksTableRowHandlers({
     try {
       await deleteTasks(ids);
       toast.success(`${ids.length} boş satır silindi`, {
+        durationMs: 6000, // standart undo süresi
         action: {
           label: "Geri al",
           onClick: async () => {
@@ -318,6 +319,7 @@ export function useTasksTableRowHandlers({
       try {
         await deleteTask(taskId);
         toast.success("Görev silindi", {
+          durationMs: 6000, // standart undo süresi
           action: backup
             ? {
                 label: "Geri al",

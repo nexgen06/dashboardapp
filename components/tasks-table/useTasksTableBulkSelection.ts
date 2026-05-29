@@ -5,9 +5,9 @@ import type { RowSelectionState, Table } from "@tanstack/react-table";
 import type { Task } from "@/types/tasks";
 
 type ToastApi = {
-  error: (msg: string, opts?: { action?: { label: string; onClick: () => void | Promise<void> } }) => void;
-  success: (msg: string, opts?: { action?: { label: string; onClick: () => void | Promise<void> } }) => void;
-  info: (msg: string) => void;
+  error: (msg: string, opts?: { action?: { label: string; onClick: () => void | Promise<void> }; durationMs?: number }) => void;
+  success: (msg: string, opts?: { action?: { label: string; onClick: () => void | Promise<void> }; durationMs?: number }) => void;
+  info: (msg: string, opts?: { action?: { label: string; onClick: () => void | Promise<void> }; durationMs?: number }) => void;
 };
 
 export type UseTasksTableBulkSelectionOptions = {
@@ -73,6 +73,7 @@ export function useTasksTableBulkSelection({
       await deleteTasks(deletableIds);
       setRowSelection({});
       toast.success(`${deletableIds.length} görev silindi`, {
+        durationMs: 6000, // standart undo süresi (Linear/Notion 6sn)
         action:
           backups.length > 0
             ? {
@@ -126,6 +127,76 @@ export function useTasksTableBulkSelection({
     toast,
   ]);
 
+  /**
+   * Generic bulk field update + undo snapshot.
+   * Tek noktada status / assignee / priority gibi tek-alanlı toplu işlemleri yönetir.
+   * Snapshot tutar; başarılı toast'a "Geri al" aksiyonu ekler.
+   */
+  const performBulkUpdate = useCallback(
+    async <K extends "status" | "assignee" | "priority">(
+      field: K,
+      newValue: Task[K],
+      labels: {
+        success: (n: number) => string;
+        undoSuccess: (n: number) => string;
+        skipped?: string;
+      }
+    ) => {
+      // Snapshot — geri al için eski değerleri sakla
+      type Snap = { id: string; old: Task[K] };
+      const snapshots: Snap[] = [];
+      let fail = 0;
+      let skipped = 0;
+
+      for (const t of selectedTasks) {
+        if (!canBulkUpdateRow(t)) {
+          skipped += 1;
+          continue;
+        }
+        snapshots.push({ id: t.id, old: t[field] as Task[K] });
+        updateTaskOptimistic(t.id, { [field]: newValue, last_updated_by: "anon" } as Partial<Task>);
+        const r = await saveTask(t.id, { [field]: newValue, last_updated_by: "anon" } as Partial<Task>);
+        if (!r.ok) fail += 1;
+      }
+
+      const updated = snapshots.length - fail;
+
+      if (fail > 0) {
+        toast.error(
+          `${fail} görev güncellenemedi${updated > 0 ? ` (${updated} güncellendi)` : ""}`
+        );
+      } else if (updated > 0) {
+        // Başarılı toast + Geri al aksiyonu (6sn)
+        toast.success(labels.success(updated), {
+          durationMs: 6000,
+          action: {
+            label: "Geri al",
+            onClick: () => {
+              void (async () => {
+                let undoFail = 0;
+                for (const snap of snapshots) {
+                  updateTaskOptimistic(snap.id, { [field]: snap.old, last_updated_by: "anon" } as Partial<Task>);
+                  const r = await saveTask(snap.id, { [field]: snap.old, last_updated_by: "anon" } as Partial<Task>);
+                  if (!r.ok) undoFail += 1;
+                }
+                if (undoFail > 0) {
+                  toast.error(`${undoFail} görev geri yüklenemedi`);
+                } else {
+                  toast.info(labels.undoSuccess(snapshots.length));
+                }
+              })();
+            },
+          },
+        });
+      }
+      if (skipped > 0) {
+        toast.info(labels.skipped ?? `${skipped} görev yetki nedeniyle atlandı.`);
+      }
+      setRowSelection({});
+    },
+    [selectedTasks, canBulkUpdateRow, saveTask, updateTaskOptimistic, setRowSelection, toast]
+  );
+
   const handleBulkStatusUpdate = useCallback(
     async (status: string) => {
       if (!canBulkUpdate) {
@@ -134,30 +205,13 @@ export function useTasksTableBulkSelection({
         return;
       }
       setBulkStatusOpen(false);
-      let fail = 0;
-      let skipped = 0;
-      for (const t of selectedTasks) {
-        if (!canBulkUpdateRow(t)) {
-          skipped += 1;
-          continue;
-        }
-        updateTaskOptimistic(t.id, { status, last_updated_by: "anon" });
-        const r = await saveTask(t.id, { status, last_updated_by: "anon" });
-        if (!r.ok) fail += 1;
-      }
-      if (fail > 0) {
-        toast.error(
-          `${fail} görev güncellenemedi${fail < selectedTasks.length ? ` (${selectedTasks.length - fail} güncellendi)` : ""}`
-        );
-      } else if (selectedTasks.length - skipped > 0) {
-        toast.success(`${selectedTasks.length - skipped} görevin durumu güncellendi`);
-      }
-      if (skipped > 0) {
-        toast.info(`${skipped} görev atama yetkisi nedeniyle atlandı.`);
-      }
-      setRowSelection({});
+      await performBulkUpdate("status", status, {
+        success: (n) => `${n} görevin durumu güncellendi`,
+        undoSuccess: (n) => `${n} görev eski durumuna döndürüldü`,
+        skipped: undefined,
+      });
     },
-    [selectedTasks, canBulkUpdate, canBulkUpdateRow, saveTask, updateTaskOptimistic, setRowSelection, toast]
+    [canBulkUpdate, performBulkUpdate, setBulkStatusOpen, toast]
   );
 
   /** Toplu atama (assignee). null geçilirse atamayı kaldırır. */
@@ -167,31 +221,13 @@ export function useTasksTableBulkSelection({
         toast.error("Toplu güncelleme yetkiniz yok.");
         return;
       }
-      let fail = 0;
-      let skipped = 0;
-      for (const t of selectedTasks) {
-        if (!canBulkUpdateRow(t)) {
-          skipped += 1;
-          continue;
-        }
-        updateTaskOptimistic(t.id, { assignee, last_updated_by: "anon" });
-        const r = await saveTask(t.id, { assignee, last_updated_by: "anon" });
-        if (!r.ok) fail += 1;
-      }
-      const updated = selectedTasks.length - skipped - fail;
-      if (fail > 0) {
-        toast.error(`${fail} görev güncellenemedi${updated > 0 ? ` (${updated} güncellendi)` : ""}`);
-      } else if (updated > 0) {
-        toast.success(
-          assignee
-            ? `${updated} görev "${assignee}" kullanıcısına atandı`
-            : `${updated} görevin ataması kaldırıldı`
-        );
-      }
-      if (skipped > 0) toast.info(`${skipped} görev yetki nedeniyle atlandı.`);
-      setRowSelection({});
+      await performBulkUpdate("assignee", assignee, {
+        success: (n) =>
+          assignee ? `${n} görev "${assignee}" kullanıcısına atandı` : `${n} görevin ataması kaldırıldı`,
+        undoSuccess: (n) => `${n} görevin önceki ataması geri yüklendi`,
+      });
     },
-    [selectedTasks, canBulkUpdate, canBulkUpdateRow, saveTask, updateTaskOptimistic, setRowSelection, toast]
+    [canBulkUpdate, performBulkUpdate, toast]
   );
 
   /** Toplu öncelik güncelle. Boş string → temizle. */
@@ -202,31 +238,13 @@ export function useTasksTableBulkSelection({
         return;
       }
       const newPriority = priority.trim() || null;
-      let fail = 0;
-      let skipped = 0;
-      for (const t of selectedTasks) {
-        if (!canBulkUpdateRow(t)) {
-          skipped += 1;
-          continue;
-        }
-        updateTaskOptimistic(t.id, { priority: newPriority, last_updated_by: "anon" });
-        const r = await saveTask(t.id, { priority: newPriority, last_updated_by: "anon" });
-        if (!r.ok) fail += 1;
-      }
-      const updated = selectedTasks.length - skipped - fail;
-      if (fail > 0) {
-        toast.error(`${fail} görev güncellenemedi${updated > 0 ? ` (${updated} güncellendi)` : ""}`);
-      } else if (updated > 0) {
-        toast.success(
-          newPriority
-            ? `${updated} görev "${newPriority}" önceliğine alındı`
-            : `${updated} görevin önceliği temizlendi`
-        );
-      }
-      if (skipped > 0) toast.info(`${skipped} görev yetki nedeniyle atlandı.`);
-      setRowSelection({});
+      await performBulkUpdate("priority", newPriority, {
+        success: (n) =>
+          newPriority ? `${n} görev "${newPriority}" önceliğine alındı` : `${n} görevin önceliği temizlendi`,
+        undoSuccess: (n) => `${n} görevin önceki önceliği geri yüklendi`,
+      });
     },
-    [selectedTasks, canBulkUpdate, canBulkUpdateRow, saveTask, updateTaskOptimistic, setRowSelection, toast]
+    [canBulkUpdate, performBulkUpdate, toast]
   );
 
   return {
