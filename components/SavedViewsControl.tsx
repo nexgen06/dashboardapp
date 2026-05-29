@@ -10,6 +10,7 @@ import {
   Loader2,
   Lock,
   Pencil,
+  Star,
   Trash2,
   X,
 } from "lucide-react";
@@ -33,10 +34,13 @@ import {
 import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/modals";
 import {
+  clearProjectDefaultSavedView,
   createSavedView,
   deleteSavedView,
   isSameViewConfig,
+  isViewProjectDefaultFor,
   listSavedViews,
+  setProjectDefaultSavedView,
   updateSavedView,
   type SavedView,
   type SavedViewConfig,
@@ -55,6 +59,10 @@ type Props = {
   userId: string | null;
   /** v1: "live_table" */
   target?: string;
+  /** Tek proje seçiliyken proje varsayılanı yönetimi gösterilir. */
+  projectId?: string | null;
+  /** Dışarıdan uygulanan görünüm (örn. proje varsayılanı otomatik yükleme). */
+  syncActiveViewId?: string | null;
 };
 
 export function SavedViewsControl({
@@ -63,6 +71,8 @@ export function SavedViewsControl({
   isAdmin,
   userId,
   target = "live_table",
+  projectId = null,
+  syncActiveViewId = null,
 }: Props) {
   const toast = useToast();
   const confirm = useConfirm();
@@ -92,6 +102,16 @@ export function SavedViewsControl({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!syncActiveViewId) return;
+    const v = views.find((x) => x.id === syncActiveViewId);
+    if (v) {
+      setActiveViewId(v.id);
+      setActiveBaseConfig(v.config);
+      setIsDirty(false);
+    }
+  }, [syncActiveViewId, views]);
 
   const activeView = useMemo(
     () => (activeViewId ? views.find((v) => v.id === activeViewId) ?? null : null),
@@ -213,6 +233,39 @@ export function SavedViewsControl({
   const canManage = (v: SavedView) =>
     v.userId === userId || (v.scope === "shared" && isAdmin);
 
+  const projectDefaultView = useMemo(
+    () => (projectId ? views.find((v) => isViewProjectDefaultFor(v, projectId)) ?? null : null),
+    [projectId, views]
+  );
+
+  const handleSetProjectDefault = async (v: SavedView) => {
+    if (!projectId) return;
+    if (v.scope !== "shared") {
+      toast.error("Proje varsayılanı için görünüm paylaşılan olmalı.");
+      return;
+    }
+    try {
+      const updated = await setProjectDefaultSavedView(projectId, v.id);
+      await refresh();
+      setActiveViewId(updated.id);
+      setActiveBaseConfig(updated.config);
+      toast.success(`"${updated.name}" proje varsayılanı yapıldı`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Varsayılan atanamadı");
+    }
+  };
+
+  const handleClearProjectDefault = async () => {
+    if (!projectId) return;
+    try {
+      await clearProjectDefaultSavedView(projectId);
+      await refresh();
+      toast.success("Proje varsayılan görünüm kaldırıldı");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Varsayılan kaldırılamadı");
+    }
+  };
+
   const sharedViews = views.filter((v) => v.scope === "shared");
   const privateViews = views.filter((v) => v.scope === "private");
 
@@ -243,6 +296,18 @@ export function SavedViewsControl({
           <DropdownMenuLabel className="text-xs text-slate-500 dark:text-slate-400">
             Kayıtlı görünümler
           </DropdownMenuLabel>
+          {projectId && (
+            <div className="px-2 pb-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+              {projectDefaultView ? (
+                <span className="inline-flex items-center gap-1">
+                  <Star className="h-3 w-3 text-amber-500" aria-hidden />
+                  Proje varsayılanı: <strong className="font-medium text-slate-700 dark:text-slate-200">{projectDefaultView.name}</strong>
+                </span>
+              ) : (
+                "Bu proje için varsayılan görünüm atanmadı."
+              )}
+            </div>
+          )}
           <DropdownMenuSeparator />
           {loading && views.length === 0 ? (
             <div className="flex items-center gap-2 px-2 py-2 text-xs text-slate-500">
@@ -266,6 +331,7 @@ export function SavedViewsControl({
                       key={v.id}
                       view={v}
                       active={activeViewId === v.id}
+                      isProjectDefault={projectId ? isViewProjectDefaultFor(v, projectId) : false}
                       canManage={canManage(v)}
                       onApply={() => handleApply(v)}
                       onRename={() => openRename(v)}
@@ -286,6 +352,7 @@ export function SavedViewsControl({
                       key={v.id}
                       view={v}
                       active={activeViewId === v.id}
+                      isProjectDefault={false}
                       canManage={canManage(v)}
                       onApply={() => handleApply(v)}
                       onRename={() => openRename(v)}
@@ -306,6 +373,18 @@ export function SavedViewsControl({
             <DropdownMenuItem onClick={() => openOverwrite(activeView)}>
               <Check className="mr-2 h-4 w-4" aria-hidden />
               &quot;{activeView.name}&quot; üzerine yaz
+            </DropdownMenuItem>
+          )}
+          {projectId && activeView && canManage(activeView) && activeView.scope === "shared" && (
+            <DropdownMenuItem onClick={() => void handleSetProjectDefault(activeView)}>
+              <Star className="mr-2 h-4 w-4" aria-hidden />
+              Bu projeye varsayılan yap
+            </DropdownMenuItem>
+          )}
+          {projectId && projectDefaultView && (canManage(projectDefaultView) || isAdmin) && (
+            <DropdownMenuItem onClick={() => void handleClearProjectDefault()}>
+              <Star className="mr-2 h-4 w-4 opacity-50" aria-hidden />
+              Proje varsayılanını kaldır
             </DropdownMenuItem>
           )}
           {activeView && (
@@ -424,6 +503,7 @@ export function SavedViewsControl({
 function ViewRow({
   view,
   active,
+  isProjectDefault,
   canManage,
   onApply,
   onRename,
@@ -432,6 +512,7 @@ function ViewRow({
 }: {
   view: SavedView;
   active: boolean;
+  isProjectDefault: boolean;
   canManage: boolean;
   onApply: () => void;
   onRename: () => void;
@@ -460,6 +541,9 @@ function ViewRow({
           <Lock className="h-3 w-3 shrink-0 text-slate-400" aria-hidden />
         )}
         <span className="min-w-0 flex-1 truncate">{view.name}</span>
+        {isProjectDefault && (
+          <Star className="h-3 w-3 shrink-0 text-amber-500" aria-label="Proje varsayılanı" />
+        )}
         {active && <Check className="h-3.5 w-3.5 shrink-0 text-blue-600" aria-hidden />}
       </button>
       {canManage && (

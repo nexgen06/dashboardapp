@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Sheet,
   SheetContent,
@@ -66,6 +67,7 @@ import {
 import { TaskChipsPanel } from "@/components/chips/TaskChipsPanel";
 import { AutomationLogPanel } from "@/components/automation/AutomationLogPanel";
 import { TaskFilesPanel } from "@/components/files/TaskFilesPanel";
+import { buildProjectActivityTaskHref } from "@/lib/projectActivityTimeline";
 
 const EXTRA_DATA_LINK_KEY = "link";
 
@@ -251,6 +253,12 @@ export function TaskDetailSheet({
   const [auditLimit, setAuditLimit] = useState(50);
   /** Filtre: yalnızca alan değişikliği olan update'leri göster (insert/delete gizlenir). */
   const [auditOnlyChanges, setAuditOnlyChanges] = useState(false);
+  const auditSectionRef = useRef<HTMLElement | null>(null);
+
+  const handleShowFullHistory = useCallback(() => {
+    setAuditOnlyChanges(false);
+    auditSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
 
   // Görev değiştiğinde limit ve filtreyi sıfırla
   useEffect(() => {
@@ -565,8 +573,12 @@ export function TaskDetailSheet({
           )}
 
           {/* Aktivite timeline — audit_log üzerinden, realtime senkron */}
-          <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 dark:border-slate-700 dark:bg-slate-800/40">
-            <div className="mb-2 flex items-center justify-between gap-2">
+          <section
+            ref={auditSectionRef}
+            id={`task-audit-${task.id}`}
+            className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 dark:border-slate-700 dark:bg-slate-800/40"
+          >
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <h3 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 <History className="h-3 w-3" aria-hidden />
                 Aktivite
@@ -576,25 +588,55 @@ export function TaskDetailSheet({
                   </span>
                 )}
               </h3>
-              {auditLog.length > 0 && (
-                <label
-                  className={cn(
-                    "inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-0.5 text-[10px] font-medium transition-colors",
-                    auditOnlyChanges
-                      ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-600 dark:bg-blue-950/40 dark:text-blue-300"
-                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400"
-                  )}
-                  title="Sadece alan değişikliklerini göster (oluşturma/silme gizlenir)"
-                >
-                  <input
-                    type="checkbox"
-                    checked={auditOnlyChanges}
-                    onChange={(e) => setAuditOnlyChanges(e.target.checked)}
-                    className="h-3 w-3 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  Sadece değişiklikler
-                </label>
-              )}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {auditLog.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-[10px] text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+                    onClick={handleShowFullHistory}
+                    title="Tüm kayıtları göster ve bu bölüme kaydır"
+                  >
+                    Tam geçmiş
+                  </Button>
+                )}
+                {task.project_id && (
+                  <Button
+                    asChild
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1 px-2 text-[10px] text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+                  >
+                    <Link
+                      href={buildProjectActivityTaskHref(String(task.project_id), task.id)}
+                      onClick={() => onClose()}
+                    >
+                      Proje aktivitesi
+                      <ExternalLink className="h-3 w-3" aria-hidden />
+                    </Link>
+                  </Button>
+                )}
+                {auditLog.length > 0 && (
+                  <label
+                    className={cn(
+                      "inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-0.5 text-[10px] font-medium transition-colors",
+                      auditOnlyChanges
+                        ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-600 dark:bg-blue-950/40 dark:text-blue-300"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                    )}
+                    title="Sadece alan değişikliklerini göster (oluşturma/silme gizlenir)"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={auditOnlyChanges}
+                      onChange={(e) => setAuditOnlyChanges(e.target.checked)}
+                      className="h-3 w-3 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    Sadece değişiklikler
+                  </label>
+                )}
+              </div>
             </div>
             {auditLoading && auditLog.length === 0 ? (
               <div className="flex items-center gap-2 px-3 py-4 text-xs text-slate-500 dark:text-slate-400">

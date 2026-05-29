@@ -77,6 +77,21 @@ describe("filterProjectActivities", () => {
     expect(filtered.map((x) => x.id)).toEqual(["old"]);
   });
 
+  it("taskId filtresini uygular", () => {
+    const withSecondTask = [
+      ...items,
+      sampleItem({ id: "other-task", recordId: "task-99", taskLabel: "Bursa" }),
+    ];
+    const filtered = filterProjectActivities(withSecondTask, {
+      searchQuery: "",
+      filterKind: "all",
+      dateFilter: "all",
+      taskId: "task-99",
+      now,
+    });
+    expect(filtered.map((x) => x.id)).toEqual(["other-task"]);
+  });
+
   it("7 günlük tarih filtresini uygular", () => {
     const filtered = filterProjectActivities(items, {
       searchQuery: "",

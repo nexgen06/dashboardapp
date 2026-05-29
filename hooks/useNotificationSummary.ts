@@ -10,6 +10,7 @@ import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import {
   ADMIN_ALERTS_FALLBACK_POLL_MS,
   isRealtimeDisabledForClient,
+  NOTIFICATIONS_FALLBACK_POLL_MS,
   shouldPollInBrowser,
 } from "@/lib/realtimeFallback";
 import {
@@ -35,6 +36,14 @@ import {
   markAnnouncementRead as markAnnouncementReadFn,
   type Announcement,
 } from "@/lib/announcements";
+import {
+  collectAssignmentToasts,
+  fetchNotificationPhase2Status,
+  isNotificationPhase2Active,
+  shouldToastCentralNotification,
+  notificationToastDedupKey,
+  type AssignmentToastInput,
+} from "@/lib/notificationPhase2";
 
 export type NotificationSummaryItem = {
   type: NotificationType;
@@ -97,6 +106,12 @@ export function useNotificationSummary(): NotificationSummary {
   const centralNotificationsRef = useRef<CentralNotification[]>([]);
   centralNotificationsRef.current = centralNotifications;
 
+  /** Sunucu tetikleyicileri aktifse istemci türetilmiş atama/gecikme upsert'i atlanır. */
+  const [serverTriggersActive, setServerTriggersActive] = useState(false);
+  const serverTriggersCheckedRef = useRef(false);
+  const notificationToastBaselineRef = useRef(false);
+  const toastedNotificationKeysRef = useRef<Set<string>>(new Set());
+
   // Duyurular (announcements) — herkes okur
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [readAnnouncementIds, setReadAnnouncementIds] = useState<Set<string>>(new Set());
@@ -112,6 +127,42 @@ export function useNotificationSummary(): NotificationSummary {
     channelIdRef.current = `${Math.random().toString(36).slice(2, 10)}`;
   }
 
+  const toastAssignmentNotification = useCallback(
+    (row: AssignmentToastInput | Record<string, unknown>) => {
+      if (!shouldToastCentralNotification(row)) return;
+      const title = String(row.title ?? "Yeni bildirim");
+      const body = row.body != null ? String(row.body) : undefined;
+      const type = String(row.type ?? "");
+      const prefix =
+        type === "project_assigned"
+          ? "📁 "
+          : type === "task_assigned"
+            ? "✅ "
+            : type === "overdue"
+              ? "⏰ "
+              : "";
+      toast.info(`${prefix}${title}`, {
+        description: body,
+        durationMs: 6500,
+      });
+    },
+    [toast]
+  );
+
+  const processAssignmentToasts = useCallback(
+    (rows: CentralNotification[]) => {
+      const result = collectAssignmentToasts(rows, {
+        baselineReady: notificationToastBaselineRef.current,
+        seenKeys: toastedNotificationKeysRef.current,
+      });
+      notificationToastBaselineRef.current = result.baselineReady;
+      for (const row of result.toToast) {
+        toastAssignmentNotification(row);
+      }
+    },
+    [toastAssignmentNotification]
+  );
+
   const fetchCentralNotifications = useCallback(async () => {
     if (!isSupabaseConfigured() || !userId || userId === "demo") {
       setCentralNotifications([]);
@@ -126,10 +177,32 @@ export function useNotificationSummary(): NotificationSummary {
         return;
       }
       setCentralNotificationsAvailable(true);
+      processAssignmentToasts(result.data);
       setCentralNotifications(result.data);
     } finally {
       setCentralNotificationsLoading(false);
     }
+  }, [userId, processAssignmentToasts]);
+
+  useEffect(() => {
+    if (!userId || userId === "demo") {
+      setServerTriggersActive(false);
+      serverTriggersCheckedRef.current = false;
+      notificationToastBaselineRef.current = false;
+      toastedNotificationKeysRef.current = new Set();
+      return;
+    }
+    notificationToastBaselineRef.current = false;
+    toastedNotificationKeysRef.current = new Set();
+    let cancelled = false;
+    void fetchNotificationPhase2Status().then((status) => {
+      if (cancelled) return;
+      serverTriggersCheckedRef.current = true;
+      setServerTriggersActive(isNotificationPhase2Active(status));
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [userId]);
 
   useEffect(() => {
@@ -142,7 +215,7 @@ export function useNotificationSummary(): NotificationSummary {
     window.addEventListener("focus", onFocus);
     const interval = window.setInterval(() => {
       if (shouldPollInBrowser()) void fetchCentralNotifications();
-    }, 60_000);
+    }, NOTIFICATIONS_FALLBACK_POLL_MS);
     return () => {
       window.removeEventListener("focus", onFocus);
       window.clearInterval(interval);
@@ -157,7 +230,21 @@ export function useNotificationSummary(): NotificationSummary {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "notifications", filter: `recipient_id=eq.${userId}` },
-        () => {
+        (payload) => {
+          if (payload.eventType === "INSERT" || payload.eventType === "UPDATE") {
+            const row = payload.new as Record<string, unknown>;
+            if (shouldToastCentralNotification(row) && notificationToastBaselineRef.current) {
+              const key = notificationToastDedupKey({
+                source_key: row.source_key as string | null,
+                id: row.id as string | null,
+                updated_at: row.updated_at as string | null,
+              });
+              if (!toastedNotificationKeysRef.current.has(key)) {
+                toastedNotificationKeysRef.current.add(key);
+                toastAssignmentNotification(row);
+              }
+            }
+          }
           void fetchCentralNotifications();
         }
       )
@@ -165,7 +252,7 @@ export function useNotificationSummary(): NotificationSummary {
     return () => {
       void supabase.removeChannel(ch);
     };
-  }, [userId, fetchCentralNotifications]);
+  }, [userId, fetchCentralNotifications, toastAssignmentNotification]);
 
   const fetchAnnouncements = useCallback(async () => {
     if (!isSupabaseConfigured() || !userId || userId === "demo") {
@@ -334,6 +421,7 @@ export function useNotificationSummary(): NotificationSummary {
 
   useEffect(() => {
     if (!centralNotificationsAvailable || !userId || userId === "demo") return;
+    if (!serverTriggersCheckedRef.current) return;
     const email = (currentUserEmail ?? "").trim().toLowerCase();
     const items: Parameters<typeof upsertMyNotifications>[0] = [];
 
@@ -368,7 +456,8 @@ export function useNotificationSummary(): NotificationSummary {
       }
     }
 
-    if (email) {
+    // Faz 2 sunucu tetikleyicileri yoksa yedek: istemci türetilmiş atama/gecikme kayıtları.
+    if (!serverTriggersActive && email) {
       const assignedProjects = projects.filter((p) =>
         (p.assigned_emails ?? []).some((e) => e.trim().toLowerCase() === email)
       );
@@ -386,7 +475,7 @@ export function useNotificationSummary(): NotificationSummary {
         items.push({
           type: "project_assigned",
           title: `Size "${p.name}" projesi atandı`,
-          href: "/projeler",
+          href: `/projeler/${p.id}`,
           sourceTable: "projects",
           sourceId: p.id,
           sourceKey: `project_assigned:${p.id}`,
@@ -394,11 +483,14 @@ export function useNotificationSummary(): NotificationSummary {
       }
 
       for (const t of myTasks.filter((t) => !seenTasks.has(t.id))) {
+        const href = t.project_id
+          ? `/canli-tablo?project=${t.project_id}&task=${t.id}`
+          : `/canli-tablo?task=${t.id}`;
         items.push({
           type: "task_assigned",
           title: "Size yeni bir görev atandı",
           body: t.content || null,
-          href: "/canli-tablo",
+          href,
           sourceTable: "tasks",
           sourceId: t.id,
           sourceKey: `task_assigned:${t.id}`,
@@ -407,11 +499,14 @@ export function useNotificationSummary(): NotificationSummary {
       }
 
       for (const t of overdueTasks.filter((t) => !seenOverdue.has(t.id))) {
+        const href = t.project_id
+          ? `/canli-tablo?project=${t.project_id}&task=${t.id}`
+          : `/canli-tablo?task=${t.id}`;
         items.push({
           type: "overdue",
           title: "Gecikmiş göreviniz var",
           body: t.content || null,
-          href: "/canli-tablo",
+          href,
           sourceTable: "tasks",
           sourceId: t.id,
           sourceKey: `overdue:${t.id}`,
@@ -453,6 +548,7 @@ export function useNotificationSummary(): NotificationSummary {
     derivedAck,
     unreadByProjectId,
     fetchCentralNotifications,
+    serverTriggersActive,
   ]);
 
   const onPanelOpened = useCallback(async () => {
@@ -549,7 +645,7 @@ export function useNotificationSummary(): NotificationSummary {
       }
     }
 
-    if (email) {
+    if (email && !serverTriggersActive) {
       const assignedProjects = projects.filter((p) =>
         (p.assigned_emails ?? []).some((e) => e.trim().toLowerCase() === email)
       );
@@ -631,6 +727,7 @@ export function useNotificationSummary(): NotificationSummary {
     unreadByProjectId,
     announcements,
     readAnnouncementIds,
+    serverTriggersActive,
   ]);
 
   /**

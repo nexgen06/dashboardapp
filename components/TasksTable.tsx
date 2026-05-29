@@ -57,6 +57,58 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { OnlineUsersPanel } from "@/components/OnlineUsersPanel";
 import { ExportFormatButton, ExportToggleSwitch } from "@/components/tasks-table/ExportModalControls";
+import {
+  STATUS_OPTIONS,
+  STATUS_FILTER_OPTIONS,
+  PAGE_SIZE_OPTIONS,
+  REFERENCE_WARNINGS_KEY,
+  INTERNAL_EXTRA_DATA_KEYS,
+  EMPTY_CHIP_CATALOG,
+  COLUMN_LABELS,
+  COLUMN_VISIBILITY_LABELS,
+  CANLI_TABLO_COLUMN_ORDER,
+  BASE_COLUMN_ORDER_STABLE,
+  DEFAULT_LIVE_TABLE_COLUMN_VISIBILITY,
+  LIVE_TABLE_DENSITY_UI,
+  LIVE_TABLE_TEMPLATE_UI,
+  MODERN_DENSITY_UI,
+  builtinReportTemplateSelection,
+  customReportTemplateSelection,
+  managedReportTemplateSelection,
+  type ReportTemplateSelection,
+} from "@/components/tasks-table/constants";
+import { computeBalancedColumnSizing, measureIntrinsicColumnWidths } from "@/components/tasks-table/columnSizing";
+import {
+  parseSpotlightDescriptor,
+  isSpotlightDescriptorActive,
+  taskValueForSpotlight,
+  isSpotlightCellMatch,
+  normalizeSpotlightToken,
+  type SpotlightDescriptor,
+} from "@/components/tasks-table/spotlight";
+import { normalizeSortText } from "@/components/tasks-table/sortText";
+import {
+  STATUS_DOT_CLASS,
+  STATUS_BADGE_STYLES,
+  STATUS_BADGE_STYLES_MODERN,
+  PRIORITY_STYLES,
+  getStatusDisplay,
+  isTaskCompleted,
+  rawStatusIsCompleted,
+  resolveRestoreStatus,
+} from "@/components/tasks-table/statusHelpers";
+import { TaskStats } from "@/components/tasks-table/TaskStats";
+import { SelectAllCheckbox } from "@/components/tasks-table/SelectAllCheckbox";
+import { EditableCell, cssAttrValue } from "@/components/tasks-table/EditableCell";
+import { StatusCell } from "@/components/tasks-table/StatusCell";
+import { TaskFormDialog } from "@/components/tasks-table/TaskFormDialog";
+import { CSVImportDialog } from "@/components/tasks-table/CSVImportDialog";
+import {
+  EXTRA_DATA_LINK_KEY,
+  isSafeUrl,
+  type TaskFormData,
+} from "@/components/tasks-table/taskFormHelpers";
+import type { TasksTableProps, ActiveEditableCell } from "@/components/tasks-table/types";
 import { presenceEditorLines } from "@/lib/userDisplayName";
 import { formatDate } from "@/lib/formatDate";
 import { getRelativeTime } from "@/lib/relativeTime";
@@ -120,11 +172,16 @@ import { TaskCardMobile } from "@/components/TaskCardMobile";
 import { TaskDetailSheet } from "@/components/TaskDetailSheet";
 import { ChipSelectCell } from "@/components/chips/ChipBadge";
 import { SavedViewsControl } from "@/components/SavedViewsControl";
-import { listSavedViews, type SavedView, type SavedViewConfig } from "@/lib/savedViews";
+import { listSavedViews, getProjectDefaultSavedView, type SavedView, type SavedViewConfig } from "@/lib/savedViews";
 import { urgentPrioritySetFromCsv, isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
 import { canEditTaskRow } from "@/lib/taskRowPermissions";
 import { listProjectColumns, type ProjectColumn } from "@/lib/projectColumns";
 import { listReferenceSources, type ReferenceSource } from "@/lib/referenceSources";
+import {
+  referenceWarningsFromRecord,
+  resolveReferenceTargetKey,
+  valuesMatch,
+} from "@/lib/referenceExtraDataEnrichment";
 import {
   buildChipValueResolver,
   getChipOptionsForColumn,
@@ -172,786 +229,9 @@ import { usePrompt } from "@/components/ui/modals";
 import { notifyWorkflowEvent } from "@/lib/notifications";
 import { Plus, PlusCircle, MoreVertical, MoreHorizontal, Trash2, Download, Columns3, Upload, GripVertical, Maximize2, Minimize2, Search, X, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, User, Loader2, ListTodo, RotateCw, RotateCcw, Filter, Shrink, Expand, AlertTriangle, Calendar, CalendarDays, CalendarClock, CalendarRange, Flame, UserCheck, UserX, ChevronDown, Circle, CheckCircle2, SlidersHorizontal, ExternalLink, ClipboardList, FileUp, Rows3, Copy, Check, ListFilter, FolderKanban, Eye, Mail, MessageSquare, Printer, Activity, Table2, Lock, LockKeyhole, Unlock, Sunrise, History, ArrowRight, Zap, FileText } from "lucide-react";
 
-const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
-const STATUS_FILTER_OPTIONS = ["Tümü", "Yapılacak", "Devam ediyor", "Devam", "Tamamlandı"] as const;
-const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
-const REFERENCE_WARNINGS_KEY = "__reference_warnings";
-const INTERNAL_EXTRA_DATA_KEYS = new Set([REFERENCE_WARNINGS_KEY]);
-const EMPTY_CHIP_CATALOG: ChipCatalog = { templates: [], options: [], bindings: [] };
-
-type SpotlightDescriptor = {
-  columnKey: string;
-  values: string[];
-  badgeColor: string;
-  startsAt: string | null;
-  endsAt: string | null;
-};
-
-function normalizeSpotlightToken(value: unknown): string {
-  return String(value ?? "").trim().toLocaleLowerCase("tr");
-}
-
-function parseSpotlightDescriptor(rule: AutomationRule): SpotlightDescriptor[] {
-  return rule.actions.flatMap((action) => {
-    if (action.actionType !== "color_row") return [];
-    const spotlight = Boolean(action.payload?.spotlight);
-    if (!spotlight) return [];
-    const columnKey = String(action.payload?.spotlightColumn ?? "").trim();
-    const values = Array.isArray(action.payload?.spotlightValues)
-      ? action.payload.spotlightValues.map((item) => String(item).trim()).filter(Boolean)
-      : [];
-    if (!columnKey || values.length === 0) return [];
-    const badgeColor = String(action.payload?.rowColor ?? action.payload?.color ?? "purple").trim().toLowerCase();
-    const startsAtRaw = String(action.payload?.spotlightStartsAt ?? "").trim();
-    const endsAtRaw = String(action.payload?.spotlightEndsAt ?? "").trim();
-    return [{ columnKey, values, badgeColor, startsAt: startsAtRaw || null, endsAt: endsAtRaw || null }];
-  });
-}
-
-function isSpotlightDescriptorActive(descriptor: SpotlightDescriptor, nowMs: number): boolean {
-  if (descriptor.startsAt) {
-    const startMs = new Date(descriptor.startsAt).getTime();
-    if (Number.isFinite(startMs) && nowMs < startMs) return false;
-  }
-  if (!descriptor.endsAt) return true;
-  const endMs = new Date(descriptor.endsAt).getTime();
-  if (Number.isNaN(endMs)) return true;
-  return nowMs <= endMs;
-}
-
-function taskValueForSpotlight(task: Task, columnKey: string): string {
-  const key = columnKey.trim();
-  if (!key) return "";
-  const normalized = normalizeSpotlightToken(key);
-  if (normalized === "content" || normalized === "açıklama" || normalized === "aciklama") return String(task.content ?? "");
-  if (normalized === "status" || normalized === "durum") return String(task.status ?? "");
-  if (normalized === "assignee" || normalized === "atanan") return String(task.assignee ?? "");
-  if (normalized === "priority" || normalized === "oncelik" || normalized === "öncelik") return String(task.priority ?? "");
-  if (normalized === "project" || normalized === "proje") return String(task.project_name ?? "");
-  return String(task.extra_data?.[key] ?? "");
-}
-
-function isSpotlightCellMatch(descriptor: SpotlightDescriptor, columnKey: string, value: string): boolean {
-  if (normalizeSpotlightToken(descriptor.columnKey) !== normalizeSpotlightToken(columnKey)) return false;
-  const normalizedValue = normalizeSpotlightToken(value);
-  if (!normalizedValue) return false;
-  return descriptor.values.some((candidate) => normalizeSpotlightToken(candidate) === normalizedValue);
-}
-type ReportTemplateSelection = `builtin:${ReportTemplateId}` | `custom:${string}` | `managed:${string}`;
-
-function builtinReportTemplateSelection(id: ReportTemplateId): ReportTemplateSelection {
-  return `builtin:${id}`;
-}
-
-function customReportTemplateSelection(id: string): ReportTemplateSelection {
-  return `custom:${id}`;
-}
-
-function managedReportTemplateSelection(id: string): ReportTemplateSelection {
-  return `managed:${id}`;
-}
-
-/** Kolon id -> export/visibility etiketi (veri sütunları) */
-const COLUMN_LABELS: Record<string, string> = {
-  content: "Açıklama",
-  status: "Durum",
-  workflow: "Onay",
-  assignee: "Atanan",
-  priority: "Öncelik",
-  project: "Proje",
-  updated: "Son güncelleme",
-};
-
-/** Kolon id -> görünürlük menüsünde gösterilecek etiket (tüm sütunlar) */
-const COLUMN_VISIBILITY_LABELS: Record<string, string> = {
-  select: "Seçim",
-  status: "Durum",
-  workflow: "Onay",
-  content: "Açıklama",
-  project: "Proje",
-  actions: "İşlemler",
-};
-
-const CANLI_TABLO_COLUMN_ORDER: ColumnOrderState = ["select", "status", "assignee", "priority", "updated", "project", "detay", "actions", "presence"];
-/** Sabit sütun sırası (dinamik sütun yokken); component dışında referans sabit kalsın diye */
-const BASE_COLUMN_ORDER_STABLE: ColumnOrderState = ["select", "status", "workflow", "content", "project", "actions"];
-
-/** İşlemler kolonu varsayılan görünür; detay/yorum paneli bilinçli aksiyonla buradan açılır. */
-const DEFAULT_LIVE_TABLE_COLUMN_VISIBILITY: VisibilityState = {};
-
-/** Canlı Tablo görünüm yoğunluğu — padding, yazı ve kontrol boyutları */
-const LIVE_TABLE_DENSITY_UI: Record<
-  LiveTableDensity,
-  {
-    table: string;
-    th: string;
-    td: string;
-    grip: string;
-    colFilterBtn: string;
-    colMenuBtn: string;
-    sortIcon: string;
-    rowCheckbox: string;
-    actionsBtn: string;
-    selectHeaderSpan: string;
-  }
-> = {
-  compact: {
-    table: "text-xs",
-    th: "px-2 py-1.5",
-    td: "px-2 py-1",
-    grip: "h-3.5 w-3.5",
-    colFilterBtn: "h-6 w-6",
-    colMenuBtn: "h-6 w-6",
-    sortIcon: "h-3.5 w-3.5",
-    rowCheckbox: "h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500",
-    actionsBtn: "h-6 w-6",
-    selectHeaderSpan: "text-xs",
-  },
-  normal: {
-    table: "text-sm",
-    th: "px-3 py-2.5",
-    td: "px-3 py-1.5",
-    grip: "h-4 w-4",
-    colFilterBtn: "h-7 w-7",
-    colMenuBtn: "h-7 w-7",
-    sortIcon: "h-4 w-4",
-    rowCheckbox: "h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500",
-    actionsBtn: "h-7 w-7",
-    selectHeaderSpan: "text-xs",
-  },
-  comfortable: {
-    table: "text-base",
-    th: "px-4 py-3.5",
-    td: "px-4 py-2.5",
-    grip: "h-5 w-5",
-    colFilterBtn: "h-8 w-8",
-    colMenuBtn: "h-8 w-8",
-    sortIcon: "h-5 w-5",
-    rowCheckbox: "h-5 w-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500",
-    actionsBtn: "h-9 w-9",
-    selectHeaderSpan: "text-sm",
-  },
-};
-
-const LIVE_TABLE_TEMPLATE_UI: Record<
-  LiveTableTemplate,
-  {
-    shell: string;
-    table: string;
-    headCell: string;
-    row: string;
-    bodyCell: string;
-    pinnedCell: string;
-  }
-> = {
-  classic: {
-    shell:
-      "rounded-lg border border-slate-200 bg-slate-50/80 shadow-sm dark:border-slate-700/80 dark:bg-slate-950/40 dark:shadow-[0_18px_42px_-32px_rgba(0,0,0,0.8)]",
-    table: "bg-white dark:bg-slate-900",
-    headCell:
-      "border-r border-b border-slate-200/90 bg-slate-100/95 text-[11px] font-semibold uppercase tracking-wide text-slate-600 shadow-[0_2px_8px_-5px_rgba(15,23,42,0.35)] dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-300 dark:shadow-[0_2px_10px_-6px_rgba(0,0,0,0.8)]",
-    row: "border-b border-slate-100 dark:border-slate-800",
-    bodyCell: "border-r border-slate-100 dark:border-slate-800",
-    pinnedCell: "bg-white dark:bg-slate-900",
-  },
-  modern: {
-    shell:
-      "live-table-modern-shell rounded-2xl border border-slate-200/90 bg-white shadow-[0_20px_44px_-30px_rgba(16,24,40,0.38)] dark:border-slate-700/80 dark:bg-slate-900/80 dark:shadow-[0_24px_52px_-30px_rgba(0,0,0,0.82)]",
-    table: "live-table-modern table-modern-skin bg-white dark:bg-slate-900",
-    headCell:
-      "border-r border-b border-slate-200 bg-slate-50 text-[11px] font-semibold tracking-[0.03em] text-slate-500 shadow-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300",
-    row: "border-b border-slate-100/90 dark:border-slate-800/90",
-    bodyCell: "border-r border-slate-100/80 dark:border-slate-800/90",
-    pinnedCell: "bg-white dark:bg-slate-900",
-  },
-};
-
-const MODERN_DENSITY_UI: Record<
-  LiveTableDensity,
-  {
-    th: string;
-    td: string;
-  }
-> = {
-  compact: {
-    th: "px-3 py-2",
-    td: "px-3 py-1.5",
-  },
-  normal: {
-    th: "px-4 py-3",
-    td: "px-4 py-2.5",
-  },
-  comfortable: {
-    th: "px-5 py-4",
-    td: "px-5 py-3",
-  },
-};
-
-/** İçeriğe göre sütun genişliği hesaplamada kullanılan min/max (px) */
-const COLUMN_SIZE_BOUNDS: Record<string, { min: number; max: number }> = {
-  select: { min: 36, max: 80 },
-  status: { min: 100, max: 220 },
-  content: { min: 180, max: 480 },
-  project: { min: 120, max: 280 },
-  actions: { min: 44, max: 80 },
-};
-const DEFAULT_EXTRA_BOUNDS = { min: 100, max: 400 };
-
-function charPxForDensity(d: LiveTableDensity): number {
-  if (d === "compact") return 7;
-  if (d === "comfortable") return 9;
-  return 8;
-}
-
-function paddingForDensity(d: LiveTableDensity): number {
-  if (d === "compact") return 28;
-  if (d === "comfortable") return 40;
-  return 32;
-}
-
-function getColumnSizeBounds(columnId: string): { min: number; max: number } | null {
-  const b = COLUMN_SIZE_BOUNDS[columnId];
-  if (b) return b;
-  if (columnId.startsWith("extra:")) return DEFAULT_EXTRA_BOUNDS;
-  return null;
-}
-
-/** Bir hücrenin metin uzunluğunu (ölçeklendirme için) döndürür */
-function getCellTextLength(columnId: string, task: Task): number {
-  if (columnId === "select" || columnId === "actions") return 0;
-  if (columnId === "status") return String(task.status ?? "").length;
-  if (columnId === "content") return String(task.content ?? "—").length;
-  if (columnId.startsWith("extra:")) {
-    const key = columnId.replace(/^extra:/, "");
-    return String(task.extra_data?.[key] ?? "—").length;
-  }
-  return 0;
-}
-
-/** Satırlar için karakter uzunlukları — tek uç değer yerine yüzdelik ile daha dengeli genişlik. */
-function effectiveCharLengthForSizing(columnId: string, tasks: Task[], headerLen: number): number {
-  if (columnId === "select" || columnId === "actions") {
-    return Math.max(headerLen, columnId === "select" ? 4 : 6);
-  }
-  const lens: number[] = [];
-  for (const t of tasks) lens.push(getCellTextLength(columnId, t));
-  lens.sort((a, b) => a - b);
-  if (lens.length === 0) return Math.max(headerLen, 8);
-
-  const pick = (q: number) => lens[Math.min(lens.length - 1, Math.floor((lens.length - 1) * q))];
-
-  if (columnId === "content") {
-    const p90 = pick(0.9);
-    const pMax = lens[lens.length - 1];
-    const blended = Math.round(p90 * 0.82 + Math.min(pMax, p90 * 2.2) * 0.18);
-    return Math.max(headerLen, Math.min(blended, Math.max(headerLen + 12, pMax)));
-  }
-  if (columnId.startsWith("extra:")) {
-    const p85 = pick(0.85);
-    return Math.max(headerLen, p85);
-  }
-  if (columnId === "status") {
-    return Math.max(headerLen, lens[lens.length - 1]);
-  }
-  return headerLen;
-}
-
-function measureIntrinsicColumnWidths(
-  filteredData: Task[],
-  visibleColumnIds: string[],
-  density: LiveTableDensity
-): ColumnSizingState {
-  const charPx = charPxForDensity(density);
-  const pad = paddingForDensity(density);
-  const next: ColumnSizingState = {};
-  for (const id of visibleColumnIds) {
-    const bounds = getColumnSizeBounds(id);
-    if (!bounds) continue;
-    const headerLabel =
-      COLUMN_VISIBILITY_LABELS[id] ?? (id.startsWith("extra:") ? id.replace(/^extra:/, "") : id);
-    const effLen = effectiveCharLengthForSizing(id, filteredData, headerLabel.length);
-    next[id] = Math.min(bounds.max, Math.max(bounds.min, effLen * charPx + pad));
-  }
-  return next;
-}
-
-function growPriorityForBalance(id: string): number {
-  if (id === "content") return 4;
-  if (id.startsWith("extra:")) return 3;
-  if (id === "status") return 2;
-  if (id === "actions") return 1;
-  return 0;
-}
-
-function shrinkPriorityForBalance(id: string): number {
-  if (id === "content") return 0;
-  if (id.startsWith("extra:")) return 1;
-  if (id === "status") return 2;
-  if (id === "actions") return 3;
-  return 4;
-}
-
-function sumSizedColumns(orderedIds: string[], w: Record<string, number>): number {
-  return orderedIds.reduce((s, id) => s + (w[id] ?? 0), 0);
-}
-
-/** İçerik tabanlı genişlikleri hedef toplam px’e (genelde görünür alan) göre küçültür veya büyütür. */
-function balanceColumnWidthsToTarget(
-  intrinsic: Record<string, number>,
-  orderedIds: string[],
-  target: number
-): Record<string, number> {
-  const w: Record<string, number> = {};
-  for (const id of orderedIds) {
-    const b = getColumnSizeBounds(id);
-    if (!b) continue;
-    const x = intrinsic[id] ?? b.min;
-    w[id] = Math.min(b.max, Math.max(b.min, x));
-  }
-  let sum = sumSizedColumns(orderedIds, w);
-  if (sum <= 0) return w;
-
-  if (sum > target) {
-    const scale = target / sum;
-    for (const id of orderedIds) {
-      const b = getColumnSizeBounds(id);
-      if (!b) continue;
-      w[id] = Math.max(b.min, Math.floor(w[id] * scale));
-    }
-    sum = sumSizedColumns(orderedIds, w);
-    let guard = 0;
-    while (sum > target && guard++ < 4000) {
-      const candidates = orderedIds.filter((id) => {
-        const b = getColumnSizeBounds(id);
-        return b != null && w[id] > b.min;
-      });
-      if (candidates.length === 0) break;
-      candidates.sort(
-        (a, b) => shrinkPriorityForBalance(a) - shrinkPriorityForBalance(b) || w[b] - w[a]
-      );
-      w[candidates[0]] -= 1;
-      sum -= 1;
-    }
-  } else if (sum < target) {
-    const scale = target / sum;
-    for (const id of orderedIds) {
-      const b = getColumnSizeBounds(id);
-      if (!b) continue;
-      w[id] = Math.min(b.max, Math.max(b.min, Math.round(w[id] * scale)));
-    }
-    sum = sumSizedColumns(orderedIds, w);
-    let guard = 0;
-    while (sum < target && guard++ < 4000) {
-      const candidates = orderedIds.filter((id) => {
-        const b = getColumnSizeBounds(id);
-        return b != null && w[id] < b.max;
-      });
-      if (candidates.length === 0) break;
-      candidates.sort(
-        (a, b) => growPriorityForBalance(b) - growPriorityForBalance(a) || w[b] - w[a]
-      );
-      w[candidates[0]] += 1;
-      sum += 1;
-    }
-  }
-  return w;
-}
-
-/** Görünür sütunlar + veri + (isteğe bağlı) görünüm genişliği ile dengeli ColumnSizingState. */
-function computeBalancedColumnSizing(
-  filteredData: Task[],
-  visibleColumnIds: string[],
-  viewportWidthPx: number,
-  density: LiveTableDensity
-): ColumnSizingState {
-  const intrinsic = measureIntrinsicColumnWidths(filteredData, visibleColumnIds, density);
-  const ordered = visibleColumnIds.filter((id) => intrinsic[id] != null);
-  if (ordered.length === 0) return {};
-
-  const rawSum = sumSizedColumns(ordered, intrinsic);
-  if (viewportWidthPx <= 0 || rawSum <= 0) return intrinsic;
-
-  const target = Math.max(280, Math.floor(viewportWidthPx) - 6);
-  if (Math.abs(rawSum - target) <= 2) return intrinsic;
-
-  return balanceColumnWidthsToTarget(intrinsic, ordered, target);
-}
-
 const columnHelper = createColumnHelper<Task>();
 
-function normalizeReferenceFieldName(value: string): string {
-  return value
-    .trim()
-    .toLocaleLowerCase("tr")
-    .replace(/ı/g, "i")
-    .replace(/ğ/g, "g")
-    .replace(/ü/g, "u")
-    .replace(/ş/g, "s")
-    .replace(/ö/g, "o")
-    .replace(/ç/g, "c")
-    .replace(/_/g, " ")
-    .replace(/\s+/g, " ");
-}
 
-function compactReferenceFieldName(value: string): string {
-  return normalizeReferenceFieldName(value).replace(/\s+/g, "");
-}
-
-const REFERENCE_FIELD_TARGET_ALIASES: Record<string, string[]> = {
-  il: ["İl", "Il"],
-  i_l: ["İl", "Il"],
-  ilce: ["İlçe", "Ilce"],
-  i_lce: ["İlçe", "Ilce"],
-  kurumadi: ["Kurum Adı", "Kurum"],
-  kurum_adi: ["Kurum Adı", "Kurum"],
-  kurumkodu: ["Kurum Kodu"],
-  kurum_kodu: ["Kurum Kodu"],
-  kurumturu: ["Kurum Türü"],
-  kurum_turu: ["Kurum Türü"],
-  detsiskodu: ["DETSİS Kodu", "Detsis Kodu", "DETSIS Kodu"],
-  detsi_s_kodu: ["DETSİS Kodu", "Detsis Kodu", "DETSIS Kodu"],
-  sirano: ["Sıra No", "Sira No"],
-  sira_no: ["Sıra No", "Sira No"],
-};
-
-function preferredReferenceTargets(field: string): string[] {
-  const compact = compactReferenceFieldName(field);
-  return REFERENCE_FIELD_TARGET_ALIASES[compact] ?? REFERENCE_FIELD_TARGET_ALIASES[field] ?? [field];
-}
-
-function resolveReferenceTargetKey(field: string, availableKeys: string[]): string | null {
-  const available = availableKeys.map((key) => ({
-    key,
-    normalized: normalizeReferenceFieldName(key),
-    compact: compactReferenceFieldName(key),
-  }));
-  const candidates = preferredReferenceTargets(field);
-  for (const candidate of candidates) {
-    const normalized = normalizeReferenceFieldName(candidate);
-    const compact = compactReferenceFieldName(candidate);
-    const found = available.find((item) => item.normalized === normalized || item.compact === compact);
-    if (found) return found.key;
-  }
-  const fieldNormalized = normalizeReferenceFieldName(field);
-  const fieldCompact = compactReferenceFieldName(field);
-  return available.find((item) => item.normalized === fieldNormalized || item.compact === fieldCompact)?.key ?? null;
-}
-
-function valuesMatch(a: string | null | undefined, b: string | null | undefined): boolean {
-  const av = String(a ?? "").trim();
-  const bv = String(b ?? "").trim();
-  if (!av || !bv) return false;
-  return normalizeReferenceFieldName(av) === normalizeReferenceFieldName(bv);
-}
-
-function numbersMatch(a: string | null | undefined, b: string | null | undefined): boolean {
-  const av = String(a ?? "").replace(/\D/g, "");
-  const bv = String(b ?? "").replace(/\D/g, "");
-  return av !== "" && av === bv;
-}
-
-function textIncludesMatch(a: string | null | undefined, b: string | null | undefined): boolean {
-  const av = normalizeReferenceFieldName(String(a ?? ""));
-  const bv = normalizeReferenceFieldName(String(b ?? ""));
-  return av.length >= 4 && bv.length >= 4 && (av.includes(bv) || bv.includes(av));
-}
-
-function findBestReferenceRecord(
-  extraData: Record<string, string>,
-  records: Record<string, string>[],
-  availableKeys: string[]
-): Record<string, string> | null {
-  let best: { record: Record<string, string>; score: number } | null = null;
-  for (const record of records) {
-    let score = 0;
-    for (const [field, recordValue] of Object.entries(record)) {
-      const targetKey = resolveReferenceTargetKey(field, availableKeys);
-      const inputValue = targetKey ? extraData[targetKey] : extraData[field];
-      if (!inputValue) continue;
-      if (numbersMatch(inputValue, recordValue)) score += 20;
-      else if (valuesMatch(inputValue, recordValue)) score += 10;
-      else if (/adi|ad[ıi]|kurum/i.test(normalizeReferenceFieldName(field)) && textIncludesMatch(inputValue, recordValue)) {
-        score += 4;
-      }
-    }
-    if (score > 0 && (!best || score > best.score)) {
-      best = { record, score };
-    }
-  }
-  return best?.record ?? null;
-}
-
-function referenceWarningsFromRecord(
-  extraData: Record<string, string>,
-  record: Record<string, string>,
-  availableKeys: string[],
-  labelField?: string
-): string[] {
-  const warnings: string[] = [];
-  for (const [field, recordValue] of Object.entries(record)) {
-    if (field === labelField) continue;
-    const targetKey = resolveReferenceTargetKey(field, availableKeys);
-    if (!targetKey) continue;
-    const currentValue = String(extraData[targetKey] ?? "").trim();
-    const expectedValue = String(recordValue ?? "").trim();
-    if (!currentValue || !expectedValue) continue;
-    if (!valuesMatch(currentValue, expectedValue) && !numbersMatch(currentValue, expectedValue)) {
-      warnings.push(`${targetKey}: "${currentValue}" yerine referansta "${expectedValue}"`);
-    }
-  }
-  return warnings;
-}
-
-function enrichExtraDataFromReferenceRecords(
-  extraData: Record<string, string> | null | undefined,
-  referenceColumns: ProjectColumn[],
-  knownKeys: string[]
-): Record<string, string> | null {
-  if (!extraData || Object.keys(extraData).length === 0) return extraData ?? null;
-  const next: Record<string, string> = { ...extraData };
-  const availableKeys = Array.from(new Set([...knownKeys, ...Object.keys(next)]));
-
-  for (const column of referenceColumns) {
-    const reference = column.config.reference;
-    const records = reference?.records ?? [];
-    if (!reference?.labelField || records.length === 0) continue;
-
-    const matchedRecord = findBestReferenceRecord(next, records, availableKeys);
-    if (!matchedRecord) continue;
-    const warnings = referenceWarningsFromRecord(next, matchedRecord, availableKeys, reference.labelField);
-
-    for (const [field, recordValue] of Object.entries(matchedRecord)) {
-      const cellValue = String(recordValue ?? "").trim();
-      if (!cellValue) continue;
-      const targetKey = resolveReferenceTargetKey(field, availableKeys);
-      if (!targetKey) continue;
-      if (String(next[targetKey] ?? "").trim() === "") {
-        next[targetKey] = cellValue;
-      }
-    }
-    if (warnings.length > 0) {
-      next[REFERENCE_WARNINGS_KEY] = warnings.join(" | ");
-    }
-  }
-
-  return Object.keys(next).length > 0 ? next : null;
-}
-
-type EditableCellProps = {
-  value: string;
-  /** Düzenleme dışında gösterilecek metin (örn. maskeli TCKN); verilmezse value kullanılır */
-  displayValue?: string;
-  highlightAsBadge?: boolean;
-  highlightBadgeTone?: "red" | "amber" | "emerald" | "blue" | "purple" | "slate";
-  taskId: string;
-  field: string;
-  navigationColumnId?: string;
-  activeEdit?: boolean;
-  onSave: (taskId: string, patch: Record<string, unknown>) => void;
-  onFocus: () => void;
-  onBlur: () => void;
-  density?: LiveTableDensity;
-  /** Hücreyi mount'ta doğrudan edit moduna sok ve odakla (hızlı satır ekleme akışı için). */
-  autoEdit?: boolean;
-  /** Enter ile kaydedildikten sonra çağrılır — boş hızlı girişte bir sonraki satırı doğurur. */
-  onChainEnter?: (value: string) => void;
-  /** Enter ile kayıttan sonra aynı satırdaki bir sonraki düzenlenebilir hücreye geçer. */
-  onNavigateNext?: (taskId: string, columnId: string) => void;
-  disabled?: boolean;
-};
-
-function cssAttrValue(value: string) {
-  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(value);
-  return value.replace(/["\\]/g, "\\$&");
-}
-
-function normalizeSortText(value: unknown): string {
-  return String(value ?? "")
-    .trim()
-    .toLocaleLowerCase("tr")
-    .replace(/ı/g, "i")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/ç/g, "c")
-    .replace(/ğ/g, "g")
-    .replace(/ş/g, "s")
-    .replace(/ö/g, "o")
-    .replace(/ü/g, "u")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function EditableCell({
-  value,
-  displayValue,
-  highlightAsBadge = false,
-  highlightBadgeTone = "purple",
-  taskId,
-  field,
-  navigationColumnId,
-  activeEdit = false,
-  onSave,
-  onFocus,
-  onBlur,
-  density = "normal",
-  autoEdit = false,
-  onChainEnter,
-  onNavigateNext,
-  disabled = false,
-}: EditableCellProps) {
-  const [isEditing, setIsEditing] = useState(autoEdit || activeEdit);
-  const [localValue, setLocalValue] = useState(value);
-  const editableColumnId = navigationColumnId ?? field;
-  useEffect(() => {
-    if ((autoEdit || activeEdit) && !disabled) {
-      setIsEditing(true);
-      onFocus();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeEdit, autoEdit, disabled]);
-  const cellText =
-    density === "compact" ? "text-xs" : density === "comfortable" ? "text-base" : "text-sm";
-  const cellPad =
-    density === "compact"
-      ? "px-1.5 py-1"
-      : density === "comfortable"
-        ? "px-2.5 py-2"
-        : "px-2 py-1.5";
-  const badgeToneClass = useMemo(() => {
-    if (highlightBadgeTone === "red") {
-      return "border-red-300 bg-red-100/85 text-red-800 shadow-[0_0_0_1px_rgba(239,68,68,0.22),0_0_14px_rgba(239,68,68,0.22)] dark:border-red-700 dark:bg-red-900/35 dark:text-red-100";
-    }
-    if (highlightBadgeTone === "amber") {
-      return "border-amber-300 bg-amber-100/85 text-amber-800 shadow-[0_0_0_1px_rgba(245,158,11,0.22),0_0_14px_rgba(245,158,11,0.22)] dark:border-amber-700 dark:bg-amber-900/35 dark:text-amber-100";
-    }
-    if (highlightBadgeTone === "emerald") {
-      return "border-emerald-300 bg-emerald-100/85 text-emerald-800 shadow-[0_0_0_1px_rgba(16,185,129,0.22),0_0_14px_rgba(16,185,129,0.22)] dark:border-emerald-700 dark:bg-emerald-900/35 dark:text-emerald-100";
-    }
-    if (highlightBadgeTone === "blue") {
-      return "border-blue-300 bg-blue-100/85 text-blue-800 shadow-[0_0_0_1px_rgba(59,130,246,0.22),0_0_14px_rgba(59,130,246,0.22)] dark:border-blue-700 dark:bg-blue-900/35 dark:text-blue-100";
-    }
-    if (highlightBadgeTone === "slate") {
-      return "border-slate-300 bg-slate-100/90 text-slate-800 shadow-[0_0_0_1px_rgba(100,116,139,0.22),0_0_14px_rgba(100,116,139,0.20)] dark:border-slate-600 dark:bg-slate-800/55 dark:text-slate-100";
-    }
-    return "border-violet-300 bg-violet-100/85 text-violet-800 shadow-[0_0_0_1px_rgba(139,92,246,0.22),0_0_14px_rgba(139,92,246,0.22)] dark:border-violet-700 dark:bg-violet-900/35 dark:text-violet-100";
-  }, [highlightBadgeTone]);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (!isEditing) setLocalValue(value);
-  }, [isEditing, value]);
-
-  useEffect(() => {
-    if (isEditing) inputRef.current?.focus();
-  }, [isEditing]);
-
-  const handleSave = useCallback(() => {
-    const trimmed = localValue.trim();
-    if (trimmed !== value) {
-      onSave(taskId, { [field]: trimmed, last_updated_by: "anon" });
-    }
-    setIsEditing(false);
-    onBlur();
-  }, [localValue, value, taskId, field, onSave, onBlur]);
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      const nextValue = localValue.trim();
-      handleSave();
-      if (onChainEnter && nextValue === "") {
-        onChainEnter(nextValue);
-        return;
-      }
-      onNavigateNext?.(taskId, editableColumnId);
-    }
-    if (e.key === "Escape") {
-      setLocalValue(value);
-      setIsEditing(false);
-      onBlur();
-    }
-  };
-
-  if (disabled) {
-    return (
-      <span
-        className={cn(
-          "flex w-full min-w-0 items-center gap-1.5 rounded text-left text-slate-500 dark:text-slate-400",
-          cellText,
-          cellPad
-        )}
-      >
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate",
-            highlightAsBadge &&
-              "inline-flex max-w-fit items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
-            highlightAsBadge && badgeToneClass
-          )}
-          title={displayValue !== undefined ? undefined : value || undefined}
-        >
-          {(displayValue !== undefined ? displayValue : value) || "—"}
-        </span>
-      </span>
-    );
-  }
-
-  if (isEditing) {
-    return (
-      <div className="flex flex-col gap-1">
-        <input
-          ref={inputRef}
-          type="text"
-          value={localValue}
-          onChange={(e) => setLocalValue(e.target.value)}
-          onBlur={handleSave}
-          onKeyDown={handleKeyDown}
-          data-live-editable-cell="true"
-          data-row-id={taskId}
-          data-col-id={editableColumnId}
-          data-disabled={disabled ? "true" : undefined}
-          className={cn(
-            "w-full min-w-0 rounded border border-blue-300 bg-blue-50/50 text-slate-900 outline-none ring-2 ring-blue-500 focus:border-blue-500 focus:bg-blue-50 dark:border-blue-600 dark:bg-blue-900/20 dark:text-slate-100 dark:focus:bg-blue-900/30",
-            cellText,
-            cellPad
-          )}
-        />
-        <span className="text-xs text-slate-500 dark:text-slate-400">Enter ile kaydet, Esc ile iptal</span>
-      </div>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={() => {
-        onFocus();
-        setIsEditing(true);
-      }}
-      data-live-editable-cell="true"
-      data-row-id={taskId}
-      data-col-id={editableColumnId}
-      data-disabled={disabled ? "true" : undefined}
-      className={cn(
-        "flex w-full min-w-0 items-center gap-1.5 rounded text-left text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700",
-        cellText,
-        cellPad
-      )}
-    >
-      <span
-        className={cn(
-          "min-w-0 flex-1 truncate",
-          highlightAsBadge &&
-            "inline-flex max-w-fit items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
-          highlightAsBadge && badgeToneClass
-        )}
-        title={displayValue !== undefined ? undefined : value || undefined}
-      >
-        {(displayValue !== undefined ? displayValue : value) || "—"}
-      </span>
-    </button>
-  );
-}
 
 function ReferenceSelectCell({
   value,
@@ -1507,1167 +787,7 @@ function ExtraCellCopyButton({
   );
 }
 
-type TaskFormData = { content: string; status: string; assignee: string; priority?: string | null; extra_data?: Record<string, string> | null };
 
-const EXTRA_DATA_LINK_KEY = "link";
-
-function toExtraDataRows(extra_data: Record<string, string> | null | undefined, excludeKeys: string[] = []): Array<{ key: string; value: string }> {
-  if (!extra_data || Object.keys(extra_data).length === 0) return [{ key: "", value: "" }];
-  const set = new Set([...excludeKeys, ...Array.from(INTERNAL_EXTRA_DATA_KEYS)]);
-  const entries = Object.entries(extra_data).filter(([k]) => !set.has(k)).map(([key, value]) => ({ key, value: String(value ?? "") }));
-  return entries.length > 0 ? entries : [{ key: "", value: "" }];
-}
-
-function isSafeUrl(s: string): boolean {
-  const t = s.trim().toLowerCase();
-  return t.startsWith("http://") || t.startsWith("https://");
-}
-
-const DEFAULT_PRIORITY_OPTIONS = ["High", "Medium", "Low"];
-
-function TaskFormDialog({
-  open,
-  onOpenChange,
-  initialTask,
-  onSubmit,
-  submitLabel,
-  title,
-  statusOptions = STATUS_OPTIONS.slice(),
-  priorityOptions = DEFAULT_PRIORITY_OPTIONS,
-  defaultStatus = "Yapılacak",
-  defaultPriority = "Medium",
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  initialTask?: Task | null;
-  onSubmit: (data: TaskFormData) => void | Promise<void>;
-  submitLabel: string;
-  title: string;
-  statusOptions?: string[];
-  priorityOptions?: string[];
-  defaultStatus?: string;
-  defaultPriority?: string;
-}) {
-  const [content, setContent] = useState(initialTask?.content ?? "");
-  const [status, setStatus] = useState(initialTask?.status ?? defaultStatus);
-  const [assignee, setAssignee] = useState(initialTask?.assignee ?? "");
-  const [priority, setPriority] = useState(initialTask?.priority ?? defaultPriority);
-  const [linkUrl, setLinkUrl] = useState(initialTask?.extra_data?.[EXTRA_DATA_LINK_KEY] ?? "");
-  const [customFields, setCustomFields] = useState<Array<{ key: string; value: string }>>(() => toExtraDataRows(initialTask?.extra_data ?? undefined, [EXTRA_DATA_LINK_KEY]));
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setContent(initialTask?.content ?? "");
-    setStatus(initialTask?.status ?? defaultStatus);
-    setAssignee(initialTask?.assignee ?? "");
-    setPriority(initialTask?.priority ?? defaultPriority);
-    setLinkUrl(initialTask?.extra_data?.[EXTRA_DATA_LINK_KEY] ?? "");
-    setCustomFields(toExtraDataRows(initialTask?.extra_data ?? undefined, [EXTRA_DATA_LINK_KEY]));
-    setFormError(null);
-  }, [initialTask, open, defaultStatus, defaultPriority]);
-
-  const addCustomField = () => setCustomFields((prev) => [...prev, { key: "", value: "" }]);
-  const removeCustomField = (index: number) =>
-    setCustomFields((prev) => (prev.length <= 1 ? [{ key: "", value: "" }] : prev.filter((_, i) => i !== index)));
-  const updateCustomField = (index: number, field: "key" | "value", value: string) =>
-    setCustomFields((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const extra_data = customFields
-      .filter((r) => r.key.trim() !== "")
-      .reduce((acc, { key, value }) => ({ ...acc, [key.trim()]: value.trim() }), {} as Record<string, string>);
-    if (linkUrl.trim() !== "") extra_data[EXTRA_DATA_LINK_KEY] = linkUrl.trim();
-    const formattedExtraData = normalizeExtraDataBySmartRules(extra_data);
-    if (formattedExtraData.errors.length > 0) {
-      setFormError(formattedExtraData.errors.map((err) => err.message).join("\n"));
-      return;
-    }
-    setFormError(null);
-    setSaving(true);
-    try {
-      await onSubmit({
-        content: content.trim(),
-        status: status || defaultStatus,
-        assignee: assignee.trim() || "",
-        priority: priority && priorityOptions.includes(priority) ? priority : defaultPriority,
-        extra_data: formattedExtraData.data,
-      });
-      onOpenChange(false);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="grid gap-4 py-2">
-          <div className="grid gap-2">
-            <label htmlFor="task-content" className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              İçerik
-            </label>
-            <textarea
-              id="task-content"
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="Görev açıklaması (çok satır yazabilirsiniz)"
-              rows={3}
-              className="w-full min-h-[4.5rem] resize-y rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-            />
-          </div>
-          <div className="grid gap-2">
-            <label htmlFor="task-link" className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Link (URL, opsiyonel)
-            </label>
-            <input
-              id="task-link"
-              type="url"
-              value={linkUrl}
-              onChange={(e) => setLinkUrl(e.target.value)}
-              placeholder="https://..."
-              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-            />
-          </div>
-          <div className="grid gap-2">
-            <label htmlFor="task-status" className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Durum
-            </label>
-            <select
-              id="task-status"
-              value={statusOptions.includes(status) ? status : statusOptions[0]}
-              onChange={(e) => setStatus(e.target.value)}
-              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-            >
-              {statusOptions.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="grid gap-2">
-            <label htmlFor="task-priority" className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Öncelik
-            </label>
-            <select
-              id="task-priority"
-              value={priorityOptions.includes(priority) ? priority : priorityOptions[0]}
-              onChange={(e) => setPriority(e.target.value)}
-              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-            >
-              {priorityOptions.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="grid gap-2">
-            <label htmlFor="task-assignee" className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Atanan
-            </label>
-            <input
-              id="task-assignee"
-              type="text"
-              value={assignee}
-              onChange={(e) => setAssignee(e.target.value)}
-              placeholder="İsim (opsiyonel)"
-              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-            />
-          </div>
-          <div className="grid gap-2">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Özel alanlar (opsiyonel)</label>
-              <Button type="button" variant="ghost" size="sm" onClick={addCustomField} className="h-8 gap-1 text-xs">
-                <Plus className="h-3.5 w-3.5" />
-                Alan ekle
-              </Button>
-            </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Referans no, müşteri adı, etiket vb. Alan adı + değer olarak saklanır.</p>
-            <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50/50 p-2 dark:border-slate-600 dark:bg-slate-800/50">
-              {customFields.map((row, index) => (
-                <div key={index} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={row.key}
-                    onChange={(e) => updateCustomField(index, "key", e.target.value)}
-                    placeholder="Alan adı"
-                    className="flex-1 min-w-0 rounded border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                  />
-                  <input
-                    type="text"
-                    value={row.value}
-                    onChange={(e) => updateCustomField(index, "value", e.target.value)}
-                    placeholder="Değer"
-                    className="flex-1 min-w-0 rounded border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 shrink-0 text-slate-500 hover:text-red-600"
-                    onClick={() => removeCustomField(index)}
-                    aria-label="Alanı kaldır"
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-            {formError && (
-              <p className="whitespace-pre-line text-sm text-red-600 dark:text-red-400">{formError}</p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              İptal
-            </Button>
-            <Button type="submit" disabled={saving}>
-              {saving ? "Kaydediliyor…" : submitLabel}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-type ColumnMapKey = "content" | "status" | "assignee" | "priority";
-const COLUMN_MAP_LABELS: Record<ColumnMapKey, string> = {
-  content: "İçerik",
-  status: "Durum",
-  assignee: "Atanan",
-  priority: "Öncelik",
-};
-
-function CSVImportDialog({
-  open,
-  onOpenChange,
-  onImport,
-  referenceColumns = [],
-  referenceKnownKeys = [],
-  defaultStatus = "Yapılacak",
-  defaultPriority = "Medium",
-  replaceTargetProjectName,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onImport: (tasks: Array<{ content: string; status: string; assignee: string | null; priority?: string | null; extra_data?: Record<string, string> | null }>, replaceExisting: boolean) => Promise<void>;
-  referenceColumns?: ProjectColumn[];
-  referenceKnownKeys?: string[];
-  defaultStatus?: string;
-  defaultPriority?: string;
-  replaceTargetProjectName?: string | null;
-}) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [importMode, setImportMode] = useState<"file" | "paste">("file");
-  const [pasteText, setPasteText] = useState("");
-  const [headers, setHeaders] = useState<string[]>([]);
-  const [headerAliases, setHeaderAliases] = useState<string[]>([]);
-  const [rows, setRows] = useState<string[][]>([]);
-  const [columnMap, setColumnMap] = useState<Record<ColumnMapKey, number | null>>({
-    content: null,
-    status: null,
-    assignee: null,
-    priority: null,
-  });
-  const [replaceExisting, setReplaceExisting] = useState(false);
-  const [replaceConfirmText, setReplaceConfirmText] = useState("");
-  const [importing, setImporting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isDragOver, setIsDragOver] = useState(false);
-
-  const reset = useCallback(() => {
-    setHeaders([]);
-    setHeaderAliases([]);
-    setRows([]);
-    setColumnMap({ content: null, status: null, assignee: null, priority: null });
-    setReplaceExisting(false);
-    setReplaceConfirmText("");
-    setError(null);
-    setPasteText("");
-  }, []);
-
-  useEffect(() => {
-    if (!open) reset();
-  }, [open, reset]);
-
-  const autoMapHeaders = useCallback((h: string[]) => {
-    const map: Record<ColumnMapKey, number | null> = { content: null, status: null, assignee: null, priority: null };
-    const lower = (s: string) => s.trim().toLowerCase();
-    // Açıklama (content) kaynaktan hiç doldurulmaz; tabloda kullanıcı notu için ayrıldığından eşleme yapılmaz
-    h.forEach((header, i) => {
-      const l = lower(header);
-      if (l === "durum" || l === "status") map.status = i;
-      else if (l === "atanan" || l === "assignee" || l === "atanan kişi" || l === "ünvan" || l === "unvan" || l === "aktif_unvan_ad" || l === "adı" || l === "adi") map.assignee = i;
-      else if (l === "öncelik" || l === "priority") map.priority = i;
-    });
-    setColumnMap(map);
-  }, []);
-
-  const processFileContent = useCallback(
-    (text: string, fileName: string) => {
-      setError(null);
-      const lower = (fileName ?? "").toLowerCase();
-      try {
-        if (lower.endsWith(".json")) {
-          const { headers: h, rows: jsonRows } = parseJSON(text);
-          if (h.length === 0) {
-            setError("JSON dosyası boş veya geçersiz (nesne dizisi beklenir).");
-            return;
-          }
-          const r = jsonRows.map((row) => h.map((key) => row[key] ?? ""));
-          setHeaders(h);
-          setHeaderAliases(h);
-          setRows(r);
-          autoMapHeaders(h);
-        } else {
-          const { headers: h, rows: r } = parseCSV(text);
-          if (h.length === 0) {
-            setError("CSV dosyası boş veya geçersiz.");
-            return;
-          }
-          setHeaders(h);
-          setHeaderAliases(h);
-          setRows(r);
-          autoMapHeaders(h);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Dosya okunamadı.");
-      }
-    },
-    [autoMapHeaders]
-  );
-
-  const handleFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      e.target.value = "";
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => processFileContent(String(reader.result ?? ""), file.name);
-      reader.readAsText(file, "UTF-8");
-    },
-    [processFileContent]
-  );
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setIsDragOver(false);
-      const file = e.dataTransfer.files?.[0];
-      if (!file) return;
-      const name = (file.name ?? "").toLowerCase();
-      if (!name.endsWith(".csv") && !name.endsWith(".json")) {
-        setError("Sadece CSV veya JSON dosyası bırakın.");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = () => processFileContent(String(reader.result ?? ""), file.name);
-      reader.readAsText(file, "UTF-8");
-    },
-    [processFileContent]
-  );
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
-  }, []);
-
-  const buildTasks = useCallback(() => {
-    if (rows.length === 0) return [];
-    return rows.map((row) => {
-      const get = (i: number) => (row[i] != null ? String(row[i]).trim() : "");
-      const extra_data: Record<string, string> = {};
-      headerAliases.forEach((h, i) => {
-        const key = h?.trim() || `Sütun ${i + 1}`;
-        extra_data[key] = get(i);
-      });
-      // Açıklama (content) kaynak dosyadan hiç doldurulmaz; tabloda kullanıcının ek notu için ayrıldı
-      const content = "";
-      const status = columnMap.status != null ? get(columnMap.status) || "Yapılacak" : "Yapılacak";
-      const assignee = columnMap.assignee != null ? get(columnMap.assignee) || null : null;
-      const priority = columnMap.priority != null ? get(columnMap.priority) || null : null;
-      const hasAnyData = Object.values(extra_data).some((v) => v !== "");
-      if (!hasAnyData) return null;
-      return {
-        content,
-        status,
-        assignee,
-        priority: priority ?? null,
-        extra_data: Object.keys(extra_data).length > 0 ? extra_data : null,
-      };
-    }).filter((t): t is NonNullable<typeof t> => t !== null);
-  }, [rows, headerAliases, columnMap]);
-
-  const applySmartHeaderFixes = useCallback(() => {
-    setHeaderAliases((prev) =>
-      prev.map((header) => {
-        const n = header.trim().toLocaleLowerCase("tr");
-        if (
-          /(^|\s)(e-?posta|email|mail)\s*durum(u)?($|\s)/i.test(n) ||
-          /(^|\s)mail\s*gonderim\s*durum(u)?($|\s)/i.test(n)
-        ) {
-          return "İleti Durumu";
-        }
-        return header;
-      })
-    );
-  }, []);
-
-  const pasteLines = useMemo(() => {
-    if (!pasteText.trim()) return [];
-    return pasteText.split(/\n/).map((s) => s.trim()).filter(Boolean);
-  }, [pasteText]);
-
-  const buildTasksFromPaste = useCallback(() => {
-    // Açıklama (content) boş bırakılır; yapıştırılan metin extra_data.Görev ile saklanır
-    return pasteLines.map((line) => ({
-      content: "",
-      status: defaultStatus,
-      assignee: null as string | null,
-      priority: defaultPriority as string | null,
-      extra_data: line ? { Görev: line } : null,
-    }));
-  }, [pasteLines, defaultStatus, defaultPriority]);
-
-  const handleImport = useCallback(async () => {
-    if (replaceExisting && !replaceTargetProjectName) {
-      setError("Mevcut veriyi değiştirmek için önce tek bir proje filtresi seçin.");
-      return;
-    }
-    if (replaceExisting && replaceConfirmText.trim() !== replaceTargetProjectName) {
-      setError(`Güvenlik onayı için proje adını birebir yazın: ${replaceTargetProjectName}`);
-      return;
-    }
-    const tasks = importMode === "paste" ? buildTasksFromPaste() : buildTasks();
-    if (tasks.length === 0) {
-      setError(importMode === "paste" ? "En az bir satır metin girin (boş satırlar yok sayılır)." : "Dosyada geçerli veri bulunamadı (en az bir satırda veri olmalı).");
-      return;
-    }
-    if (importMode === "file") {
-      const normalized = headerAliases
-        .map((h) => h.trim())
-        .filter(Boolean)
-        .map((h) => h.toLocaleLowerCase("tr"));
-      const duplicates = normalized.filter((h, i) => normalized.indexOf(h) !== i);
-      if (duplicates.length > 0) {
-        setError(`İçe aktarma durduruldu. Aynı sütun adı birden fazla kez kullanılmış: ${Array.from(new Set(duplicates)).join(", ")}`);
-        return;
-      }
-    }
-    const formatErrors: string[] = [];
-    const formattedTasks = tasks.map((task, index) => {
-      const formattedExtraData = normalizeExtraDataBySmartRules(task.extra_data);
-      if (formattedExtraData.errors.length > 0) {
-        for (const err of formattedExtraData.errors) {
-          formatErrors.push(`Satır ${index + 1} · ${err.message}`);
-        }
-      }
-      const enrichedExtraData = enrichExtraDataFromReferenceRecords(
-        formattedExtraData.data,
-        referenceColumns,
-        referenceKnownKeys
-      );
-      return { ...task, extra_data: enrichedExtraData };
-    });
-    if (formatErrors.length > 0) {
-      setError(
-        [
-          "İçe aktarma durduruldu. Aşağıdaki akıllı sütun formatlarını düzeltin:",
-          ...formatErrors.slice(0, 8),
-          formatErrors.length > 8 ? `+${formatErrors.length - 8} hata daha` : "",
-        ]
-          .filter(Boolean)
-          .join("\n")
-      );
-      return;
-    }
-    setImporting(true);
-    setError(null);
-    try {
-      await onImport(formattedTasks, replaceExisting);
-      onOpenChange(false);
-    } catch (err: unknown) {
-      const msg =
-        err != null && typeof err === "object" && "message" in err
-          ? String((err as { message: string }).message)
-          : err instanceof Error
-            ? err.message
-            : "İçe aktarma başarısız.";
-      setError(msg);
-    } finally {
-      setImporting(false);
-    }
-  }, [
-    importMode,
-    buildTasksFromPaste,
-    buildTasks,
-    headerAliases,
-    referenceColumns,
-    referenceKnownKeys,
-    replaceExisting,
-    replaceTargetProjectName,
-    replaceConfirmText,
-    onImport,
-    onOpenChange,
-  ]);
-
-  const canImport = importMode === "paste" ? pasteLines.length > 0 : rows.length > 0;
-  const replaceConfirmationOk =
-    !replaceExisting || (!!replaceTargetProjectName && replaceConfirmText.trim() === replaceTargetProjectName);
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Toplu görev ekle</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 py-2">
-          <div className="flex gap-2 border-b border-slate-200 dark:border-slate-700 pb-2">
-            <button
-              type="button"
-              onClick={() => setImportMode("file")}
-              className={cn(
-                "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                importMode === "file"
-                  ? "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300"
-                  : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
-              )}
-            >
-              <FileUp className="h-4 w-4" />
-              Dosya (CSV/JSON)
-            </button>
-            <button
-              type="button"
-              onClick={() => setImportMode("paste")}
-              className={cn(
-                "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                importMode === "paste"
-                  ? "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300"
-                  : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
-              )}
-            >
-              <ClipboardList className="h-4 w-4" />
-              Metin yapıştır
-            </button>
-          </div>
-          {importMode === "paste" ? (
-            <>
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                Her satır bir görev olacak şekilde metin yapıştırın. Boş satırlar yok sayılır. Tüm görevlere varsayılan durum ve öncelik uygulanır.
-              </p>
-              <textarea
-                value={pasteText}
-                onChange={(e) => setPasteText(e.target.value)}
-                placeholder={"Her satır bir görev\nGörev 1\nGörev 2\nGörev 3"}
-                rows={8}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 font-mono"
-              />
-              {pasteLines.length > 0 && (
-                <div className="rounded border border-emerald-200 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/20 p-3">
-                  <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
-                    {pasteLines.length} görev eklenecek
-                  </p>
-                  <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-1">
-                    Durum: {defaultStatus} · Öncelik: {defaultPriority}
-                  </p>
-                  <div className="mt-2 max-h-32 overflow-y-auto rounded border border-slate-200 bg-white/80 dark:border-slate-600 dark:bg-slate-800/80 p-2 text-xs text-slate-700 dark:text-slate-300">
-                    {pasteLines.slice(0, 15).map((line, i) => (
-                      <div key={i} className="truncate py-0.5" title={line}>{i + 1}. {line}</div>
-                    ))}
-                    {pasteLines.length > 15 && <div className="py-0.5 text-slate-500">… +{pasteLines.length - 15} satır daha</div>}
-                  </div>
-                </div>
-              )}
-              <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
-                <input
-                  type="checkbox"
-                  checked={replaceExisting}
-                  disabled={!replaceTargetProjectName}
-                  onChange={(e) => {
-                    setReplaceExisting(e.target.checked);
-                    setReplaceConfirmText("");
-                    setError(null);
-                  }}
-                  className="rounded border-slate-300 text-red-600 focus:ring-red-500 disabled:opacity-50"
-                />
-                Mevcut veriyi sil ve yeni görevlerle değiştir
-              </label>
-              {replaceExisting && replaceTargetProjectName && (
-                <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/35 dark:text-red-100">
-                  <p className="font-semibold">Riskli işlem: mevcut proje görevleri silinecek.</p>
-                  <p className="mt-1 text-xs text-red-700 dark:text-red-200">
-                    Devam etmek için proje adını birebir yazın: <strong>{replaceTargetProjectName}</strong>
-                  </p>
-                  <input
-                    value={replaceConfirmText}
-                    onChange={(e) => setReplaceConfirmText(e.target.value)}
-                    placeholder={replaceTargetProjectName}
-                    className="mt-2 w-full rounded-md border border-red-300 bg-white px-3 py-2 text-sm text-red-950 placeholder:text-red-300 focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500 dark:border-red-800 dark:bg-slate-950 dark:text-red-100"
-                  />
-                </div>
-              )}
-              {!replaceTargetProjectName && (
-                <p className="text-xs text-amber-700 dark:text-amber-300">
-                  Mevcut veriyi değiştirmek için önce Canlı Tablo’da tek bir proje filtresi seçilmeli.
-                </p>
-              )}
-            </>
-          ) : (
-            <>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            CSV veya JSON dosyası yükleyin veya bu alana sürükleyip bırakın. CSV’de ilk satır başlık kabul edilir. <strong>Tüm sütunlar olduğu gibi tabloya yansır.</strong> Tablodaki <strong>Açıklama</strong> sütunu kaynak dosyadan hiç doldurulmaz; tablo üzerinde çalışırken ek not girmek için ayrılmıştır.
-          </p>
-          <div
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            className={cn(
-              "rounded-lg border-2 border-dashed p-4 transition-colors",
-              isDragOver
-                ? "border-blue-500 bg-blue-50/50 dark:border-blue-400 dark:bg-blue-900/20"
-                : "border-slate-200 bg-slate-50/30 dark:border-slate-600 dark:bg-slate-800/30"
-            )}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv,.json,text/csv,application/json"
-              onChange={handleFileChange}
-              className="hidden"
-              aria-hidden
-            />
-            <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-              <Upload className="mr-2 h-4 w-4" />
-              Dosya seç veya sürükleyip bırak
-            </Button>
-            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">CSV veya JSON</p>
-          </div>
-          {headers.length > 0 && (
-            <>
-              <div className="rounded border border-emerald-200 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-900/20 p-3 mb-3">
-                <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
-                  ✓ {headers.length} sütun, {rows.length} satır tespit edildi
-                </p>
-                <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-1">
-                  Tüm sütunlar tabloya eklenecek: {headers.slice(0, 5).join(", ")}{headers.length > 5 ? ` +${headers.length - 5} daha` : ""}
-                </p>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={applySmartHeaderFixes}
-                  >
-                    Başlık düzeltmelerini uygula
-                  </Button>
-                  <span className="text-[11px] text-emerald-700 dark:text-emerald-300">
-                    Excel/CSV açmadan sütun adını burada düzenleyebilirsiniz.
-                  </span>
-                </div>
-              </div>
-              <div className="rounded border border-slate-200 dark:border-slate-700 p-3 mb-3">
-                <p className="mb-2 text-xs font-medium text-slate-600 dark:text-slate-300">Sütun başlıklarını düzenle (import öncesi)</p>
-                <div className="max-h-40 overflow-y-auto space-y-1.5">
-                  {headers.map((original, idx) => {
-                    const alias = headerAliases[idx] ?? original;
-                    const detected = getExtraColumnFormatKind(alias);
-                    return (
-                      <div key={`${original}-${idx}`} className="grid grid-cols-[1fr_1fr_auto] items-center gap-2">
-                        <div className="truncate rounded bg-slate-100 px-2 py-1 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300" title={original}>
-                          {original}
-                        </div>
-                        <input
-                          value={alias}
-                          onChange={(e) =>
-                            setHeaderAliases((prev) => {
-                              const next = [...prev];
-                              next[idx] = e.target.value;
-                              return next;
-                            })
-                          }
-                          className="rounded border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
-                        />
-                        <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                          {detected ? `tip:${detected}` : "tip:yok"}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-              <div className="rounded border border-slate-200 dark:border-slate-700 overflow-hidden">
-                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 px-3 py-2 bg-slate-50 dark:bg-slate-800">
-                  Önizleme (ilk 5 satır)
-                </p>
-                <div className="overflow-x-auto max-h-40 overflow-y-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
-                        {(Object.keys(COLUMN_MAP_LABELS) as ColumnMapKey[]).map((k) => (
-                          <th key={k} className="px-2 py-1.5 text-left font-medium text-slate-600 dark:text-slate-400">
-                            {COLUMN_MAP_LABELS[k]}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.slice(0, 5).map((row, ri) => (
-                        <tr key={ri} className="border-b border-slate-100 dark:border-slate-700">
-                          {(Object.keys(COLUMN_MAP_LABELS) as ColumnMapKey[]).map((k) => (
-                            <td key={k} className="px-2 py-1 text-slate-700 dark:text-slate-300 truncate max-w-[120px]">
-                              {columnMap[k] != null ? row[columnMap[k]!] ?? "—" : "—"}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-              <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
-                <input
-                  type="checkbox"
-                  checked={replaceExisting}
-                  disabled={!replaceTargetProjectName}
-                  onChange={(e) => {
-                    setReplaceExisting(e.target.checked);
-                    setReplaceConfirmText("");
-                    setError(null);
-                  }}
-                  className="rounded border-slate-300 text-red-600 focus:ring-red-500 disabled:opacity-50"
-                />
-                Mevcut veriyi sil ve CSV ile değiştir
-              </label>
-              {replaceExisting && replaceTargetProjectName && (
-                <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/35 dark:text-red-100">
-                  <p className="font-semibold">Riskli işlem: mevcut proje görevleri silinecek.</p>
-                  <p className="mt-1 text-xs text-red-700 dark:text-red-200">
-                    Devam etmek için proje adını birebir yazın: <strong>{replaceTargetProjectName}</strong>
-                  </p>
-                  <input
-                    value={replaceConfirmText}
-                    onChange={(e) => setReplaceConfirmText(e.target.value)}
-                    placeholder={replaceTargetProjectName}
-                    className="mt-2 w-full rounded-md border border-red-300 bg-white px-3 py-2 text-sm text-red-950 placeholder:text-red-300 focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500 dark:border-red-800 dark:bg-slate-950 dark:text-red-100"
-                  />
-                </div>
-              )}
-              {!replaceTargetProjectName && (
-                <p className="text-xs text-amber-700 dark:text-amber-300">
-                  Mevcut veriyi değiştirmek için önce Canlı Tablo’da tek bir proje filtresi seçilmeli.
-                </p>
-              )}
-            </>
-          )}
-            </>
-          )}
-          {error && <p className="whitespace-pre-line text-sm text-red-600 dark:text-red-400">{error}</p>}
-        </div>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            İptal
-          </Button>
-          <Button
-            type="button"
-            variant={replaceExisting ? "destructive" : "default"}
-            onClick={handleImport}
-            disabled={!canImport || importing || !replaceConfirmationOk}
-          >
-            {importing
-              ? "Aktarılıyor…"
-              : replaceExisting
-                ? importMode === "paste"
-                  ? `${pasteLines.length} görevle değiştir`
-                  : `${rows.length} satırla değiştir`
-                : importMode === "paste"
-                  ? `${pasteLines.length} görev ekle`
-                  : `${rows.length} satır içe aktar`}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/** Nokta rengi: Yeşil Tamamlandı, Sarı Devam, Gri Yapılacak */
-const STATUS_DOT_CLASS: Record<string, string> = {
-  Tamamlandı: "bg-emerald-500",
-  Devam: "bg-amber-500",
-  "Devam ediyor": "bg-amber-500",
-  Yapılacak: "bg-slate-400",
-  Beklemede: "bg-slate-400",
-};
-/** Badge container + metin rengi: nokta + metin tek Badge içinde */
-const STATUS_BADGE_STYLES: Record<string, string> = {
-  Yapılacak:
-    "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300",
-  Beklemede:
-    "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300",
-  Devam:
-    "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
-  "Devam ediyor":
-    "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
-  Tamamlandı:
-    "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
-};
-
-const STATUS_BADGE_STYLES_MODERN: Record<string, string> = {
-  Yapılacak:
-    "border-slate-200 bg-white text-slate-600 shadow-[0_1px_2px_rgba(16,24,40,0.04)] dark:border-slate-600 dark:bg-slate-800/80 dark:text-slate-300",
-  Beklemede:
-    "border-slate-200 bg-white text-slate-600 shadow-[0_1px_2px_rgba(16,24,40,0.04)] dark:border-slate-600 dark:bg-slate-800/80 dark:text-slate-300",
-  Devam:
-    "border-amber-200/90 bg-amber-50/85 text-amber-700 shadow-[0_1px_2px_rgba(146,64,14,0.08)] dark:border-amber-700 dark:bg-amber-900/35 dark:text-amber-300",
-  "Devam ediyor":
-    "border-amber-200/90 bg-amber-50/85 text-amber-700 shadow-[0_1px_2px_rgba(146,64,14,0.08)] dark:border-amber-700 dark:bg-amber-900/35 dark:text-amber-300",
-  Tamamlandı:
-    "border-emerald-200/90 bg-emerald-50/85 text-emerald-700 shadow-[0_1px_2px_rgba(6,95,70,0.08)] dark:border-emerald-700 dark:bg-emerald-900/35 dark:text-emerald-300",
-};
-
-function SelectAllCheckbox({
-  checked,
-  indeterminate,
-  onChange,
-  className,
-}: {
-  checked: boolean;
-  indeterminate: boolean;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  className: string;
-}) {
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (ref.current) ref.current.indeterminate = indeterminate;
-  }, [indeterminate]);
-  return (
-    <input
-      ref={ref}
-      type="checkbox"
-      checked={checked}
-      onChange={onChange}
-      className={className}
-      aria-label="Tümünü seç"
-    />
-  );
-}
-
-function getStatusDisplay(value: string): string {
-  if (/tamamlandı|tamamlandi|done|completed/i.test(value)) return "Tamamlandı";
-  if (/devam|sürüyor|progress/i.test(value)) return "Devam ediyor";
-  if (/beklemede|waiting/i.test(value)) return "Beklemede";
-  if (/yapılacak|yapilacak|todo/i.test(value)) return "Yapılacak";
-  return value || "Yapılacak";
-}
-
-/**
- * Görevin tamamlandı olarak işaretlenip işaretlenmediğini döndürür.
- * Canlı tabloda tamamlanan satırlar tüm kullanıcılar için vurgulanır:
- * - Yeşilimsi arka plan (emerald-50/950)
- * - Sol kenarda yeşil çizgi (border-l-emerald)
- * - Hover’da biraz daha koyu ton
- */
-function isTaskCompleted(task: Task): boolean {
-  const s = (task.status ?? "").trim();
-  return (
-    /tamamlandı|tamamlandi|done|completed/i.test(s) ||
-    /^tamam$/i.test(s) ||
-    /^bitti$/i.test(s)
-  );
-}
-
-function rawStatusIsCompleted(status: string): boolean {
-  const s = (status ?? "").trim();
-  return (
-    /tamamlandı|tamamlandi|done|completed/i.test(s) ||
-    /^tamam$/i.test(s) ||
-    /^bitti$/i.test(s)
-  );
-}
-
-/** Tek tıkla tamamlandıdan çıkarken: ayarlardaki varsayılan veya listedeki uygun “yapılacak” / ilk tamamlanmamış. */
-function resolveRestoreStatus(statusOptions: string[], defaultTaskStatus: string): string {
-  const d = (defaultTaskStatus ?? "").trim();
-  if (d && statusOptions.includes(d)) return d;
-  const todo = statusOptions.find((s) => /yapılacak|yapilacak|todo/i.test(s));
-  if (todo) return todo;
-  const nonDone = statusOptions.find((s) => !rawStatusIsCompleted(s));
-  return nonDone ?? statusOptions[0] ?? "Yapılacak";
-}
-
-function StatusCell({
-  value,
-  taskId,
-  onSave,
-  onFocus,
-  onBlur,
-  statusOptions = STATUS_OPTIONS.slice(),
-  defaultTaskStatus = "Yapılacak",
-  density = "normal",
-  template = "classic",
-  disabled = false,
-}: {
-  value: string;
-  taskId: string;
-  onSave: (taskId: string, patch: Partial<Task>) => void;
-  onFocus: () => void;
-  onBlur: () => void;
-  statusOptions?: string[];
-  defaultTaskStatus?: string;
-  density?: LiveTableDensity;
-  template?: LiveTableTemplate;
-  disabled?: boolean;
-}) {
-  const display = getStatusDisplay(value);
-  const badgeStyles = template === "modern" ? STATUS_BADGE_STYLES_MODERN : STATUS_BADGE_STYLES;
-  const badgeStyle = badgeStyles[display] ?? badgeStyles.Yapılacak;
-  const dotClass = STATUS_DOT_CLASS[display] ?? STATUS_DOT_CLASS.Yapılacak;
-  const [menuOpen, setMenuOpen] = useState(false);
-  const statusListboxId = useId();
-  const anchorRef = useRef<HTMLButtonElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
-  const singleClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingSingleSaveRef = useRef<{
-    taskId: string;
-    onSave: (taskId: string, patch: Partial<Task>) => void;
-    status: string;
-  } | null>(null);
-
-  const completedLabel = statusOptions.find((s) => /tamamlandı|tamamlandi|done|completed/i.test(s)) ?? "Tamamlandı";
-
-  const clearPendingSingleClick = useCallback(() => {
-    if (singleClickTimerRef.current) {
-      clearTimeout(singleClickTimerRef.current);
-      singleClickTimerRef.current = null;
-    }
-    pendingSingleSaveRef.current = null;
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (singleClickTimerRef.current) {
-        clearTimeout(singleClickTimerRef.current);
-        singleClickTimerRef.current = null;
-      }
-      const p = pendingSingleSaveRef.current;
-      if (p) {
-        pendingSingleSaveRef.current = null;
-        p.onSave(p.taskId, { status: p.status, last_updated_by: "anon" });
-      }
-    };
-  }, []);
-
-  useLayoutEffect(() => {
-    if (!menuOpen || !anchorRef.current) return;
-    const r = anchorRef.current.getBoundingClientRect();
-    setMenuPos({ top: r.bottom + 4, left: r.left });
-  }, [menuOpen]);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onPointer = (e: MouseEvent | TouchEvent) => {
-      const node = e.target as Node;
-      if (anchorRef.current?.contains(node)) return;
-      if (menuRef.current?.contains(node)) return;
-      setMenuOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMenuOpen(false);
-    };
-    const onScroll = () => setMenuOpen(false);
-    document.addEventListener("mousedown", onPointer);
-    document.addEventListener("touchstart", onPointer, { passive: true });
-    document.addEventListener("keydown", onKey);
-    window.addEventListener("scroll", onScroll, true);
-    return () => {
-      document.removeEventListener("mousedown", onPointer);
-      document.removeEventListener("touchstart", onPointer);
-      document.removeEventListener("keydown", onKey);
-      window.removeEventListener("scroll", onScroll, true);
-    };
-  }, [menuOpen]);
-
-  const openPicker = useCallback(() => {
-    clearPendingSingleClick();
-    setMenuOpen(true);
-  }, [clearPendingSingleClick]);
-
-  const handleClick = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (disabled) return;
-      if (e.button === 2) return;
-
-      if (menuOpen) {
-        clearPendingSingleClick();
-        setMenuOpen(false);
-        return;
-      }
-
-      if (e.detail >= 2) {
-        openPicker();
-        return;
-      }
-
-      clearPendingSingleClick();
-      const nextStatus = rawStatusIsCompleted(value)
-        ? resolveRestoreStatus(statusOptions, defaultTaskStatus)
-        : completedLabel;
-      pendingSingleSaveRef.current = { taskId, onSave, status: nextStatus };
-      singleClickTimerRef.current = setTimeout(() => {
-        singleClickTimerRef.current = null;
-        pendingSingleSaveRef.current = null;
-        onSave(taskId, { status: nextStatus, last_updated_by: "anon" });
-      }, 280);
-    },
-    [taskId, onSave, completedLabel, clearPendingSingleClick, openPicker, menuOpen, value, statusOptions, defaultTaskStatus, disabled]
-  );
-
-  const handleDoubleClick = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (disabled) return;
-      openPicker();
-    },
-    [openPicker, disabled]
-  );
-
-  const badgePad =
-    density === "compact"
-      ? "px-2 py-0.5 text-xs gap-1.5"
-      : density === "comfortable"
-        ? "px-3 py-1.5 text-base gap-2"
-        : "px-2.5 py-1 text-sm gap-2";
-  const dotHw =
-    density === "compact" ? "h-1.5 w-1.5" : density === "comfortable" ? "h-2.5 w-2.5" : "h-2 w-2";
-
-  const portal =
-    menuOpen && typeof document !== "undefined"
-      ? createPortal(
-          <div
-            ref={menuRef}
-            id={statusListboxId}
-            role="listbox"
-            aria-label="Durum seçin"
-            className="fixed z-[300] min-w-[10rem] overflow-hidden rounded-md border border-slate-200 bg-white py-1 text-sm shadow-lg dark:border-slate-600 dark:bg-slate-800"
-            style={{ top: menuPos.top, left: menuPos.left }}
-          >
-            {statusOptions.map((s) => (
-              <button
-                key={s}
-                type="button"
-                role="option"
-                className="flex w-full cursor-pointer items-center px-3 py-2 text-left text-slate-800 hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-700"
-                aria-selected={s === value}
-                onClick={() => {
-                  if (disabled) return;
-                  onSave(taskId, { status: s, last_updated_by: "anon" });
-                  setMenuOpen(false);
-                }}
-              >
-                {s}
-              </button>
-            ))}
-          </div>,
-          document.body
-        )
-      : null;
-
-  return (
-    <>
-      <button
-        ref={anchorRef}
-        type="button"
-        title="Tek tık: Tamamlandı / varsayılana dön · Çift tık: tüm durumlar"
-        disabled={disabled}
-        aria-haspopup="listbox"
-        aria-expanded={menuOpen}
-        aria-controls={menuOpen ? statusListboxId : undefined}
-        onClick={handleClick}
-        onDoubleClick={handleDoubleClick}
-        onFocus={onFocus}
-        onBlur={onBlur}
-        className={cn(
-          "inline-flex select-none items-center border font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1",
-          template === "modern"
-            ? "rounded-lg focus:ring-slate-400 dark:focus:ring-slate-500"
-            : "rounded-md focus:ring-blue-500",
-          disabled ? "cursor-default opacity-70" : "cursor-pointer hover:opacity-90",
-          badgePad,
-          badgeStyle
-        )}
-      >
-        <span className={cn("shrink-0 rounded-full", dotClass, dotHw)} aria-hidden />
-        <span>{display || "—"}</span>
-      </button>
-      {portal}
-    </>
-  );
-}
-
-const PRIORITY_STYLES: Record<string, string> = {
-  High: "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/40 dark:text-red-300 dark:border-red-700",
-  Medium: "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-700",
-  Low: "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600",
-};
-
-function TaskStats({ tasks }: { tasks: Task[] }) {
-  const total = tasks.length;
-  const tamamlandi = tasks.filter((t) => isStatusDone(t.status)).length;
-  const devamEden = tasks.filter((t) => isStatusInProgress(t.status)).length;
-  const diger = total - tamamlandi - devamEden;
-
-  return (
-    <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
-      <span className="font-semibold text-slate-700 dark:text-slate-200">{total} görev</span>
-      <span className="text-slate-300 dark:text-slate-600">·</span>
-      <span className="inline-flex items-center gap-1.5">
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
-        <span>{tamamlandi} tamamlandı</span>
-      </span>
-      <span className="text-slate-300 dark:text-slate-600">·</span>
-      <span className="inline-flex items-center gap-1.5">
-        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden />
-        <span>{devamEden} devam ediyor</span>
-      </span>
-      {diger > 0 && (
-        <>
-          <span className="text-slate-300 dark:text-slate-600">·</span>
-          <span>{diger} diğer</span>
-        </>
-      )}
-    </div>
-  );
-}
-
-type TasksTableProps = {
-  /** Üst seviyeden kontrol edilen proje filtresi. Verilmezse internal state kullanılır. */
-  projectFilter?: string[];
-  onProjectFilterChange?: (next: string[]) => void;
-  viewTabs?: ReactNode;
-  /** URL veya dış bağlantıdan gelen görev — yüklendiğinde detay paneli açılır. */
-  initialOpenTaskId?: string | null;
-};
-
-type ActiveEditableCell = {
-  taskId: string;
-  columnId: string;
-};
 
 export function TasksTable({
   projectFilter: extProjectFilter,
@@ -2747,6 +867,8 @@ export function TasksTable({
     actions: 52,
   });
   const [detailTask, setDetailTask] = useState<Task | null>(null);
+  /** J/K gezinmesi için son odak görev (sheet kapalıyken satır seçimi). */
+  const navAnchorTaskIdRef = useRef<string | null>(null);
   const [isFullWidth, setIsFullWidth] = useState(false);
 
   useEffect(() => {
@@ -2755,62 +877,9 @@ export function TasksTable({
     if (match) setDetailTask(match);
   }, [initialOpenTaskId, isLoading, tasks]);
 
-  /**
-   * Klavye kısayolları — tablonun tam ekran toggle'ı:
-   *  - F (form alanında değilken)  → genişlet / daralt
-   *  - Esc (genişletilmişken)       → daralt
-   */
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const handler = (e: KeyboardEvent) => {
-      // Yazı yazılan bir alana fokus varsa kısayolları yutma
-      const t = e.target as HTMLElement | null;
-      const tag = t?.tagName;
-      const isTyping =
-        tag === "INPUT" ||
-        tag === "TEXTAREA" ||
-        tag === "SELECT" ||
-        (t as HTMLElement | null)?.isContentEditable === true;
-      if (e.key === "Escape" && isFullWidth) {
-        e.preventDefault();
-        setIsFullWidth(false);
-        return;
-      }
-      if (!isTyping && (e.key === "f" || e.key === "F") && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        e.preventDefault();
-        setIsFullWidth((p) => !p);
-        return;
-      }
-      // Sayfa navigasyonu — modifier yokken
-      if (!isTyping && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        // [ veya , → önceki sayfa
-        if (e.key === "[" || e.key === ",") {
-          e.preventDefault();
-          window.dispatchEvent(new Event("taskstable:prevPage"));
-          return;
-        }
-        // ] veya . → sonraki sayfa
-        if (e.key === "]" || e.key === ".") {
-          e.preventDefault();
-          window.dispatchEvent(new Event("taskstable:nextPage"));
-          return;
-        }
-        // Home → ilk sayfa, End → son sayfa
-        if (e.key === "Home") {
-          e.preventDefault();
-          window.dispatchEvent(new Event("taskstable:firstPage"));
-          return;
-        }
-        if (e.key === "End") {
-          e.preventDefault();
-          window.dispatchEvent(new Event("taskstable:lastPage"));
-          return;
-        }
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [isFullWidth]);
+    if (detailTask) navAnchorTaskIdRef.current = detailTask.id;
+  }, [detailTask]);
 
   /** Dar ekranda hızlı filtre satırı varsayılan kapalı */
   const [quickFiltersOpen, setQuickFiltersOpen] = useState(true);
@@ -4267,6 +2336,32 @@ export function TasksTable({
     }
   }, [resolveProjectContextFromSavedFilters, setProjectFilter]);
 
+  const lastAppliedProjectDefaultRef = useRef<string | null>(null);
+  const [syncActiveViewId, setSyncActiveViewId] = useState<string | null>(null);
+
+  /** Tek proje seçildiğinde proje varsayılan görünümünü otomatik uygula. */
+  useEffect(() => {
+    const projectId = projectFilter.length === 1 ? projectFilter[0] : null;
+    if (!projectId) {
+      lastAppliedProjectDefaultRef.current = null;
+      return;
+    }
+    if (lastAppliedProjectDefaultRef.current === projectId) return;
+
+    let cancelled = false;
+    void getProjectDefaultSavedView(projectId).then((view) => {
+      if (cancelled) return;
+      lastAppliedProjectDefaultRef.current = projectId;
+      if (!view) return;
+      applyViewConfig(view.config);
+      setSyncActiveViewId(view.id);
+      toast.info(`"${view.name}" proje varsayılan görünümü uygulandı`);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectFilter, applyViewConfig, toast]);
+
   const applyFilterConfigPatch = useCallback((filters?: SavedViewConfig["filters"]) => {
     if (!filters) return;
     const has = (key: keyof NonNullable<SavedViewConfig["filters"]>) =>
@@ -5715,6 +3810,126 @@ export function TasksTable({
       window.removeEventListener("taskstable:lastPage", last);
     };
   }, [table]);
+
+  /**
+   * Canlı Tablo klavye kısayolları (Sprint 3.3):
+   *  E → dışa aktar · F → hızlı filtre paneli · Shift+F → genişlet/daralt
+   *  J/K → sonraki/önceki görev (sheet kapalıyken; açıkken TaskDetailSheet devralır)
+   *  [ ] Home End → sayfa gezinmesi · Esc (genişletilmişken) → daralt
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handler = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName;
+      const isTyping =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        t?.isContentEditable === true;
+      const noMod = !e.metaKey && !e.ctrlKey && !e.altKey;
+
+      if (e.key === "Escape" && isFullWidth) {
+        e.preventDefault();
+        setIsFullWidth(false);
+        return;
+      }
+
+      const modalOpen =
+        exportDialogOpen ||
+        pdfDialogOpen ||
+        emailDialogOpen ||
+        importOpen ||
+        newTaskOpen ||
+        !!editTask ||
+        advancedFilterOpen ||
+        bulkDeleteConfirmOpen;
+      if (modalOpen) return;
+      if (isTyping) return;
+
+      if (noMod && e.shiftKey && (e.key === "f" || e.key === "F")) {
+        e.preventDefault();
+        setIsFullWidth((p) => !p);
+        return;
+      }
+
+      if (noMod && !e.shiftKey && (e.key === "f" || e.key === "F")) {
+        e.preventDefault();
+        setQuickFiltersOpen((p) => !p);
+        return;
+      }
+
+      if (noMod && !e.shiftKey && (e.key === "e" || e.key === "E") && canExportCsv) {
+        e.preventDefault();
+        setExportDialogOpen(true);
+        return;
+      }
+
+      if (noMod && !e.shiftKey && !detailTask && (e.key === "j" || e.key === "J" || e.key === "k" || e.key === "K")) {
+        const orderedTasks = table.getSortedRowModel().rows.map((r) => r.original);
+        if (orderedTasks.length === 0) return;
+        const selectedIds = table.getSelectedRowModel().rows.map((r) => r.id);
+        const anchorId =
+          navAnchorTaskIdRef.current ??
+          (selectedIds.length > 0 ? selectedIds[selectedIds.length - 1] : null);
+        const idx = anchorId ? orderedTasks.findIndex((task) => task.id === anchorId) : -1;
+        const isNext = e.key === "j" || e.key === "J";
+        const nextIdx =
+          idx < 0
+            ? isNext
+              ? 0
+              : orderedTasks.length - 1
+            : isNext
+              ? Math.min(idx + 1, orderedTasks.length - 1)
+              : Math.max(idx - 1, 0);
+        if (nextIdx === idx && idx >= 0) return;
+        const target = orderedTasks[nextIdx];
+        if (!target) return;
+        e.preventDefault();
+        navAnchorTaskIdRef.current = target.id;
+        setDetailTask(target);
+        return;
+      }
+
+      if (noMod) {
+        if (e.key === "[" || e.key === ",") {
+          e.preventDefault();
+          window.dispatchEvent(new Event("taskstable:prevPage"));
+          return;
+        }
+        if (e.key === "]" || e.key === ".") {
+          e.preventDefault();
+          window.dispatchEvent(new Event("taskstable:nextPage"));
+          return;
+        }
+        if (e.key === "Home") {
+          e.preventDefault();
+          window.dispatchEvent(new Event("taskstable:firstPage"));
+          return;
+        }
+        if (e.key === "End") {
+          e.preventDefault();
+          window.dispatchEvent(new Event("taskstable:lastPage"));
+          return;
+        }
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [
+    table,
+    isFullWidth,
+    exportDialogOpen,
+    pdfDialogOpen,
+    emailDialogOpen,
+    importOpen,
+    newTaskOpen,
+    editTask,
+    advancedFilterOpen,
+    bulkDeleteConfirmOpen,
+    canExportCsv,
+    detailTask,
+  ]);
 
   const liveTableVisibleKey = useMemo(() => {
     const vis = Object.keys(columnVisibility)
@@ -7682,8 +5897,8 @@ ${emailTemplate.html}
                   ? "border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
                   : "text-slate-700 dark:text-slate-300"
               )}
-              aria-label={isFullWidth ? "Daralt (Esc)" : "Tabloyu genişlet (F)"}
-              title={isFullWidth ? "Daralt — Esc" : "Tabloyu genişlet — F · çift tık"}
+              aria-label={isFullWidth ? "Daralt (Esc)" : "Tabloyu genişlet (Shift+F)"}
+              title={isFullWidth ? "Daralt — Esc" : "Tabloyu genişlet — Shift+F · çift tık"}
               aria-pressed={isFullWidth}
             >
               {isFullWidth ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
@@ -7902,6 +6117,8 @@ ${emailTemplate.html}
             onApplyConfig={applyViewConfig}
             isAdmin={isAdmin}
             userId={user?.id ?? null}
+            projectId={projectFilter.length === 1 ? projectFilter[0] : null}
+            syncActiveViewId={syncActiveViewId}
           />
           {canManageColumns && (
             <>

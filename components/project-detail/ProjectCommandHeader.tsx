@@ -5,10 +5,11 @@ import { ProjectKpiGrid } from "@/components/project-detail/ProjectKpiGrid";
 import { ProjectTabs } from "@/components/project-detail/ProjectTabs";
 import {
   computeProjectHealth,
-  type ProjectDetailTab,
   type ProjectKpiSnapshot,
-} from "@/components/project-detail/projectDetailTypes";
-import type { ProjectStatus } from "@/types/project";
+} from "@/lib/projectHealth";
+import type { ProjectDetailTab } from "@/components/project-detail/projectDetailTypes";
+import type { ProjectPriority, ProjectStatus } from "@/types/project";
+import type { DateFormat } from "@/contexts/settings-context";
 import type { OnlineUser } from "@/hooks/usePresence";
 
 export type ProjectCommandHeaderProps = {
@@ -16,6 +17,9 @@ export type ProjectCommandHeaderProps = {
   description?: string | null;
   status: ProjectStatus;
   dateLabel: string;
+  targetDueDate?: string | null;
+  priority?: ProjectPriority | null;
+  dateFormat?: DateFormat;
   assignedEmails: string[];
   currentUserEmail: string;
   isAssigned?: boolean;
@@ -35,6 +39,9 @@ export function ProjectCommandHeader({
   description,
   status,
   dateLabel,
+  targetDueDate,
+  priority,
+  dateFormat,
   assignedEmails,
   currentUserEmail,
   isAssigned,
@@ -57,6 +64,9 @@ export function ProjectCommandHeader({
         description={description}
         status={status}
         dateLabel={dateLabel}
+        targetDueDate={targetDueDate}
+        priority={priority}
+        dateFormat={dateFormat}
         assignedEmails={assignedEmails}
         currentUserEmail={currentUserEmail}
         isAssigned={isAssigned}
@@ -68,7 +78,7 @@ export function ProjectCommandHeader({
         onMemberPermissions={onMemberPermissions}
       />
       <ProjectKpiGrid kpis={kpis} />
-      <ProjectTabs activeTab={activeTab} onTabChange={onTabChange} health={health} />
+      <ProjectTabs activeTab={activeTab} onTabChange={onTabChange} health={health} kpis={kpis} />
     </div>
   );
 }

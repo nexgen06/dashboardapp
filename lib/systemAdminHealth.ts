@@ -35,6 +35,13 @@ const REQUIRED_SCRIPT_CHECKS: Array<Omit<SystemScriptCheck, "status" | "message"
     description: "Atama, gecikme, sohbet ve admin olaylarını tek kutuda toplar.",
   },
   {
+    id: "notifications-triggers",
+    title: "Bildirim tetikleyicileri (Faz 2)",
+    script: "scripts/notifications-assignment-triggers.sql",
+    table: "notifications",
+    description: "Proje/görev ataması ve gecikmiş görev bildirimlerini DB trigger ile üretir.",
+  },
+  {
     id: "project-member-permissions",
     title: "Proje bazlı yetkiler",
     script: "scripts/project-member-permissions.sql",
@@ -131,9 +138,52 @@ async function checkTable(table: string): Promise<{ status: SystemCheckStatus; m
   return { status: "unknown", message: messageFromError(error) };
 }
 
+async function checkNotificationTriggers(): Promise<{ status: SystemCheckStatus; message: string }> {
+  if (!isSupabaseConfigured()) {
+    return { status: "unknown", message: "Supabase ortam değişkenleri yapılandırılmamış." };
+  }
+  const { data, error } = await supabase.rpc("notification_phase2_status");
+  if (error) {
+    const code = String(error.code ?? "");
+    const msg = String(error.message ?? "").toLowerCase();
+    if (code === "42883" || msg.includes("notification_phase2_status")) {
+      return {
+        status: "missing",
+        message: "Faz 2 tetikleyici SQL'i uygulanmamış (notifications-assignment-triggers.sql).",
+      };
+    }
+    return { status: "unknown", message: messageFromError(error) };
+  }
+  const row = data as {
+    enqueue_notification?: boolean;
+    project_trigger?: boolean;
+    task_trigger?: boolean;
+    refresh_overdue_fn?: boolean;
+  } | null;
+  const parts = [
+    row?.project_trigger ? "proje" : null,
+    row?.task_trigger ? "görev" : null,
+    row?.refresh_overdue_fn ? "gecikme" : null,
+  ].filter(Boolean);
+  if (parts.length === 3 && row?.enqueue_notification) {
+    return { status: "ok", message: "Proje/görev atama ve gecikme tetikleyicileri aktif." };
+  }
+  if (parts.length === 0) {
+    return { status: "missing", message: "Tetikleyici bulunamadı; assignment-triggers SQL çalıştırın." };
+  }
+  return {
+    status: "warn",
+    message: `Kısmi kurulum (${parts.join(", ")}); notifications-assignment-triggers.sql tekrar çalıştırın.`,
+  };
+}
+
 export async function loadSystemScriptChecks(): Promise<SystemScriptCheck[]> {
   const entries = await Promise.all(
     REQUIRED_SCRIPT_CHECKS.map(async (item) => {
+      if (item.id === "notifications-triggers") {
+        const result = await checkNotificationTriggers();
+        return { ...item, ...result };
+      }
       const result = await checkTable(item.table);
       return { ...item, ...result };
     })

@@ -331,17 +331,25 @@ export function getActivityTimeGroup(date: Date, now: Date = new Date()): Projec
   return "earlier";
 }
 
+export function buildProjectActivityTaskHref(projectId: string, taskId: string): string {
+  const pid = projectId.trim();
+  const tid = taskId.trim();
+  return `/projeler/${encodeURIComponent(pid)}?tab=activity&task=${encodeURIComponent(tid)}`;
+}
+
 export function filterProjectActivities(
   items: ProjectActivityItem[],
   options: {
     searchQuery: string;
     filterKind: ProjectActivityFilterKind;
     dateFilter: ProjectActivityDateFilterKind;
+    taskId?: string | null;
     now?: Date;
   }
 ): ProjectActivityItem[] {
   const now = options.now ?? new Date();
   const q = options.searchQuery.trim().toLowerCase();
+  const taskId = options.taskId?.trim() || null;
 
   let minDate: Date | null = null;
   if (options.dateFilter === "7d") {
@@ -353,6 +361,7 @@ export function filterProjectActivities(
   }
 
   return items.filter((item) => {
+    if (taskId && item.recordId !== taskId) return false;
     if (minDate && new Date(item.timestamp) < minDate) return false;
     if (options.filterKind !== "all" && item.actionType !== options.filterKind) return false;
 

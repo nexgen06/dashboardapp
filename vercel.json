@@ -1,3 +1,9 @@
 {
-  "installCommand": "npm install --loglevel=error"
+  "installCommand": "npm install --loglevel=error",
+  "crons": [
+    {
+      "path": "/api/cron/overdue-notifications",
+      "schedule": "0 3 * * *"
+    }
+  ]
 }

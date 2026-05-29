@@ -1,13 +1,17 @@
 "use client";
 
-import { ShieldCheck, Users } from "lucide-react";
-import type { ProjectStatus } from "@/types/project";
+import { ShieldCheck, Users, Calendar } from "lucide-react";
+import type { ProjectPriority, ProjectStatus } from "@/types/project";
 import type { OnlineUser } from "@/hooks/usePresence";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ProjectActionButtons } from "@/components/project-detail/ProjectActionButtons";
 import { cn } from "@/lib/utils";
 import { useProfileLookup } from "@/contexts/profile-lookup-context";
+import { formatDate } from "@/lib/formatDate";
+import type { DateFormat } from "@/contexts/settings-context";
+import { getProjectDueLabel } from "@/lib/projectDueLabel";
+import { PROJECT_PRIORITY_STYLES } from "@/lib/projectPriorityStyles";
 
 const PROJECT_STATUS_STYLES: Record<ProjectStatus, string> = {
   Aktif: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300",
@@ -27,6 +31,9 @@ export type ProjectHeaderCardProps = {
   description?: string | null;
   status: ProjectStatus;
   dateLabel: string;
+  targetDueDate?: string | null;
+  priority?: ProjectPriority | null;
+  dateFormat?: DateFormat;
   assignedEmails: string[];
   currentUserEmail: string;
   isAssigned?: boolean;
@@ -43,6 +50,9 @@ export function ProjectHeaderCard({
   description,
   status,
   dateLabel,
+  targetDueDate,
+  priority,
+  dateFormat = "DD.MM.YYYY",
   assignedEmails,
   currentUserEmail,
   isAssigned = false,
@@ -59,6 +69,7 @@ export function ProjectHeaderCard({
   const summaryText =
     (description ?? "").trim() ||
     "Proje görevleri, canlı tablo ve ekip çalışması için yönetim alanı.";
+  const dueLabel = getProjectDueLabel({ due_date: targetDueDate, status });
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm lg:p-6 dark:border-slate-700 dark:bg-slate-900/30">
@@ -72,7 +83,37 @@ export function ProjectHeaderCard({
               <Badge variant="outline" className={cn("text-xs font-medium", PROJECT_STATUS_STYLES[status])}>
                 {status}
               </Badge>
-              <span className="text-sm text-slate-500 dark:text-slate-400">{dateLabel}</span>
+              {priority && (
+                <Badge variant="outline" className={cn("text-xs font-normal", PROJECT_PRIORITY_STYLES[priority])}>
+                  {priority}
+                </Badge>
+              )}
+              {targetDueDate?.trim() && (
+                <span
+                  className="inline-flex items-center gap-1 text-sm text-slate-600 dark:text-slate-400"
+                  title="Proje hedef tarihi"
+                >
+                  <Calendar className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
+                  Hedef: {formatDate(new Date(targetDueDate), dateFormat)}
+                </span>
+              )}
+              {dueLabel === "Gecikmiş" && (
+                <Badge
+                  variant="outline"
+                  className="text-xs font-normal border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300"
+                >
+                  Gecikmiş
+                </Badge>
+              )}
+              {dueLabel === "Yaklaşan" && (
+                <Badge
+                  variant="outline"
+                  className="text-xs font-normal border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                >
+                  Yaklaşan
+                </Badge>
+              )}
+              <span className="text-sm text-slate-500 dark:text-slate-400">Güncelleme: {dateLabel}</span>
               {isAssigned && (
                 <Badge
                   variant="outline"
