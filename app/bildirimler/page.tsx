@@ -22,6 +22,7 @@ import { useNotifications } from "@/contexts/notification-context";
 import { Button } from "@/components/ui/button";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 type NotifType = NotificationSummaryItem["type"];
@@ -266,10 +267,37 @@ export default function BildirimlerPage() {
 
       {/* Liste */}
       {summary.isLoading ? (
-        <div className="flex items-center justify-center gap-2 py-12 text-slate-500">
-          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-          <span className="text-sm">Yükleniyor…</span>
-        </div>
+        // Bildirim öğesi skeleton — gerçek liste şekline benzer
+        <ul
+          className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white dark:divide-slate-700 dark:border-slate-700 dark:bg-slate-800"
+          aria-busy="true"
+          aria-label="Bildirimler yükleniyor"
+        >
+          {Array.from({ length: 6 }).map((_, i) => (
+            <li
+              key={i}
+              className="flex items-start gap-3 px-4 py-3"
+              style={{ opacity: 1 - i * 0.1 }}
+            >
+              {/* Tip ikonu */}
+              <Skeleton variant="circle" className="h-10 w-10 shrink-0" />
+              {/* İçerik */}
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-4 w-16 rounded-full" />
+                  <Skeleton className="ml-auto h-3 w-20" />
+                </div>
+                <Skeleton className="h-4" style={{ width: `${55 + (i * 13) % 35}%` }} />
+                {i % 2 === 0 && (
+                  <>
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-2/3" />
+                  </>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
       ) : filteredItems.length === 0 ? (
         <EmptyState
           icon={<Bell className="h-10 w-10" />}
