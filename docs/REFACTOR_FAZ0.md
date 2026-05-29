@@ -132,4 +132,5 @@ Refactor öncesi kritik `lib/` modülleri:
 
 **Faz 0:** ✅ Tamamlandı  
 **Faz 1:** ✅ Tamamlandı (`ProjectFormModal`, `SubtitleColumnsPicker`, `lib/projectFormHelpers`)  
-**Sırada — Faz 2:** `ProjectsProvider`
+**Faz 2:** ✅ `ProjectsProvider` — AppLayout'ta tek paylaşımlı proje fetch + Realtime  
+**Sırada — Faz 3:** `TasksProvider`
