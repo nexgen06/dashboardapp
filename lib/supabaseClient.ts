@@ -20,7 +20,7 @@ function getSupabase(): SupabaseClient {
   if (!supabaseUrl || !supabaseAnonKey) {
     if (typeof window !== "undefined") {
       console.error(
-        "[Supabase] NEXT_PUBLIC_SUPABASE_URL ve NEXT_PUBLIC_SUPABASE_ANON_KEY tanımlı olmalı. Vercel: Project Settings → Environment Variables."
+        "[Supabase] NEXT_PUBLIC_SUPABASE_URL ve NEXT_PUBLIC_SUPABASE_ANON_KEY tanımlı olmalı. Railway: Service → Variables."
       );
     }
     return createClient(

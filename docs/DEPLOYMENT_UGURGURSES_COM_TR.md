@@ -17,10 +17,10 @@ Bu rehber, dashboard uygulamasını **ugurgurses.com.tr** domain’inize bağlı
 **Paylaşımlı hosting’deyseniz ve Node.js yoksa:**
 
 1. **hosting.com.tr destek** (ticket/telefon): “Next.js veya Node.js uygulaması yayınlayabilir miyim? VPS paketiniz var mı?” diye sorun.
-2. **Domain’i başka yerde kullanmak:** Uygulamayı **Vercel** veya **Railway** gibi bir yerde ücretsiz/ucuz yayınlayıp ugurgurses.com.tr’yi oraya yönlendirebilirsiniz (DNS’te A/CNAME). Veritabanı zaten Supabase’te olduğu için sadece uygulama sunucusu başka yerde çalışır.
+2. **Domain’i başka yerde kullanmak:** Uygulamayı **Railway** veya kendi VPS'inizde ücretsiz/ucuz yayınlayıp ugurgurses.com.tr’yi oraya yönlendirebilirsiniz (DNS’te A/CNAME). Veritabanı zaten Supabase’te olduğu için sadece uygulama sunucusu başka yerde çalışır.
 3. **Ek bir VPS almak:** hosting.com.tr’de VPS yoksa DigitalOcean, Hetzner, Contabo, Natro VPS vb. küçük bir VPS alıp ugurgurses.com.tr’nin DNS’ini bu VPS’in IP’sine yönlendirirsiniz; kurulum **Bölüm 2–7** ile aynıdır.
 
-**Özet:** hosting.com.tr = paylaşımlı ise Node.js için ya onlardan VPS/Node desteği isteyin ya da uygulamayı Vercel/VPS’e taşıyıp domain’i oraya verin.
+**Özet:** hosting.com.tr = paylaşımlı ise Node.js için ya onlardan VPS/Node desteği isteyin ya da uygulamayı Railway/VPS’e taşıyıp domain’i oraya verin.
 
 ---
 
@@ -119,7 +119,7 @@ NEXT_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGc...
 ```
 
-`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` için Railway/Vercel değişkenlerini kullanın (`scripts/supabase-auth-profiles.sql` ile uyum için bu ortam bilgisi yeterlidir).  
+`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` için Railway Variables veya sunucu `.env.local` değerlerini kullanın (`scripts/supabase-auth-profiles.sql` ile uyum için bu ortam bilgisi yeterlidir).  
 Kaydet: `Ctrl+O`, Enter, `Ctrl+X`.
 
 ---

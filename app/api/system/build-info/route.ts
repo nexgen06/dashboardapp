@@ -17,15 +17,11 @@ export async function GET() {
     commit: firstEnv(
       "NEXT_PUBLIC_GIT_SHA",
       "NEXT_PUBLIC_RAILWAY_GIT_COMMIT_SHA",
-      "RAILWAY_GIT_COMMIT_SHA",
-      "NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA",
-      "VERCEL_GIT_COMMIT_SHA"
+      "RAILWAY_GIT_COMMIT_SHA"
     ),
     deployment: firstEnv(
       "NEXT_PUBLIC_RAILWAY_DEPLOYMENT_ID",
       "RAILWAY_DEPLOYMENT_ID",
-      "NEXT_PUBLIC_VERCEL_DEPLOYMENT_ID",
-      "VERCEL_DEPLOYMENT_ID",
       "RAILWAY_REPLICA_ID"
     ),
     environment: firstEnv("NEXT_PUBLIC_APP_ENV", "RAILWAY_ENVIRONMENT_NAME", "NODE_ENV") || "unknown",

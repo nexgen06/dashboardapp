@@ -30,13 +30,18 @@ npm run start
 
 Uygulama `http://localhost:3000` adresinde production modda çalışır. Supabase Realtime, `.env.local` tanımlıysa aynı şekilde çalışır.
 
-### Canlı sunucuda test (Vercel)
+### Canlı sunucuda test (Railway + Supabase)
 
-1. Projeyi [Vercel](https://vercel.com) ile bağlayın (GitHub/GitLab/Bitbucket veya `vercel` CLI).
-2. Vercel proje ayarlarında **Environment Variables** ekleyin:
+1. GitHub reposunu [Railway](https://railway.com) ile bağlayın (`railway.json` ve `Dockerfile` hazır).
+2. Railway proje ayarlarında **Variables** ekleyin:
    - `NEXT_PUBLIC_SUPABASE_URL` — Supabase proje URL’iniz
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY` — Supabase anon (public) key
+   - `SUPABASE_SERVICE_ROLE_KEY` — cron API ve admin işlemleri için
+   - `CRON_SECRET` — gecikmiş görev bildirimi cron endpoint'i için
+   - `NEXT_PUBLIC_APP_URL` — e-posta linkleri için (örn. `https://your-app.up.railway.app`)
 3. Deploy edin. Realtime, canlı URL üzerinden de çalışır (Supabase’e erişim olduğu sürece).
+
+**Gecikmiş görev bildirimi:** Railway Cron Job ile günlük `POST /api/cron/overdue-notifications` çağrısı yapın (`Authorization: Bearer $CRON_SECRET`). Alternatif: Supabase `pg_cron` ile `refresh_overdue_task_notifications()` RPC.
 
 **Not:** Supabase Dashboard’da **Database > Replication** altında `tasks` tablosunun Realtime için açık olduğundan emin olun.
 

@@ -14,7 +14,7 @@ Kod tabanı stabilite açısından taranmıştır. Özet ve öneriler aşağıda
 
 ## Güçlü yönler
 
-- **Hata yönetimi:** Supabase/Firebase çağrıları `try/catch` ile sarılı; `useTasksWithRealtime`, `useProjects` hata state’i tutuyor.
+- **Hata yönetimi:** Supabase çağrıları `try/catch` ile sarılı; `useTasksWithRealtime`, `useProjects` hata state’i tutuyor.
 - **Cleanup:** Realtime, Presence, Auth, Settings için `useEffect` return ile unsubscribe/clearTimeout/removeChannel yapılıyor.
 - **Null güvenliği:** `currentUserEmail` `(user?.email ?? "").trim().toLowerCase()` ile her zaman string; `project?.priority`, `t.due_date` vb. optional/fallback kullanılıyor.
 - **Realtime:** `cancelled` flag ile unmount sonrası setState engelleniyor; fallback timer cleanup’ta iptal ediliyor.

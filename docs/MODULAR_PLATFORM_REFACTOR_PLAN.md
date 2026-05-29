@@ -527,7 +527,7 @@ lib/
 ### Faz E — Detay (Sprint 11-12)
 12. Column-level permissions
 13. Audit compaction (90 gün önce arşivle)
-14. API rate limit (Vercel/Next middleware)
+14. API rate limit (Next middleware / reverse proxy)
 15. Yük testi (10K+ kayıt)
 
 ---

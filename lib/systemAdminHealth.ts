@@ -241,11 +241,9 @@ export function getClientBuildInfo(): SystemBuildInfo {
     commit:
       process.env.NEXT_PUBLIC_GIT_SHA ||
       process.env.NEXT_PUBLIC_RAILWAY_GIT_COMMIT_SHA ||
-      process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA ||
       "",
     deployment:
       process.env.NEXT_PUBLIC_RAILWAY_DEPLOYMENT_ID ||
-      process.env.NEXT_PUBLIC_VERCEL_DEPLOYMENT_ID ||
       "",
     environment: process.env.NEXT_PUBLIC_APP_ENV || process.env.NODE_ENV || "unknown",
     realtimeDisabled: String(process.env.NEXT_PUBLIC_DISABLE_REALTIME ?? "").trim().toLowerCase() === "true",

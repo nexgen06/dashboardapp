@@ -5,7 +5,7 @@ import { createClient } from "@supabase/supabase-js";
  * Gecikmiş görev bildirimlerini üretir (Bildirimler Faz 2).
  *
  * Yetkilendirme: Authorization: Bearer ${CRON_SECRET}
- * Vercel Cron: CRON_SECRET ortam değişkeni tanımlı olmalı.
+ * Railway Cron Job veya harici scheduler ile günlük çağrılabilir.
  *
  * Alternatif: Supabase pg_cron ile doğrudan
  *   select public.refresh_overdue_task_notifications();
