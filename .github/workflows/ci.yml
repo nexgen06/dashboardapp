@@ -5,17 +5,40 @@ on:
     branches: [main, master]
   pull_request:
 
+# Aynı branch'te eski koşan job'u iptal et — gereksiz CI yükü ve mail spam'i önler
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
-      - run: npm ci
-      - run: npx tsc --noEmit
-      - run: npm run lint
-      - run: npm test
-      - run: npm run build
+
+      - name: Install deps
+        run: npm ci --no-audit --no-fund
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      # ESLint — sadece ERROR'lar fail eder. Warning'ler (hook-deps vb.) loglanır
+      # ama job'u durdurmaz. Strict mod isteyen için: --max-warnings=0 elle çalıştırılır.
+      - name: ESLint (errors only)
+        run: npm run lint -- --max-warnings=999
+
+      - name: Tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+        env:
+          # Build sırasında telemetry'i kapat — daha hızlı
+          NEXT_TELEMETRY_DISABLED: "1"

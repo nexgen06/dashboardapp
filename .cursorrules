@@ -1,0 +1,28 @@
+# Cursor Rules
+
+> Bu repo'nun tek kural seti: [AGENTS.md](./AGENTS.md). Cursor da o kurallara uyar.
+
+## Kritik kurallar
+
+1. **Push öncesi**: `npm run verify` (typecheck + lint + test + build) — CI hata almasın.
+2. **Commit**: Conventional commit (`feat(scope): ...`)
+3. **PR**: Direkt main'e push yok, branch + PR + `gh pr merge --squash`
+
+## Dizinler
+
+- `app/` Next.js pages
+- `components/tasks-table/` — Canlı Tablo (42 dosya)
+- `hooks/` — Custom React hooks
+- `lib/` — Saf TS util
+- `types/permissions.ts` — Rol & permission
+
+## Pattern'ler
+
+- Motion preset: `components/motion/motionPresets.ts`
+- Toast undo: 6sn `durationMs` + action
+- Permission: `hasPermission("...")` (60+ permission listesi)
+- Settings: `useSettings()`
+
+## Detay
+
+[AGENTS.md](./AGENTS.md) tam liste.
