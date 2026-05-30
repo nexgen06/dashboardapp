@@ -146,6 +146,29 @@ export function useTasksTableDataLayer({
   }, [projectIds]);
 
   useEffect(() => {
+    if (projectIds.length === 0) return;
+    const refreshCatalog = async () => {
+      const nextCatalog = await listChipCatalog(projectIds);
+      setChipCatalog(nextCatalog);
+    };
+    const channel = supabase
+      .channel(`chip_catalog_live_table_${projectIdsKey}`, { config: { private: true } })
+      .on("postgres_changes", { event: "*", schema: "public", table: "table_chip_bindings" }, () => {
+        void refreshCatalog().catch((err) => console.warn("[live table chip bindings]", err instanceof Error ? err.message : err));
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "chip_options" }, () => {
+        void refreshCatalog().catch((err) => console.warn("[live table chip options]", err instanceof Error ? err.message : err));
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "chip_templates" }, () => {
+        void refreshCatalog().catch((err) => console.warn("[live table chip templates]", err instanceof Error ? err.message : err));
+      })
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [projectIds, projectIdsKey]);
+
+  useEffect(() => {
     let cancelled = false;
     const settingKey = SPOTLIGHT_ENABLED_APP_SETTINGS_KEY;
     void (async () => {

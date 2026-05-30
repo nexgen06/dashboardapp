@@ -34,7 +34,7 @@ export default function CipKutuphanesiPage() {
   const { projects } = useProjects();
   const toast = useToast();
   const confirm = useConfirm();
-  const canView = hasPermission("chipTemplates.view") || hasPermission("userManagement.view");
+  const canView = hasPermission("chipTemplates.view");
   const canManage = hasPermission("chipTemplates.manage") || user?.roleId === "admin" || user?.roleId === "project_manager";
   const [catalog, setCatalog] = useState<ChipCatalog>({ templates: [], options: [], bindings: [] });
   const [loading, setLoading] = useState(false);
@@ -74,6 +74,22 @@ export default function CipKutuphanesiPage() {
       templates: catalog.templates.filter((template) => template.category === category),
     }));
   }, [catalog.templates]);
+
+  const bindingColumnOptions = useMemo(() => {
+    if (!bindingForm.projectId) return [] as string[];
+    const project = projects.find((item) => item.id === bindingForm.projectId);
+    if (!project) return [];
+    const keys = new Set<string>();
+    for (const key of project.extra_column_keys ?? []) {
+      const trimmed = String(key ?? "").trim();
+      if (trimmed) keys.add(trimmed);
+    }
+    for (const binding of catalog.bindings.filter((item) => item.projectId === project.id)) {
+      const trimmed = binding.columnKey.trim();
+      if (trimmed) keys.add(trimmed);
+    }
+    return Array.from(keys).sort((a, b) => a.localeCompare(b, "tr", { sensitivity: "base" }));
+  }, [bindingForm.projectId, projects, catalog.bindings]);
 
   const saveTemplate = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -318,11 +334,34 @@ export default function CipKutuphanesiPage() {
           <form onSubmit={saveBinding} className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
             <h2 className="mb-3 font-semibold text-slate-900 dark:text-slate-100">Kolona bağla</h2>
             <div className="space-y-3">
-              <select value={bindingForm.projectId} onChange={(e) => setBindingForm((p) => ({ ...p, projectId: e.target.value }))} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">
+              <select value={bindingForm.projectId} onChange={(e) => setBindingForm((p) => ({ ...p, projectId: e.target.value, columnKey: "" }))} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">
                 <option value="">Proje seç</option>
                 {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
               </select>
-              <input value={bindingForm.columnKey} onChange={(e) => setBindingForm((p) => ({ ...p, columnKey: e.target.value }))} placeholder="extra_data kolon adı: Risk, Ödeme Durumu..." className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" />
+              {bindingColumnOptions.length > 0 ? (
+                <select
+                  value={bindingForm.columnKey}
+                  onChange={(e) => setBindingForm((p) => ({ ...p, columnKey: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                >
+                  <option value="">Sütun seç</option>
+                  {bindingColumnOptions.map((columnKey) => (
+                    <option key={columnKey} value={columnKey}>{columnKey}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={bindingForm.columnKey}
+                  onChange={(e) => setBindingForm((p) => ({ ...p, columnKey: e.target.value }))}
+                  placeholder="extra_data kolon adı: Risk, Mail Durumu..."
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                />
+              )}
+              {bindingColumnOptions.length > 0 && (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Proje sütunları listelenir; ad tam eşleşmeli (akıllı çip için <strong>Mail Durumu</strong> gibi).
+                </p>
+              )}
               <select value={bindingForm.templateId} onChange={(e) => setBindingForm((p) => ({ ...p, templateId: e.target.value }))} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">
                 <option value="">Çip şablonu seç</option>
                 {catalog.templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}

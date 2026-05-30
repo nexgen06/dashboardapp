@@ -32,6 +32,7 @@ import {
   Shield,
   Sparkles,
   Table2,
+  UserCircle2,
   type LucideIcon,
 } from "lucide-react";
 import type { Permission } from "@/types/permissions";
@@ -110,6 +111,8 @@ export const SIDEBAR_MODULES: SidebarModule[] = [
     description: "Hesap ve tercihler",
     icon: Settings,
     items: [
+      { href: "/profil", label: "Profilim", tooltip: "Avatar, görünen ad ve hesap bilgileri", icon: UserCircle2, permission: null, alsoRequire: null },
+      { href: "/profil/yetkiler", label: "Rolüm ve yetkilerim", tooltip: "Global rolünüz ve etkin izinler", icon: Shield, permission: null, alsoRequire: null },
       { href: "/ayarlar", label: "Ayarlar", icon: Settings, permission: "area.settings", alsoRequire: "settings.view" },
       { href: "/rehber", label: "Kullanıcı Rehberi", tooltip: "Tüm özellikler için adım adım rehber", icon: BookOpen, permission: null, alsoRequire: null },
     ],
@@ -121,6 +124,7 @@ export const SIDEBAR_MODULES: SidebarModule[] = [
  * Bulunamazsa varsayılan modül (ilk modül) döner.
  */
 export function moduleForPath(pathname: string): ModuleId {
+  if (pathname === "/profil/yetkiler" || pathname === "/profil") return "kisisel";
   for (const m of SIDEBAR_MODULES) {
     for (const item of m.items) {
       if (item.href === "/") {
@@ -138,6 +142,8 @@ export function moduleForPath(pathname: string): ModuleId {
 /** Bir item'ın aktif sayfa olup olmadığını route eşleştirmesiyle döndürür. */
 export function isItemActive(item: NavItem, pathname: string): boolean {
   if (item.href === "/") return pathname === "/";
+  if (item.href === "/profil/yetkiler") return pathname === "/profil/yetkiler";
+  if (item.href === "/profil") return pathname === "/profil";
   if (item.href === "/ayarlar") return pathname === "/ayarlar";
   if (item.href.startsWith("/yonetim")) return pathname === item.href;
   return pathname === item.href || pathname.startsWith(`${item.href}/`);

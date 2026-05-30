@@ -17,8 +17,13 @@ Bu tablo, [`types/permissions.ts`](../types/permissions.ts) içindeki `Permissio
 | `settings.edit` | `contexts/settings-context.tsx` (`updateSetting`, `save`, `reset*`) | Kalıcı / yerel ayar yazımı |
 | `projectDetail.view` | `app/projeler/[id]/page.tsx` | Proje detay kapısı |
 | `projectDetail.*` | Aynı sayfa | Görev ekleme/düzenleme/silme/import |
-| `area.userManagement` | Sidebar, yönetim sayfaları | |
-| `userManagement.view` / `edit` | `app/yonetim/kullanici-yetkileri/page.tsx` | |
-| `notifications.send` | Rolde tanımlı; ayrıntılı gönderim UI’da opsiyonel | İleride bildirim tetiklerine bağlanabilir |
+| `area.userManagement` | Sidebar yönetim bölümü | Yalnızca admin |
+| `userManagement.view` / `edit` | `app/yonetim/kullanici-yetkileri/page.tsx` | Yalnızca admin; diğer roller `/profil/yetkiler` |
+| *(auth)* | `app/profil/page.tsx`, `app/profil/yetkiler/page.tsx` | Kendi profil / rol özeti — izin anahtarı gerekmez |
+| `area.reports` + `reports.view` | `app/raporlar/page.tsx`, `app/yonetim/rapor-sablonlari/page.tsx` | PM rapor şablonlarına erişebilir |
+| `projects.edit` | `app/yonetim/referans-veriler/page.tsx` | PM referans veri yönetimi (sidebar admin bölümünde gizli) |
+| `chipTemplates.view` | `app/yonetim/cip-kutuphanesi/page.tsx` | Çip kütüphanesi |
+| `automation.view` | `app/yonetim/otomasyon-merkezi/page.tsx` | Otomasyon merkezi |
+| `notifications.send` | Rolde tanımlı; ayrıntılı gönderim UI'da opsiyonel | İleride bildirim tetiklerine bağlanabilir |
 
-**Öneri:** Yeni endpoint veya tablo eklendiğinde bu dosyayı ve RLS script’ini birlikte güncelleyin.
+**Öneri:** Yeni endpoint veya tablo eklendiğinde bu dosyayı ve RLS script'ini birlikte güncelleyin.

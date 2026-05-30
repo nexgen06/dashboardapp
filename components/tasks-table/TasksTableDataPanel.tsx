@@ -1,6 +1,7 @@
 "use client";
 
 import type { Dispatch, ReactNode, RefObject, SetStateAction } from "react";
+import type { RenameExtraColumnDraft } from "@/components/tasks-table/useTasksTableRenameExtraColumn";
 import { useMemo, useState } from "react";
 import { flexRender, type Table } from "@tanstack/react-table";
 import type { Task } from "@/types/tasks";
@@ -68,6 +69,7 @@ import {
   Trash2,
   Upload,
   X,
+  Pencil,
 } from "lucide-react";
 
 export type TasksTableDataPanelProps = {
@@ -121,6 +123,7 @@ export type TasksTableDataPanelProps = {
   pinColumn: (columnId: string, side: "left" | "right" | "unpin") => void;
   canEditProject: boolean;
   setRemoveExtraColumnKey: Dispatch<SetStateAction<string | null>>;
+  setRenameExtraColumnDraft: Dispatch<SetStateAction<RenameExtraColumnDraft | null>>;
   recentlyUpdatedIds: Set<string>;
   editorsByRowId: Map<string, EditingUser[]>;
   rowAutomationStateByTaskId: Map<string, TaskAutomationState>;
@@ -209,6 +212,7 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
     pinColumn,
     canEditProject,
     setRemoveExtraColumnKey,
+    setRenameExtraColumnDraft,
     recentlyUpdatedIds,
     editorsByRowId,
     rowAutomationStateByTaskId,
@@ -641,6 +645,17 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                             {col.id.startsWith("extra:") && canEditProject && (
                               <>
                                 <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    setRenameExtraColumnDraft({
+                                      oldKey: col.id.slice("extra:".length),
+                                      newKey: col.id.slice("extra:".length),
+                                    })
+                                  }
+                                >
+                                  <Pencil className="mr-2 h-4 w-4" aria-hidden />
+                                  Sütunu yeniden adlandır…
+                                </DropdownMenuItem>
                                 <DropdownMenuItem
                                   className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
                                   onClick={() => setRemoveExtraColumnKey(col.id.slice("extra:".length))}

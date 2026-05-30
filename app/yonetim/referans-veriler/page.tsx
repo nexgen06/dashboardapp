@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
+import { YonetimAccessDenied } from "@/components/yonetim/YonetimAccessDenied";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
@@ -51,7 +52,7 @@ export default function ReferansVerilerPage() {
   const { isLoaded, hasPermission } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
-  const canView = hasPermission("userManagement.view");
+  const canView = hasPermission("area.userManagement") || hasPermission("projects.edit");
   const canEdit = hasPermission("userManagement.edit") || hasPermission("projects.edit");
   const [sources, setSources] = useState<ReferenceSource[]>([]);
   const [usageBySourceId, setUsageBySourceId] = useState<Record<string, number>>({});
@@ -323,17 +324,7 @@ export default function ReferansVerilerPage() {
   }
 
   if (!canView) {
-    return (
-      <div className="container max-w-4xl py-8">
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-center dark:border-amber-700 dark:bg-amber-950/30">
-          <Shield className="mx-auto mb-3 h-10 w-10 text-amber-600" />
-          <p className="font-medium text-slate-800 dark:text-slate-100">Bu sayfaya erişim yetkiniz yok.</p>
-          <Button asChild variant="outline" className="mt-4">
-            <Link href="/">Ana sayfaya dön</Link>
-          </Button>
-        </div>
-      </div>
-    );
+    return <YonetimAccessDenied />;
   }
 
   return (

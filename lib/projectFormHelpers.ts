@@ -63,6 +63,12 @@ export const SMART_CHIP_COLUMN_PRESETS = [
     description: "Genel, hizmete özel ve gizli veri sınıfı.",
     tone: "violet",
   },
+  {
+    label: "Mail Durumu",
+    templateName: "E-posta",
+    description: "Gönderilmedi, bekliyor, gönderildi ve gönderilemedi.",
+    tone: "cyan",
+  },
 ] as const;
 
 export type SmartChipColumnPreset = (typeof SMART_CHIP_COLUMN_PRESETS)[number];
@@ -81,6 +87,9 @@ export function smartChipToneClass(tone: SmartChipColumnPreset["tone"], selected
     violet: selected
       ? "border-violet-300 bg-violet-50 text-violet-800 dark:border-violet-800 dark:bg-violet-950/35 dark:text-violet-200"
       : "border-slate-300 bg-white text-slate-600 hover:border-violet-300 hover:bg-violet-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-violet-800 dark:hover:bg-violet-950/30",
+    cyan: selected
+      ? "border-cyan-300 bg-cyan-50 text-cyan-800 dark:border-cyan-800 dark:bg-cyan-950/35 dark:text-cyan-200"
+      : "border-slate-300 bg-white text-slate-600 hover:border-cyan-300 hover:bg-cyan-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-cyan-800 dark:hover:bg-cyan-950/30",
   }[tone];
   return base;
 }

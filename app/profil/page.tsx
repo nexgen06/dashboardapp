@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { UserCircle2, Upload, Loader2, Trash2, Save } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
+import { ROLES } from "@/types/permissions";
 import { Button } from "@/components/ui/button";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -17,6 +19,7 @@ import {
 
 export default function ProfilPage() {
   const { user, isLoaded } = useAuth();
+  const roleLabel = user ? ROLES[user.roleId]?.name ?? user.roleId : "—";
   const toast = useToast();
   const confirm = useConfirm();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -200,9 +203,15 @@ export default function ProfilPage() {
               </div>
               <div>
                 <dt className="text-slate-500 dark:text-slate-400">Rol</dt>
-                <dd className="font-medium text-slate-700 dark:text-slate-200">
-                  {profile?.role_id ?? "—"}
-                </dd>
+                <dd className="font-medium text-slate-700 dark:text-slate-200">{roleLabel}</dd>
+              </div>
+              <div className="pt-1">
+                <Link
+                  href="/profil/yetkiler"
+                  className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  Rolüm ve yetkilerim →
+                </Link>
               </div>
             </dl>
           </div>

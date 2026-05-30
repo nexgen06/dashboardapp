@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileJson, Loader2, Plus, Trash2, GripVertical, Wand2 } from "lucide-react";
+import { FileJson, Loader2, Pencil, Plus, Trash2, GripVertical, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/modals";
@@ -16,6 +16,7 @@ import {
   type ProjectColumn,
   type ProjectColumnType,
 } from "@/lib/projectColumns";
+import { renameProjectExtraColumn } from "@/lib/renameProjectExtraColumn";
 import { cn } from "@/lib/utils";
 import { listReferenceSources, type ReferenceSource } from "@/lib/referenceSources";
 import { useProjects } from "@/hooks/useProjects";
@@ -31,6 +32,8 @@ type Props = {
    *  "Canlı tablo ek sütunları" (extra_column_keys) şemasına ekler ki sütun
    *  proje kaydedilince tabloda görünür olsun. */
   onColumnAdded?: (key: string) => void;
+  /** Sütun yeniden adlandırıldığında üst formdaki metin alanını senkronlar. */
+  onColumnRenamed?: (oldKey: string, newKey: string) => void;
   /** Projenin KALICI (DB'deki) extra_column_keys listesi. Yeni sütun eklenince
    *  bu listeye eklenip hemen kaydedilir; böylece tabloda anında görünür.
    *  Güvenilir okuma için üst formdan geçirilir (boş okuyup silmeyi önler). */
@@ -47,6 +50,7 @@ export function ProjectColumnManager({
   observedKeys,
   sampleValuesByKey = {},
   onColumnAdded,
+  onColumnRenamed,
   existingExtraColumnKeys = [],
 }: Props) {
   const toast = useToast();
@@ -67,6 +71,8 @@ export function ProjectColumnManager({
     Record<string, { fileName: string; fields: string[]; rows: Record<string, unknown>[]; labelField: string }>
   >({});
   const [referenceSources, setReferenceSources] = useState<ReferenceSource[]>([]);
+  const [renamingColumnId, setRenamingColumnId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
   const debounceRef = useRef<Record<string, number>>({});
 
   const refresh = useCallback(async () => {
@@ -328,6 +334,53 @@ export function ProjectColumnManager({
     }
   };
 
+  const startRename = (col: ProjectColumn) => {
+    setRenamingColumnId(col.id);
+    setRenameDraft(col.key);
+  };
+
+  const cancelRename = () => {
+    setRenamingColumnId(null);
+    setRenameDraft("");
+  };
+
+  const commitRename = async (col: ProjectColumn) => {
+    const nextKey = renameDraft.trim();
+    if (!nextKey) {
+      toast.error("Yeni sütun adı girin.");
+      return;
+    }
+    if (nextKey.toLocaleLowerCase("tr") === col.key.trim().toLocaleLowerCase("tr")) {
+      cancelRename();
+      return;
+    }
+    setBusyId(col.id);
+    try {
+      const result = await renameProjectExtraColumn({
+        projectId,
+        oldKey: col.key,
+        newKey: nextKey,
+      });
+      await updateProject(projectId, {
+        extra_column_keys: result.extraColumnKeys,
+        title_column: result.titleColumn,
+        subtitle_columns: result.subtitleColumns,
+      });
+      onColumnRenamed?.(col.key, nextKey);
+      cancelRename();
+      await refresh();
+      toast.success(
+        `"${col.key}" → "${nextKey}"` +
+          (result.tasksUpdated > 0 ? ` · ${result.tasksUpdated} görev güncellendi` : "") +
+          (result.chipBindingsUpdated > 0 ? ` · ${result.chipBindingsUpdated} çip bağlantısı` : "")
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Sütun yeniden adlandırılamadı.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const handleDelete = async (col: ProjectColumn) => {
     const ok = await confirm({
       title: "Sütun tanımını kaldır",
@@ -503,35 +556,81 @@ export function ProjectColumnManager({
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <GripVertical className="h-3.5 w-3.5 shrink-0 text-slate-300 dark:text-slate-600" aria-hidden />
-                  <span className="min-w-0 flex-1 truncate font-medium text-sm text-slate-800 dark:text-slate-100">
-                    {col.key}
-                  </span>
-                  <select
-                    value={draft.type}
-                    onChange={(e) => handleTypeChange(col, e.target.value as ProjectColumnType)}
-                    className="h-8 rounded border border-slate-200 bg-white px-2 text-xs text-slate-700 focus:border-blue-400 focus:outline-none dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
-                    aria-label={`${col.key} tipi`}
-                  >
-                    {(Object.keys(PROJECT_COLUMN_TYPE_LABELS) as ProjectColumnType[]).map((t) => (
-                      <option key={t} value={t}>
-                        {PROJECT_COLUMN_TYPE_LABELS[t]}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => void handleDelete(col)}
-                    disabled={busyId === col.id}
-                    className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
-                    title="Tip atamasını kaldır"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                  </button>
+                  {renamingColumnId === col.id ? (
+                    <input
+                      type="text"
+                      value={renameDraft}
+                      onChange={(e) => setRenameDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void commitRename(col);
+                        }
+                        if (e.key === "Escape") cancelRename();
+                      }}
+                      autoFocus
+                      className="min-w-0 flex-1 rounded border border-blue-300 bg-white px-2 py-1 text-sm text-slate-800 focus:outline-none dark:border-blue-700 dark:bg-slate-900 dark:text-slate-100"
+                      aria-label="Yeni sütun adı"
+                    />
+                  ) : (
+                    <span className="min-w-0 flex-1 truncate font-medium text-sm text-slate-800 dark:text-slate-100">
+                      {col.key}
+                    </span>
+                  )}
+                  {renamingColumnId === col.id ? (
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 text-xs"
+                        disabled={busyId === col.id}
+                        onClick={() => void commitRename(col)}
+                      >
+                        Kaydet
+                      </Button>
+                      <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={cancelRename}>
+                        Vazgeç
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <select
+                        value={draft.type}
+                        onChange={(e) => handleTypeChange(col, e.target.value as ProjectColumnType)}
+                        className="h-8 rounded border border-slate-200 bg-white px-2 text-xs text-slate-700 focus:border-blue-400 focus:outline-none dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                        aria-label={`${col.key} tipi`}
+                      >
+                        {(Object.keys(PROJECT_COLUMN_TYPE_LABELS) as ProjectColumnType[]).map((t) => (
+                          <option key={t} value={t}>
+                            {PROJECT_COLUMN_TYPE_LABELS[t]}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => startRename(col)}
+                        disabled={busyId === col.id}
+                        className="rounded p-1 text-slate-400 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20"
+                        title="Sütunu yeniden adlandır"
+                      >
+                        <Pencil className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleDelete(col)}
+                        disabled={busyId === col.id}
+                        className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
+                        title="Tip atamasını kaldır"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                    </>
+                  )}
                 </div>
                 <p className="ml-5 mt-1 text-[11px] text-slate-500 dark:text-slate-400">
                   {PROJECT_COLUMN_TYPE_HINTS[draft.type]}
                 </p>
-                {showOptions && (
+                {showOptions && renamingColumnId !== col.id && (
                   <div className="ml-5 mt-2 space-y-2">
                     <label className="mb-0.5 block text-[11px] font-medium text-slate-600 dark:text-slate-300">
                       Seçenekler (virgülle veya satırla ayrı)

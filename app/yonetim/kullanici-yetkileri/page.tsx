@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import type { ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
 import type { RoleId, Permission } from "@/types/permissions";
 import { ROLES, PERMISSION_GROUPS, PERMISSION_LABELS } from "@/types/permissions";
@@ -68,8 +69,10 @@ function roleHas(roleId: RoleId, permission: Permission) {
 }
 
 export default function KullaniciYetkileriPage() {
+  const router = useRouter();
   const { user, isLoaded, hasPermission, updateUserRole, isAdmin } = useAuth();
   const toast = useToast();
+  const canAccess = hasPermission("userManagement.view");
   const canEdit = hasPermission("userManagement.edit");
   const [users, setUsers] = useState<DirectoryUserProfile[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
@@ -79,6 +82,12 @@ export default function KullaniciYetkileriPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (isLoaded && !canAccess) {
+      router.replace("/profil/yetkiler");
+    }
+  }, [isLoaded, canAccess, router]);
 
   const fetchUsers = useCallback(async () => {
     if (!isAdmin) return;
@@ -163,25 +172,10 @@ export default function KullaniciYetkileriPage() {
     }
   };
 
-  if (!isLoaded) {
+  if (!isLoaded || !canAccess) {
     return (
       <div className="container max-w-4xl py-12 flex items-center justify-center text-slate-500 dark:text-slate-400">
         Yükleniyor…
-      </div>
-    );
-  }
-
-  if (!hasPermission("userManagement.view")) {
-    return (
-      <div className="container max-w-4xl py-8">
-        <div className="rounded-lg border-2 border-amber-200 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30 p-6 text-center">
-          <Shield className="h-12 w-12 mx-auto text-amber-600 dark:text-amber-400 mb-3" />
-          <p className="text-slate-800 dark:text-slate-200 font-medium">Bu sayfaya erişim yetkiniz yok.</p>
-          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">Kullanıcı yetkilerini yalnızca yöneticiler görüntüleyebilir.</p>
-          <Button variant="outline" asChild className="mt-4">
-            <Link href="/">Ana sayfaya dön</Link>
-          </Button>
-        </div>
       </div>
     );
   }

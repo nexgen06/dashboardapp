@@ -11,12 +11,15 @@ Uygulamanın kullanım amacı (kurumsal görev/proje yönetim paneli, Supabase A
 - **Sonuç:** "Giriş yapın" mesajı var ama uygulama girişi zorunlu kılmıyordu; panel girişsiz kullanılabiliyordu.
 - **Yapılan:** `components/AuthGuard.tsx` eklendi; layout’ta `AuthGuard` ile panel sarmalandı. Supabase oturumu yokken (`user === null`)  tüm rotalar (giriş sayfası hariç) `/giris`e yönlendiriliyor.
 
-### 1.2 "Profil / Yetki" linki yetkisiz kullanıcıya hata sayfası açıyor
-- **Durum:** Header’daki kullanıcı menüsünde tüm giriş yapmış kullanıcılar için "Profil / Yetki" → `/yonetim/kullanici-yetkileri` linki var. Bu sayfaya sadece `userManagement.view` yetkisi olan (pratikte admin) erişebiliyor.
-- **Sonuç:** Üye, proje yöneticisi veya izleyici bu linke tıklayınca "Bu sayfaya erişim yetkiniz yok" ekranına düşüyor. Kendi rolünü/profile bilgisini görecek bir yer yok.
-- **Öneri:**  
-  - Ya "Profil / Yetki" sadece admin’e gösterilsin, diğer roller için ayrı bir "Profil" sayfası (sadece kendi e-posta/rolü) açılsın.  
-  - Ya da `userManagement.view` tüm rollerde açılsın; sayfa içinde "Oturum açan kullanıcı" herkese, "Tüm kullanıcılar" ve rol düzenleme sadece admin’e gösterilsin.
+### 1.2 Profil / Yetki erişimi ✅ (Uygulandı)
+- **Durum:** Header’da tüm kullanıcılar `/yonetim/kullanici-yetkileri` linkine gidiyordu; admin sayfası veya erişim hatası görünüyordu.
+- **Yapılan:**
+  - **`/profil`** — avatar, görünen ad, rol etiketi (Türkçe rol adı)
+  - **`/profil/yetkiler`** — oturum açan kullanıcının rolü ve etkin izin özeti (salt okunur)
+  - Header: **Profilim** + **Rolüm ve yetkilerim** (herkese); **Kullanıcı yönetimi** yalnızca admin (`area.userManagement`)
+  - Sidebar Kişisel modülde Profilim ve Rolüm ve yetkilerim linkleri
+  - `userManagement.view` yalnızca admin rolünde; non-admin `/yonetim/kullanici-yetkileri` URL’sine giderse `/profil/yetkiler`’e yönlendirilir
+  - Kurumsal admin ve diğer yönetim sayfaları sıkılaştırıldı
 
 ### 1.3 Giriş sayfasında layout ✅ (Uygulandı)
 - **Durum:** `/giris` sayfası da Sidebar + Header ile aynı layout’ta görünüyordu; giriş formu yanında "Panel" menüsü ve header’da "Giriş yap" butonu vardı.
@@ -55,15 +58,11 @@ Uygulamanın kullanım amacı (kurumsal görev/proje yönetim paneli, Supabase A
 
 ## 4. Yetki ve roller
 
-### 4.1 "Kullanıcı yetkileri" sayfasında sadece yönetici içerik var
-- **Durum:** Sayfa tamamen `userManagement.view` ile korunuyor; bu yetki sadece admin’de var. Bu yüzden üye/proje yöneticisi/izleyici kendi rolünü ve yetkilerini göremiyor.
-- **Sonuç:** Rol bazlı panelde kullanıcının "Benim rolüm ve yetkilerim neler?" sorusuna cevap verecek tek yer erişime kapalı.
-- **Öneri:** "Kullanıcı yetkileri" sayfası iki modda olabilir: (1) Herkes kendi profilini ve rolünü görür; (2) Sadece admin "Tüm kullanıcılar" ve rol düzenleme görür. Bunun için `userManagement.view` tüm giriş yapmış kullanıcılara verilebilir, içerik rolüne göre kısılır.
+### 4.1 "Kullanıcı yetkileri" ve profil/yetkiler ayrımı ✅ (Uygulandı)
+- **Yapılan:** Admin `/yonetim/kullanici-yetkileri` (tüm kullanıcılar, davet, rol düzenleme). Diğer roller `/profil/yetkiler` (kendi rolü + izin özeti).
 
-### 4.2 Sidebar’da "Kullanıcı yetkileri" sadece admin’de
-- **Durum:** Sidebar’da "Kullanıcı yetkileri" sadece `area.userManagement` yetkisi olanlara görünüyor (admin). Header’da ise "Profil / Yetki" herkese görünüyor ve aynı sayfaya gidiyor.
-- **Sonuç:** Sidebar ile header davranışı çelişiyor: Sidebar’da link yok, header’da var; link tıklanınca yetkisiz kullanıcı hata görüyor.
-- **Öneri:** Yukarıdaki "Profil / Yetki" ve sayfa erişim mantığı ile birlikte düzeltilmeli; sidebar’da "Profil" veya "Hesabım" herkese, "Kullanıcı yetkileri" (tüm kullanıcı listesi) sadece admin’e gösterilebilir.
+### 4.2 Sidebar ile header tutarlılığı ✅ (Uygulandı)
+- **Yapılan:** Sidebar Kişisel modülde profil linkleri herkese; Yönetim modülünde kullanıcı yönetimi yalnızca admin’e. Header aynı mantıkla hizalandı.
 
 ---
 
@@ -85,8 +84,8 @@ Uygulamanın kullanım amacı (kurumsal görev/proje yönetim paneli, Supabase A
 | Öncelik | Konu | Önerilen aksiyon |
 |--------|------|-------------------|
 | Yüksek | Giriş zorunluluğu | Supabase oturumu yokken korumalı sayfalarda `/giris`e yönlendir |
-| Yüksek | Profil / Yetki erişimi | Tüm giriş yapmış kullanıcılar kendi rolünü görebilsin; admin ek olarak tüm kullanıcıları yönetsin |
-| Orta | Header "Profil / Yetki" | Yetkiye göre farklı sayfa/link (Profil vs Kullanıcı yetkileri) veya tek sayfada rol bazlı içerik |
+| Yüksek | Profil / Yetki erişimi | ✅ `/profil` + `/profil/yetkiler`; admin ayrı yönetim sayfası |
+| Orta | Header menü tutarlılığı | ✅ Profilim / Rolüm ve yetkilerim / Kullanıcı yönetimi (admin) |
 | Orta | Arama kutusu | Ya işlevsel global arama ya da kaldır / "Yakında" notu |
 | Orta | Bildirimler | Gerçek veriye bağla veya "Örnek" olarak işaretle / kaldır |
 | Düşük | Admin giriş yönlendirmesi | Varsayılan hedefi `/` yap; yetki sayfası menüden erişilsin |
