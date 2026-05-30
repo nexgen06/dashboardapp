@@ -29,6 +29,7 @@ import { PriorityBadge } from "@/components/ui/priority-badge";
 import { Section } from "@/components/ui/section";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StaggerList, StaggerItem } from "@/components/motion/StaggerList";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDate } from "@/lib/formatDate";
 import { getStatusKind, isStatusDone } from "@/lib/statusKind";
@@ -431,7 +432,7 @@ export default function GorevlerimPage() {
             }
           />
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <StaggerList className="grid gap-3 sm:grid-cols-2">
             {currentTasks.map((task) => {
               const projectId = task.project_id ? String(task.project_id) : null;
               const project = projectId ? projectById.get(projectId) ?? null : null;
@@ -448,20 +449,21 @@ export default function GorevlerimPage() {
                 viewerRoleId: user?.roleId ?? null,
               });
               return (
-                <TaskInboxCard
-                  key={task.id}
-                  task={task}
-                  displayTitle={card.label}
-                  displaySubtitle={card.subtitle.map((s) => s.value).join(" · ")}
-                  projectName={project?.name ?? ""}
-                  urgentPrioritySet={urgentPrioritySet}
-                  onSetStatus={setTaskStatus}
-                  busy={busyId === task.id}
-                  canEdit={rowCanEdit}
-                />
+                <StaggerItem key={task.id}>
+                  <TaskInboxCard
+                    task={task}
+                    displayTitle={card.label}
+                    displaySubtitle={card.subtitle.map((s) => s.value).join(" · ")}
+                    projectName={project?.name ?? ""}
+                    urgentPrioritySet={urgentPrioritySet}
+                    onSetStatus={setTaskStatus}
+                    busy={busyId === task.id}
+                    canEdit={rowCanEdit}
+                  />
+                </StaggerItem>
               );
             })}
-          </div>
+          </StaggerList>
         )}
       </Section>
     </div>

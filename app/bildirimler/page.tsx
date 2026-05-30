@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StaggerList, StaggerItem } from "@/components/motion/StaggerList";
 import { cn } from "@/lib/utils";
 
 type NotifType = NotificationSummaryItem["type"];
@@ -309,12 +310,12 @@ export default function BildirimlerPage() {
           }
         />
       ) : (
-        <div className="flex flex-col gap-4">
+        <StaggerList className="flex flex-col gap-4">
           {groupOrder.map((group) => {
             const items = groupedItems[group];
             if (!items || items.length === 0) return null;
             return (
-              <div key={group}>
+              <StaggerItem key={group}>
                 {hasMultipleGroups && (
                   <p className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                     {DATE_GROUP_LABELS[group]}
@@ -458,10 +459,10 @@ export default function BildirimlerPage() {
                     );
                   })}
                 </ul>
-              </div>
+              </StaggerItem>
             );
           })}
-        </div>
+        </StaggerList>
       )}
 
       <p className="text-[11px] text-slate-400 dark:text-slate-500">

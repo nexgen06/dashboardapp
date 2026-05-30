@@ -2,6 +2,21 @@
 
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CountUp } from "@/components/motion/CountUp";
+
+/** "%87" / "87 / 100" gibi string'lerden ilk sayıyı çek — animate edilebilir. */
+function parseLeadingNumber(raw: string | number): {
+  num: number | null;
+  prefix: string;
+  suffix: string;
+} {
+  if (typeof raw === "number") return { num: raw, prefix: "", suffix: "" };
+  const m = raw.match(/^(\D*)(-?\d+(?:[.,]\d+)?)(.*)$/);
+  if (!m) return { num: null, prefix: "", suffix: "" };
+  const parsed = Number(m[2].replace(",", "."));
+  if (!Number.isFinite(parsed)) return { num: null, prefix: "", suffix: "" };
+  return { num: parsed, prefix: m[1], suffix: m[3] };
+}
 
 export type ProjectKpiCardProps = {
   label: string;
@@ -50,6 +65,7 @@ export function ProjectKpiCard({
   className,
 }: ProjectKpiCardProps) {
   const styles = VARIANT_STYLES[variant];
+  const parsed = parseLeadingNumber(value);
 
   return (
     <div
@@ -63,7 +79,16 @@ export function ProjectKpiCard({
         <div className="min-w-0 flex-1">
           <p className={cn("text-xs font-medium", styles.label)}>{label}</p>
           <p className={cn("mt-1 text-2xl font-semibold tabular-nums tracking-tight", styles.value)}>
-            {value}
+            {parsed.num !== null ? (
+              <CountUp
+                value={parsed.num}
+                prefix={parsed.prefix}
+                suffix={parsed.suffix}
+                duration={0.7}
+              />
+            ) : (
+              value
+            )}
           </p>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{hint}</p>
         </div>
