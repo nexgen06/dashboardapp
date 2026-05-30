@@ -620,6 +620,45 @@ tr[data-selected="true"] td[data-col="select"] {
   box-shadow: 0 1px 0 rgb(51 65 85 / 0.75);
 }
 
+/* ── 8) Sade satır ızgarası — yalnız ince yatay ayırıcı (Faz 2) ── */
+.live-table-simplified-grid th,
+.live-table-simplified-grid td {
+  border-right-width: 0;
+  border-left-width: 0;
+}
+
+.live-table-simplified-grid tbody td {
+  border-bottom: 1px solid rgb(241 245 249);
+}
+
+.dark .live-table-simplified-grid tbody td {
+  border-bottom-color: rgb(30 41 59);
+}
+
+.live-table-simplified-grid thead th {
+  border-bottom: 1px solid rgb(241 245 249);
+}
+
+.dark .live-table-simplified-grid thead th {
+  border-bottom-color: rgb(30 41 59);
+}
+
+.live-table-simplified-grid tr.live-table-group-header td {
+  border-bottom: 1px solid rgb(226 232 240);
+}
+
+.dark .live-table-simplified-grid tr.live-table-group-header td {
+  border-bottom-color: rgb(51 65 85);
+}
+
+.table-modern-skin.live-table-simplified-grid tbody tr:hover {
+  box-shadow: none;
+}
+
+.table-modern-skin.live-table-simplified-grid tbody tr.live-table-modern-row[data-selected="true"] {
+  box-shadow: none;
+}
+
 .table-modern-skin tbody tr {
   transition: background-color 140ms ease, box-shadow 140ms ease;
 }

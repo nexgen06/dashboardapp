@@ -48,7 +48,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { TaskCardMobile } from "@/components/TaskCardMobile";
-import { MODERN_DENSITY_UI, PAGE_SIZE_OPTIONS, ROW_HEIGHT_BY_DENSITY, VIRTUALIZE_THRESHOLD, LIVE_TABLE_THEAD_CELL_CLASS, LIVE_TABLE_SORT_IDLE_ICON_CLASS, LIVE_TABLE_PIN_SHADOW_LEFT, LIVE_TABLE_PIN_SHADOW_RIGHT, LIVE_TABLE_SCROLL_SHELL_CLASS, LIVE_TABLE_THEAD_HEIGHT_BY_DENSITY } from "@/components/tasks-table/constants";
+import { MODERN_DENSITY_UI, PAGE_SIZE_OPTIONS, ROW_HEIGHT_BY_DENSITY, VIRTUALIZE_THRESHOLD, LIVE_TABLE_THEAD_CELL_CLASS, LIVE_TABLE_SORT_IDLE_ICON_CLASS, LIVE_TABLE_PIN_SHADOW_LEFT, LIVE_TABLE_PIN_SHADOW_RIGHT, LIVE_TABLE_SCROLL_SHELL_CLASS, LIVE_TABLE_THEAD_HEIGHT_BY_DENSITY, LIVE_TABLE_SIMPLIFIED_GRID_CLASS } from "@/components/tasks-table/constants";
 import { liveTablePinCellBg } from "@/components/tasks-table/LiveTableRowRail";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { EditingUser } from "@/hooks/usePresence";
@@ -440,7 +440,7 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
           onDragCancel={() => setDragActiveColumnId(null)}
         >
         <table
-          className={cn("group/live-table border-separate border-spacing-0 min-w-full", tableSkin.table, dui.table)}
+          className={cn("group/live-table border-separate border-spacing-0 min-w-full", LIVE_TABLE_SIMPLIFIED_GRID_CLASS, tableSkin.table, dui.table)}
           aria-describedby="live-table-caption"
           style={{
             tableLayout: "fixed",
@@ -828,7 +828,7 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
               const cfRule = cfGetRuleForTask(row.original);
               const cfStyle = cfRule ? CF_STYLES[cfRule.style] : null;
               const rowClassName = cn(
-                "group/row transition-[background-color,box-shadow,border-color] duration-150",
+                "group/row",
                 tableSkin.row,
                 isModernTemplate && "live-table-modern-row",
                 rowCanEdit ? "cursor-default" : "cursor-default select-none",

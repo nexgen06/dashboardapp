@@ -152,9 +152,9 @@ export const LIVE_TABLE_TEMPLATE_UI: Record<
       "rounded-lg border border-slate-200 bg-slate-50/80 shadow-sm dark:border-slate-700/80 dark:bg-slate-950/40 dark:shadow-[0_18px_42px_-32px_rgba(0,0,0,0.8)]",
     table: "bg-white dark:bg-slate-900",
     headCell:
-      "border-b border-slate-200/90 font-medium uppercase tracking-wider text-[10px] text-slate-500 dark:border-slate-700 dark:text-slate-400",
-    row: "border-b border-slate-100 dark:border-slate-800",
-    bodyCell: "border-b border-slate-100 dark:border-slate-800",
+      "font-medium uppercase tracking-wider text-[10px] text-slate-500 dark:text-slate-400",
+    row: "transition-[background-color,box-shadow,border-color] duration-150",
+    bodyCell: "",
     pinnedCell: "bg-white dark:bg-slate-900",
   },
   modern: {
@@ -162,9 +162,9 @@ export const LIVE_TABLE_TEMPLATE_UI: Record<
       "live-table-modern-shell rounded-2xl border border-slate-200/90 bg-white shadow-[0_20px_44px_-30px_rgba(16,24,40,0.38)] dark:border-slate-700/80 dark:bg-slate-900/80 dark:shadow-[0_24px_52px_-30px_rgba(0,0,0,0.82)]",
     table: "live-table-modern table-modern-skin bg-white dark:bg-slate-900",
     headCell:
-      "border-b border-slate-200 font-medium uppercase tracking-wider text-[10px] text-slate-500 dark:border-slate-700 dark:text-slate-400",
-    row: "border-b border-slate-100/90 dark:border-slate-800/90",
-    bodyCell: "border-b border-slate-100/90 dark:border-slate-800/90",
+      "font-medium uppercase tracking-wider text-[10px] text-slate-500 dark:text-slate-400",
+    row: "transition-[background-color,box-shadow,border-color] duration-150",
+    bodyCell: "",
     pinnedCell: "bg-white dark:bg-slate-900",
   },
 };
@@ -175,6 +175,9 @@ export const LIVE_TABLE_THEAD_CELL_CLASS =
 
 /** Tablo gövdesi scroll kabuğu — scrollbar-themed ile birlikte kullanılır. */
 export const LIVE_TABLE_SCROLL_SHELL_CLASS = "live-table-scroll-shell scrollbar-themed";
+
+/** Yatay-only satır ızgarası — dikey border-r yok (Faz 2). */
+export const LIVE_TABLE_SIMPLIFIED_GRID_CLASS = "live-table-simplified-grid";
 
 /** Grup başlığı sticky offset (thead yüksekliği, px). */
 export const LIVE_TABLE_THEAD_HEIGHT_BY_DENSITY: Record<LiveTableDensity, number> = {
