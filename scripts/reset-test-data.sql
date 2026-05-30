@@ -6,7 +6,9 @@
 --
 -- KORUNAN: kullanıcılar, projeler, görevler, çip ŞABLONLARI, referans
 -- kaynakları, otomasyon kuralları, proje sütun tanımları (project_columns),
--- proje üye yetkileri. Yani yapı korunur, sadece oynak veri silinir.
+-- proje üye yetkileri, PII erişim kayıtları (pii_access_log,
+-- pii_policy_shadow_log — KVKK denetim izi, immutable). Yani yapı korunur,
+-- sadece oynak veri silinir.
 --
 -- KULLANIM:
 --   * BLOK BLOK çalıştırın — istediğiniz reset seviyesini seçin.
@@ -99,18 +101,16 @@ end $$;
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- BLOK 6 — DENETİM LOGLARI (audit + PII access)
+-- BLOK 6 — GENEL DENETİM LOGLARI (audit_log)
 -- ─────────────────────────────────────────────────────────────────────────────
--- KVKK/güvenlik amaçlı denetim kayıtlarıdır; test sırasında temizlenebilir.
+-- PII erişim kayıtları (pii_access_log, pii_policy_shadow_log) KASITLI OLARAK
+-- silinmez — görev/proje reset olsa bile kim hangi hassas alana erişti izi kalır.
+-- Tablolarda DELETE policy yoktur (scripts/pii-access-log.sql).
 do $$
 begin
   if to_regclass('public.audit_log') is not null then
     delete from public.audit_log;
     raise notice '✓ audit_log tablosu temizlendi';
-  end if;
-  if to_regclass('public.pii_access_log') is not null then
-    delete from public.pii_access_log;
-    raise notice '✓ pii_access_log tablosu temizlendi';
   end if;
 end $$;
 
@@ -154,7 +154,8 @@ begin
   raise notice '✅ TEST RESET TAMAMLANDI';
   raise notice '   Korunan: % proje, % görev', project_count, task_count;
   raise notice '   Silinen: bildirimler, yorumlar, otomasyon logları, ';
-  raise notice '            workflow geçmişi, çip atamaları, denetim logları';
+  raise notice '            workflow geçmişi, çip atamaları, audit_log';
+  raise notice '   Korunan (denetim): pii_access_log, pii_policy_shadow_log';
   raise notice '═══════════════════════════════════════';
 end $$;
 
@@ -176,3 +177,12 @@ end $$;
 -- delete from public.project_member_permissions;
 -- delete from public.tasks;
 -- delete from public.projects;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- OPSİYONEL — PII DENETİM KAYITLARI (yalnızca dev/test, bilinçli temizlik)
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Normal test reset PII kayıtlarına dokunmaz. Tamamen boş PII ekranı istiyorsanız
+-- ve ortam test/staging ise postgres rolüyle (SQL Editor) aşağıyı açın:
+--
+-- truncate table public.pii_access_log;
+-- truncate table public.pii_policy_shadow_log;

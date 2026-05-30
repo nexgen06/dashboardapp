@@ -27,7 +27,11 @@ import { StatusCell } from "@/components/tasks-table/StatusCell";
 import { ReferenceSelectCell } from "@/components/tasks-table/ReferenceSelectCell";
 import { ExtraCellCopyButton } from "@/components/tasks-table/ExtraCellCopyButton";
 import { ChipSelectCell } from "@/components/chips/ChipBadge";
-import { REFERENCE_WARNINGS_KEY } from "@/components/tasks-table/constants";
+import {
+  LIVE_TABLE_HEADER_SELECT_CHECKBOX_CLASS,
+  LIVE_TABLE_ROW_SELECT_CHECKBOX_CLASS,
+  REFERENCE_WARNINGS_KEY,
+} from "@/components/tasks-table/constants";
 import { EXTRA_DATA_LINK_KEY, isSafeUrl } from "@/components/tasks-table/taskFormHelpers";
 import { normalizeSortText } from "@/components/tasks-table/sortText";
 import { isSpotlightCellMatch } from "@/components/tasks-table/spotlight";
@@ -202,17 +206,23 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
     () => [
     columnHelper.display({
       id: "select",
-      header: ({ table }) => (
-        <span className="flex items-center gap-1.5">
-          <SelectAllCheckbox
-            checked={table.getIsAllPageRowsSelected()}
-            indeterminate={table.getIsSomePageRowsSelected() && !table.getIsAllPageRowsSelected()}
-            onChange={table.getToggleAllPageRowsSelectedHandler()}
-            className={dui.rowCheckbox}
-          />
-          <span className={cn("font-medium text-slate-600 dark:text-slate-400", dui.selectHeaderSpan)}>Seçim</span>
-        </span>
-      ),
+      header: ({ table }) => {
+        const hasPageSelection = table.getIsSomePageRowsSelected();
+        return (
+          <span className="flex items-center justify-center">
+            <SelectAllCheckbox
+              checked={table.getIsAllPageRowsSelected()}
+              indeterminate={table.getIsSomePageRowsSelected() && !table.getIsAllPageRowsSelected()}
+              onChange={table.getToggleAllPageRowsSelectedHandler()}
+              className={cn(
+                dui.rowCheckbox,
+                LIVE_TABLE_HEADER_SELECT_CHECKBOX_CLASS
+              )}
+              data-active={hasPageSelection ? "true" : undefined}
+            />
+          </span>
+        );
+      },
       cell: ({ row }) => {
         const editors = editorsByRowId.get(row.original.id) ?? [];
         const first = editors[0];
@@ -238,7 +248,8 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
               checked={row.getIsSelected()}
               disabled={!row.getCanSelect()}
               onChange={row.getToggleSelectedHandler()}
-              className={dui.rowCheckbox}
+              className={cn(dui.rowCheckbox, LIVE_TABLE_ROW_SELECT_CHECKBOX_CLASS)}
+              data-selected={row.getIsSelected() ? "true" : undefined}
               aria-label="Satırı seç"
             />
             {line != null && (
@@ -271,9 +282,9 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
           </div>
         );
       },
-      size: 56,
-      minSize: 48,
-      maxSize: 140,
+      size: 36,
+      minSize: 28,
+      maxSize: 48,
       enableResizing: false,
       enableHiding: false,
     }),

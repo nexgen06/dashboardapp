@@ -7,11 +7,13 @@ export function SelectAllCheckbox({
   indeterminate,
   onChange,
   className,
+  "data-active": dataActive,
 }: {
   checked: boolean;
   indeterminate: boolean;
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   className: string;
+  "data-active"?: string;
 }) {
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -24,6 +26,7 @@ export function SelectAllCheckbox({
       checked={checked}
       onChange={onChange}
       className={className}
+      data-active={dataActive}
       aria-label="Tümünü seç"
     />
   );

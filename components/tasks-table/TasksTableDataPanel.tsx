@@ -435,7 +435,7 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
           onDragCancel={() => setDragActiveColumnId(null)}
         >
         <table
-          className={cn("border-separate border-spacing-0 min-w-full", tableSkin.table, dui.table)}
+          className={cn("group/live-table border-separate border-spacing-0 min-w-full", tableSkin.table, dui.table)}
           aria-describedby="live-table-caption"
           style={{
             tableLayout: "fixed",
