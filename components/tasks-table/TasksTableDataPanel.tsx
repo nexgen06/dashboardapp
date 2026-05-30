@@ -122,6 +122,13 @@ export type TasksTableDataPanelProps = {
   setImportOpen: Dispatch<SetStateAction<boolean>>;
   activeFilterCount: number;
   clearFilters: () => void;
+  /* Group by props (custom grouping — useTasksTableGrouping) */
+  groupingField: import("@/hooks/useTasksTableGrouping").GroupingField;
+  setGroupingField: (f: import("@/hooks/useTasksTableGrouping").GroupingField) => void;
+  groupedItems: import("@/hooks/useTasksTableGrouping").GroupRowItem[];
+  toggleGroup: (key: string) => void;
+  setAllExpanded: () => void;
+  setAllCollapsed: () => void;
 };
 
 export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
@@ -192,6 +199,12 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
     setImportOpen,
     activeFilterCount,
     clearFilters,
+    groupingField,
+    setGroupingField,
+    groupedItems,
+    toggleGroup,
+    setAllExpanded,
+    setAllCollapsed,
   } = props;
 
   return (
@@ -244,6 +257,63 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
           </ul>
       </div>
       )}
+      {/* Grouping kontrol bar (masaüstü, tablonun üstünde) */}
+      <div className="hidden md:flex shrink-0 items-center gap-2 border-b border-slate-200 bg-slate-50/60 px-3 py-1.5 dark:border-slate-700 dark:bg-slate-800/30">
+        <label className="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          Grupla:
+        </label>
+        <select
+          value={groupingField ?? ""}
+          onChange={(e) => setGroupingField((e.target.value || null) as typeof groupingField)}
+          className="h-7 rounded-md border border-slate-200 bg-white px-2 pr-6 text-xs text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+          aria-label="Gruplama alanı"
+        >
+          <option value="">Yok</option>
+          <option value="status">Durum</option>
+          <option value="assignee">Atanan</option>
+          <option value="priority">Öncelik</option>
+          <option value="project">Proje</option>
+          <option value="dueBucket">Son tarih</option>
+        </select>
+        {groupingField && (
+          <>
+            <button
+              type="button"
+              onClick={setAllExpanded}
+              className="text-[11px] font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+              title="Tüm grupları aç"
+            >
+              Tümünü aç
+            </button>
+            <span className="text-slate-300 dark:text-slate-700">·</span>
+            <button
+              type="button"
+              onClick={setAllCollapsed}
+              className="text-[11px] font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+              title="Tüm grupları kapat"
+            >
+              Tümünü kapat
+            </button>
+          </>
+        )}
+        {/* Sıralama göstergesi + temizle */}
+        {table.getState().sorting.length > 0 && (
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">
+              Sıralama: <strong className="text-slate-700 dark:text-slate-200">{table.getState().sorting.length} kolon</strong>
+            </span>
+            <button
+              type="button"
+              onClick={() => table.resetSorting()}
+              className="text-[11px] font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400"
+              title="Tüm kolon sıralamalarını temizle"
+            >
+              Temizle
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* MASAÜSTÜ — tablo (md ve üstü) */}
       <div
         ref={liveTableScrollRef}
@@ -329,6 +399,7 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                           <button
                             type="button"
                             onClick={col.getToggleSortingHandler()}
+                            title="Tıkla: sırala · Shift+tıkla: çoklu sıralamaya ekle"
                             className="flex min-w-0 flex-1 items-center gap-1 truncate text-left hover:text-slate-950 dark:hover:text-white"
                           >
                             <span className="truncate">{flexRender(header.column.columnDef.header, header.getContext())}</span>
@@ -338,6 +409,12 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                               <ArrowDown className={cn(dui.sortIcon, "shrink-0 text-blue-600")} />
                             ) : (
                               <ArrowUpDown className={cn(dui.sortIcon, "shrink-0 text-slate-400")} />
+                            )}
+                            {/* Multi-sort sıra göstergesi (yalnız 2+ kolon sıralandığında) */}
+                            {col.getIsSorted() && table.getState().sorting.length > 1 && (
+                              <span className="ml-0.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-blue-100 px-1 text-[9px] font-bold leading-none text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+                                {col.getSortIndex() + 1}
+                              </span>
                             )}
                           </button>
                         ) : (
@@ -500,9 +577,44 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
           </thead>
           <VirtualizedTbody
             scrollRef={liveTableScrollRef}
-            rows={table.getRowModel().rows}
+            items={groupedItems}
             colSpan={table.getVisibleLeafColumns().length}
             rowHeight={ROW_HEIGHT_BY_DENSITY[tableDensity]}
+            groupHeaderHeight={Math.max(32, ROW_HEIGHT_BY_DENSITY[tableDensity] - 6)}
+            renderGroupHeader={(item) => (
+              <tr
+                key={`grp-${item.key}`}
+                className="sticky top-9 z-[5] bg-slate-100/95 backdrop-blur dark:bg-slate-800/95"
+              >
+                <td
+                  colSpan={table.getVisibleLeafColumns().length}
+                  className="border-b border-slate-200 px-3 py-1.5 dark:border-slate-700"
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(item.key)}
+                    className="group/grp flex w-full items-center gap-2 text-left text-sm font-semibold text-slate-700 hover:text-slate-900 dark:text-slate-200 dark:hover:text-white"
+                    aria-expanded={!item.collapsed}
+                  >
+                    <span className={cn("inline-flex shrink-0 text-slate-400 transition-transform duration-150", item.collapsed && "-rotate-90")}>▼</span>
+                    <span className="truncate">{item.label}</span>
+                    <span className="inline-flex h-5 min-w-[24px] shrink-0 items-center justify-center rounded-full bg-slate-200 px-1.5 text-[11px] font-bold leading-none text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                      {item.count}
+                    </span>
+                    {item.completedCount > 0 && item.completedCount < item.count && (
+                      <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
+                        ✓ {item.completedCount}
+                      </span>
+                    )}
+                    {item.completedCount === item.count && item.count > 0 && (
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-100 px-1.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                        ✓ Hepsi tamam
+                      </span>
+                    )}
+                  </button>
+                </td>
+              </tr>
+            )}
             renderRow={(row) => {
               const rowEditors = editorsByRowId.get(row.original.id) ?? [];
               const rowCanEdit = canEditRow(row.original);
@@ -899,44 +1011,51 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
 }
 
 /**
- * Sanal tbody — satır sayısı VIRTUALIZE_THRESHOLD'u aşınca yalnız görünür
- * (viewport içindeki) satırları render eder. Eksik DOM düğümleri padding
- * placeholder <tr>'leri ile telafi edilir (table layout korunur).
+ * Sanal tbody — item sayısı VIRTUALIZE_THRESHOLD'u aşınca yalnız görünür
+ * (viewport içindeki) öğeleri render eder. Items hem normal satır hem grup
+ * başlığı olabilir (useTasksTableGrouping).
  *
  * Pinned sütunlar, presence border'ları, selection state, hover quick
- * actions — hepsi normal satırlardakiyle aynı şekilde çalışır çünkü
- * renderRow callback'i parent'ta tanımlanır.
+ * actions, group başlık collapse — hepsi callback'lerle parent'ta tanımlandığı
+ * için doğal şekilde çalışır.
  */
 function VirtualizedTbody({
   scrollRef,
-  rows,
+  items,
   colSpan,
   rowHeight,
+  groupHeaderHeight,
   renderRow,
+  renderGroupHeader,
   footerRow,
 }: {
   scrollRef: RefObject<HTMLDivElement>;
-  rows: Array<import("@tanstack/react-table").Row<Task>>;
+  items: import("@/hooks/useTasksTableGrouping").GroupRowItem[];
   colSpan: number;
   rowHeight: number;
+  groupHeaderHeight: number;
   renderRow: (row: import("@tanstack/react-table").Row<Task>) => ReactNode;
+  renderGroupHeader: (
+    item: Extract<import("@/hooks/useTasksTableGrouping").GroupRowItem, { type: "header" }>
+  ) => ReactNode;
   footerRow?: ReactNode;
 }) {
-  const shouldVirtualize = rows.length >= VIRTUALIZE_THRESHOLD;
+  const shouldVirtualize = items.length >= VIRTUALIZE_THRESHOLD;
 
   const virtualizer = useVirtualizer({
-    count: shouldVirtualize ? rows.length : 0,
+    count: shouldVirtualize ? items.length : 0,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => rowHeight,
-    // Komşu satırları önceden render et — hızlı scroll'da boş alan görünmesin
+    estimateSize: (i) => (items[i]?.type === "header" ? groupHeaderHeight : rowHeight),
     overscan: 10,
   });
 
+  const renderItem = (item: import("@/hooks/useTasksTableGrouping").GroupRowItem) =>
+    item.type === "header" ? renderGroupHeader(item) : renderRow(item.row);
+
   if (!shouldVirtualize) {
-    // Threshold altında: normal render — measurement overhead'i sıfır
     return (
       <tbody>
-        {rows.map((row) => renderRow(row))}
+        {items.map((it) => renderItem(it))}
         {footerRow}
       </tbody>
     );
@@ -956,9 +1075,9 @@ function VirtualizedTbody({
         </tr>
       )}
       {virtualRows.map((vi) => {
-        const row = rows[vi.index];
-        if (!row) return null;
-        return renderRow(row);
+        const item = items[vi.index];
+        if (!item) return null;
+        return renderItem(item);
       })}
       {paddingBottom > 0 && (
         <tr aria-hidden>
