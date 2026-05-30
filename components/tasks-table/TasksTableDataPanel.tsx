@@ -1,6 +1,7 @@
 "use client";
 
 import type { Dispatch, ReactNode, RefObject, SetStateAction } from "react";
+import { useMemo } from "react";
 import { flexRender, type Table } from "@tanstack/react-table";
 import type { Task } from "@/types/tasks";
 import type { Project } from "@/types/project";
@@ -25,7 +26,8 @@ import {
   FilteredEmpty,
 } from "@/components/tasks-table/SmartTasksEmptyState";
 import { TaskCardMobile } from "@/components/TaskCardMobile";
-import { MODERN_DENSITY_UI, PAGE_SIZE_OPTIONS } from "@/components/tasks-table/constants";
+import { MODERN_DENSITY_UI, PAGE_SIZE_OPTIONS, ROW_HEIGHT_BY_DENSITY, VIRTUALIZE_THRESHOLD } from "@/components/tasks-table/constants";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import type { EditingUser } from "@/hooks/usePresence";
 import type { TaskAutomationState } from "@/lib/taskAutomationState";
 import {
@@ -496,8 +498,12 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
               );
             })}
           </thead>
-          <tbody>
-            {table.getRowModel().rows.map((row) => {
+          <VirtualizedTbody
+            scrollRef={liveTableScrollRef}
+            rows={table.getRowModel().rows}
+            colSpan={table.getVisibleLeafColumns().length}
+            rowHeight={ROW_HEIGHT_BY_DENSITY[tableDensity]}
+            renderRow={(row) => {
               const rowEditors = editorsByRowId.get(row.original.id) ?? [];
               const rowCanEdit = canEditRow(row.original);
               const isEditedByOthers = rowEditors.length > 0;
@@ -669,8 +675,8 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                   {rowCells}
                 </tr>
               );
-            })}
-            {canCreateTask && !requiresSingleProjectSelection && (
+            }}
+            footerRow={canCreateTask && !requiresSingleProjectSelection ? (
               <tr className="border-b border-slate-100 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-900/80">
                 <td
                   colSpan={table.getVisibleLeafColumns().length}
@@ -703,8 +709,8 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                   </div>
                 </td>
               </tr>
-            )}
-          </tbody>
+            ) : null}
+          />
         </table>
       </div>
       </TooltipProvider>
@@ -889,5 +895,77 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
         )
       )}
       </div>
+  );
+}
+
+/**
+ * Sanal tbody — satır sayısı VIRTUALIZE_THRESHOLD'u aşınca yalnız görünür
+ * (viewport içindeki) satırları render eder. Eksik DOM düğümleri padding
+ * placeholder <tr>'leri ile telafi edilir (table layout korunur).
+ *
+ * Pinned sütunlar, presence border'ları, selection state, hover quick
+ * actions — hepsi normal satırlardakiyle aynı şekilde çalışır çünkü
+ * renderRow callback'i parent'ta tanımlanır.
+ */
+function VirtualizedTbody({
+  scrollRef,
+  rows,
+  colSpan,
+  rowHeight,
+  renderRow,
+  footerRow,
+}: {
+  scrollRef: RefObject<HTMLDivElement>;
+  rows: Array<import("@tanstack/react-table").Row<Task>>;
+  colSpan: number;
+  rowHeight: number;
+  renderRow: (row: import("@tanstack/react-table").Row<Task>) => ReactNode;
+  footerRow?: ReactNode;
+}) {
+  const shouldVirtualize = rows.length >= VIRTUALIZE_THRESHOLD;
+
+  const virtualizer = useVirtualizer({
+    count: shouldVirtualize ? rows.length : 0,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => rowHeight,
+    // Komşu satırları önceden render et — hızlı scroll'da boş alan görünmesin
+    overscan: 10,
+  });
+
+  if (!shouldVirtualize) {
+    // Threshold altında: normal render — measurement overhead'i sıfır
+    return (
+      <tbody>
+        {rows.map((row) => renderRow(row))}
+        {footerRow}
+      </tbody>
+    );
+  }
+
+  const virtualRows = virtualizer.getVirtualItems();
+  const totalSize = virtualizer.getTotalSize();
+  const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
+  const paddingBottom =
+    virtualRows.length > 0 ? totalSize - virtualRows[virtualRows.length - 1].end : 0;
+
+  return (
+    <tbody>
+      {paddingTop > 0 && (
+        <tr aria-hidden>
+          <td colSpan={colSpan} style={{ height: paddingTop, padding: 0, border: 0 }} />
+        </tr>
+      )}
+      {virtualRows.map((vi) => {
+        const row = rows[vi.index];
+        if (!row) return null;
+        return renderRow(row);
+      })}
+      {paddingBottom > 0 && (
+        <tr aria-hidden>
+          <td colSpan={colSpan} style={{ height: paddingBottom, padding: 0, border: 0 }} />
+        </tr>
+      )}
+      {footerRow}
+    </tbody>
   );
 }

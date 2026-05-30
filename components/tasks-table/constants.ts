@@ -5,7 +5,21 @@ import type { ReportTemplateId } from "@/lib/liveTableExport";
 
 export const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
 export const STATUS_FILTER_OPTIONS = ["Tümü", "Yapılacak", "Devam ediyor", "Devam", "Tamamlandı"] as const;
-export const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
+/**
+ * Sayfa boyutu opsiyonları — ≥100 değerler için Canlı Tablo otomatik olarak
+ * row virtualization moduna geçer (yalnız görünür satırlar render edilir).
+ */
+export const PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250, 500] as const;
+
+/** Bu satır sayısına ulaşılınca tbody virtualize edilir. */
+export const VIRTUALIZE_THRESHOLD = 80;
+
+/** Density'e göre satır yükseklik tahmini (px) — virtualizer estimateSize için. */
+export const ROW_HEIGHT_BY_DENSITY: Record<LiveTableDensity, number> = {
+  compact: 36,
+  normal: 44,
+  comfortable: 56,
+};
 export const REFERENCE_WARNINGS_KEY = "__reference_warnings";
 export const INTERNAL_EXTRA_DATA_KEYS = new Set([REFERENCE_WARNINGS_KEY]);
 export const EMPTY_CHIP_CATALOG: ChipCatalog = { templates: [], options: [], bindings: [] };
