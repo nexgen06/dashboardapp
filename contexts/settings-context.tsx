@@ -51,6 +51,17 @@ export type Settings = {
   theme: Theme;
   /** Vurgu (accent) rengi — primary butonlar, focus ring, link rengi. */
   accentColor: AccentColor;
+  /**
+   * Kurumsal marka rengi (HEX, "#1d4ed8"). Boş/null ise `accentColor` preset'i
+   * kullanılır; dolu ise tüm --accent-* tonları bu HEX'ten üretilip
+   * preset'i override eder. (D2 — Brand Color Customization)
+   */
+  brandColor: string | null;
+  /**
+   * Kurumsal logo (data URL — küçük dosyalar için yeterli). Sidebar başlığında
+   * "Panel" metni yerine gösterilir. Maksimum boyut UI'da 200KB ile sınırlı.
+   */
+  brandLogoDataUrl: string | null;
   language: Language;
   dateFormat: DateFormat;
   sidebarCollapsedByDefault: boolean;
@@ -96,6 +107,8 @@ export type Settings = {
 const DEFAULT_SETTINGS: Settings = {
   theme: "system",
   accentColor: "blue",
+  brandColor: null,
+  brandLogoDataUrl: null,
   language: "tr",
   dateFormat: "DD.MM.YYYY",
   sidebarCollapsedByDefault: false,
@@ -194,7 +207,7 @@ const SettingsContext = createContext<SettingsContextType | undefined>(undefined
 
 const SECTION_KEYS: Record<SettingsSection, (keyof Settings)[]> = {
   genel: ["language", "dateFormat"],
-  gorunum: ["theme", "accentColor", "sidebarCollapsedByDefault", "liveTableDensity", "liveTableTemplate"],
+  gorunum: ["theme", "accentColor", "brandColor", "brandLogoDataUrl", "sidebarCollapsedByDefault", "liveTableDensity", "liveTableTemplate"],
   bildirimler: ["notificationsEmail", "notificationsPush", "notificationsSound"],
   gorevler: [
     "customStatusList",

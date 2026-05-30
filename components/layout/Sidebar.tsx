@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/contexts/sidebar-context";
 import { useAuth } from "@/contexts/auth-context";
+import { useSettings } from "@/contexts/settings-context";
 import type { Permission } from "@/types/permissions";
 import { useProjectChatUnread } from "@/contexts/project-chat-unread-context";
 import {
@@ -40,6 +41,7 @@ import { Separator } from "@/components/ui/separator";
 export function Sidebar() {
   const { isCollapsed, toggleSidebar } = useSidebar();
   const { hasPermission } = useAuth();
+  const { settings } = useSettings();
   const { totalUnread } = useProjectChatUnread();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -90,9 +92,18 @@ export function Sidebar() {
       >
         <div className="flex h-14 items-center border-b border-slate-200 px-4 dark:border-slate-800">
           {!isCollapsed && (
-            <span className="text-lg font-semibold text-slate-800 dark:text-slate-100">
-              Panel
-            </span>
+            settings.brandLogoDataUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={settings.brandLogoDataUrl}
+                alt="Marka logosu"
+                className="max-h-9 max-w-[180px] object-contain"
+              />
+            ) : (
+              <span className="text-lg font-semibold text-slate-800 dark:text-slate-100">
+                Panel
+              </span>
+            )
           )}
         </div>
 
