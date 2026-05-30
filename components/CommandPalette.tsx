@@ -32,6 +32,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { useSettings } from "@/contexts/settings-context";
 import { useProjects } from "@/hooks/useProjects";
 import { resetOnboardingTour } from "@/components/OnboardingTour";
+import { GUIDE_PAGES } from "@/lib/guide/content";
 import { openKeyboardShortcuts } from "@/components/KeyboardShortcutsHUD";
 import type { Permission } from "@/types/permissions";
 import { cn } from "@/lib/utils";
@@ -392,6 +393,21 @@ export function CommandPalette() {
         resetOnboardingTour();
       },
     });
+    // Kullanıcı Rehberi sayfaları — direkt link
+    for (const page of GUIDE_PAGES) {
+      list.push({
+        id: `help-guide-${page.id}`,
+        label: `Yardım: ${page.title}`,
+        hint: page.isNew ? "YENİ" : undefined,
+        keywords: ["yardim", "help", "rehber", "guide", page.title.toLocaleLowerCase("tr"), page.description.toLocaleLowerCase("tr")],
+        icon: page.icon,
+        group: "Yardım",
+        perform: () => {
+          close();
+          router.push(`/rehber?p=${page.id}`);
+        },
+      });
+    }
 
     // — Hesap —
     list.push({

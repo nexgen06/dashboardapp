@@ -26,6 +26,7 @@ import {
   Megaphone,
   MessageSquarePlus,
   MessagesSquare,
+  BookOpen,
   ServerCog,
   Settings,
   Shield,
@@ -110,6 +111,7 @@ export const SIDEBAR_MODULES: SidebarModule[] = [
     icon: Settings,
     items: [
       { href: "/ayarlar", label: "Ayarlar", icon: Settings, permission: "area.settings", alsoRequire: "settings.view" },
+      { href: "/rehber", label: "Kullanıcı Rehberi", tooltip: "Tüm özellikler için adım adım rehber", icon: BookOpen, permission: null, alsoRequire: null },
     ],
   },
 ];
