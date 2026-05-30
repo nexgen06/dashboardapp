@@ -1,8 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Loader2, AlertCircle, RotateCcw } from "lucide-react";
 import type { LiveTableDensity } from "@/contexts/settings-context";
 import { cn } from "@/lib/utils";
+
+/**
+ * onSave artık `void | Promise<{ok, message?}>` döndürebilir. Promise
+ * dönerse hücre "saving" göstergesi sürer; başarısız olursa inline
+ * "Tekrar dene" butonu çıkar. Eski (void) çağırıcılar bozulmaz.
+ */
+type SaveResult = { ok: boolean; message?: string };
+type OnSave = (taskId: string, patch: Record<string, unknown>) => void | Promise<SaveResult>;
 
 export type EditableCellProps = {
   value: string;
@@ -14,7 +23,7 @@ export type EditableCellProps = {
   field: string;
   navigationColumnId?: string;
   activeEdit?: boolean;
-  onSave: (taskId: string, patch: Record<string, unknown>) => void;
+  onSave: OnSave;
   onFocus: () => void;
   onBlur: () => void;
   density?: LiveTableDensity;
@@ -53,6 +62,11 @@ export function EditableCell({
 }: EditableCellProps) {
   const [isEditing, setIsEditing] = useState(autoEdit || activeEdit);
   const [localValue, setLocalValue] = useState(value);
+  /** "saving" — Promise dönen onSave için spinner; "error" — kaydedilemedi */
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "error">("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  /** Hata sonrası inline "Tekrar dene" için son denenen değer */
+  const lastAttemptRef = useRef<string | null>(null);
   const editableColumnId = navigationColumnId ?? field;
   useEffect(() => {
     if ((autoEdit || activeEdit) && !disabled) {
@@ -94,17 +108,75 @@ export function EditableCell({
   }, [isEditing, value]);
 
   useEffect(() => {
-    if (isEditing) inputRef.current?.focus();
+    if (isEditing) {
+      const node = inputRef.current;
+      if (node) {
+        node.focus();
+        // Excel/Sheets davranışı — focus'ta mevcut metin seçili gelsin
+        // ki kullanıcı yazınca üzerine yazsın.
+        try {
+          node.select();
+        } catch {
+          /* select desteklenmiyor — sessizce geç */
+        }
+      }
+    }
   }, [isEditing]);
 
-  const handleSave = useCallback(() => {
-    const trimmed = localValue.trim();
-    if (trimmed !== value) {
-      onSave(taskId, { [field]: trimmed, last_updated_by: "anon" });
+  /**
+   * Değeri kaydet. onSave Promise dönerse saving/error state'i sürdürülür;
+   * eski void caller'lar fire-and-forget olarak davranır.
+   * @param attemptValue açıkça verilebilir (retry için); aksi halde localValue
+   */
+  const handleSave = useCallback(
+    (attemptValue?: string) => {
+      const raw = attemptValue !== undefined ? attemptValue : localValue;
+      const trimmed = raw.trim();
+      if (trimmed === value) {
+        setIsEditing(false);
+        onBlur();
+        setSaveState("idle");
+        setSaveError(null);
+        return;
+      }
+      lastAttemptRef.current = trimmed;
+      const result = onSave(taskId, { [field]: trimmed, last_updated_by: "anon" });
+      if (result && typeof (result as Promise<SaveResult>).then === "function") {
+        setSaveState("saving");
+        setSaveError(null);
+        // Edit modu açık kalır — kullanıcı hata sonrası retry edebilsin
+        void (result as Promise<SaveResult>).then((r) => {
+          if (r && r.ok) {
+            setSaveState("idle");
+            setSaveError(null);
+            setIsEditing(false);
+            onBlur();
+          } else {
+            setSaveState("error");
+            setSaveError(r?.message ?? "Kaydedilemedi");
+          }
+        }).catch((err) => {
+          setSaveState("error");
+          setSaveError(err instanceof Error ? err.message : "Kaydedilemedi");
+        });
+      } else {
+        // Geriye uyumlu: void caller'lar için optimistic kapatma
+        setIsEditing(false);
+        onBlur();
+        setSaveState("idle");
+        setSaveError(null);
+      }
+    },
+    [localValue, value, taskId, field, onSave, onBlur]
+  );
+
+  const handleRetry = useCallback(() => {
+    if (lastAttemptRef.current !== null) {
+      handleSave(lastAttemptRef.current);
+    } else {
+      handleSave();
     }
-    setIsEditing(false);
-    onBlur();
-  }, [localValue, value, taskId, field, onSave, onBlur]);
+  }, [handleSave]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
@@ -117,9 +189,17 @@ export function EditableCell({
       }
       onNavigateNext?.(taskId, editableColumnId);
     }
+    // Tab → kaydet + sonraki hücre (Shift+Tab geri için — şimdilik forward only)
+    if (e.key === "Tab" && !e.shiftKey) {
+      e.preventDefault();
+      handleSave();
+      onNavigateNext?.(taskId, editableColumnId);
+    }
     if (e.key === "Escape") {
       setLocalValue(value);
       setIsEditing(false);
+      setSaveState("idle");
+      setSaveError(null);
       onBlur();
     }
   };
@@ -149,26 +229,71 @@ export function EditableCell({
   }
 
   if (isEditing) {
+    const hasError = saveState === "error";
+    const isSaving = saveState === "saving";
     return (
       <div className="flex flex-col gap-1">
-        <input
-          ref={inputRef}
-          type="text"
-          value={localValue}
-          onChange={(e) => setLocalValue(e.target.value)}
-          onBlur={handleSave}
-          onKeyDown={handleKeyDown}
-          data-live-editable-cell="true"
-          data-row-id={taskId}
-          data-col-id={editableColumnId}
-          data-disabled={disabled ? "true" : undefined}
-          className={cn(
-            "w-full min-w-0 rounded border border-blue-300 bg-blue-50/50 text-slate-900 outline-none ring-2 ring-blue-500 focus:border-blue-500 focus:bg-blue-50 dark:border-blue-600 dark:bg-blue-900/20 dark:text-slate-100 dark:focus:bg-blue-900/30",
-            cellText,
-            cellPad
+        <div className="relative">
+          <input
+            ref={inputRef}
+            type="text"
+            value={localValue}
+            onChange={(e) => {
+              setLocalValue(e.target.value);
+              // Kullanıcı yazmaya başladıysa eski hatayı temizle
+              if (saveState === "error") setSaveState("idle");
+            }}
+            onBlur={() => {
+              // Hata varken blur'da otomatik kapanma — kullanıcı retry seçebilsin
+              if (saveState !== "error") handleSave();
+            }}
+            onKeyDown={handleKeyDown}
+            disabled={isSaving}
+            data-live-editable-cell="true"
+            data-row-id={taskId}
+            data-col-id={editableColumnId}
+            data-disabled={disabled ? "true" : undefined}
+            className={cn(
+              "w-full min-w-0 rounded border outline-none text-slate-900 dark:text-slate-100",
+              hasError
+                ? "border-red-400 bg-red-50/60 ring-2 ring-red-400 dark:border-red-600 dark:bg-red-900/20"
+                : "border-blue-300 bg-blue-50/50 ring-2 ring-blue-500 focus:border-blue-500 focus:bg-blue-50 dark:border-blue-600 dark:bg-blue-900/20 dark:focus:bg-blue-900/30",
+              isSaving && "opacity-70",
+              cellText,
+              cellPad
+            )}
+          />
+          {isSaving && (
+            <span
+              className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-blue-500 dark:text-blue-400"
+              aria-label="Kaydediliyor"
+            >
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+            </span>
           )}
-        />
-        <span className="text-xs text-slate-500 dark:text-slate-400">Enter ile kaydet, Esc ile iptal</span>
+        </div>
+        {hasError ? (
+          <div className="flex items-center justify-between gap-2 rounded bg-red-50 px-1.5 py-1 text-xs dark:bg-red-900/20">
+            <span className="flex min-w-0 items-center gap-1 text-red-700 dark:text-red-300">
+              <AlertCircle className="h-3 w-3 shrink-0" aria-hidden />
+              <span className="truncate">{saveError ?? "Kaydedilemedi"}</span>
+            </span>
+            <button
+              type="button"
+              onClick={handleRetry}
+              className="inline-flex shrink-0 items-center gap-1 rounded border border-red-300 bg-white px-1.5 py-0.5 font-semibold text-red-700 transition-colors hover:bg-red-50 dark:border-red-700 dark:bg-slate-800 dark:text-red-300 dark:hover:bg-red-900/30"
+            >
+              <RotateCcw className="h-3 w-3" aria-hidden />
+              Tekrar dene
+            </button>
+          </div>
+        ) : isSaving ? (
+          <span className="text-xs text-slate-500 dark:text-slate-400">Kaydediliyor…</span>
+        ) : (
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            Enter veya Tab ile kaydet · Esc ile iptal
+          </span>
+        )}
       </div>
     );
   }

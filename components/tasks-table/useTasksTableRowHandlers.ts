@@ -82,17 +82,30 @@ export function useTasksTableRowHandlers({
   const [quickAddFocusId, setQuickAddFocusId] = useState<string | null>(null);
   const [activeEditableCell, setActiveEditableCell] = useState<ActiveEditableCell | null>(null);
 
+  /**
+   * Hücre/satır güncelle — optimistic update + backend sync.
+   *
+   * Geri dönüş: `{ok, message?}`. Caller (örn. EditableCell) bunu await
+   * ederek "saving / retry" UI state'i sürebilir. Geriye uyumlu: eski
+   * fire-and-forget kullanım (`onSave(...)`) hâlâ çalışır (Promise göz
+   * ardı edilir).
+   */
   const handleSave = useCallback(
-    (taskId: string, patch: Partial<Task>) => {
+    async (taskId: string, patch: Partial<Task>): Promise<{ ok: boolean; message?: string }> => {
       const task = tasks.find((t) => t.id === taskId);
       if (!task || !canEditRow(task)) {
-        toast.error("Bu satırı düzenleme yetkiniz yok.");
-        return;
+        const msg = "Bu satırı düzenleme yetkiniz yok.";
+        toast.error(msg);
+        return { ok: false, message: msg };
       }
       updateTaskOptimistic(taskId, patch);
-      void saveTask(taskId, patch).then((r) => {
-        if (!r.ok) toast.error(r.message ?? "Kaydedilemedi");
-      });
+      const r = await saveTask(taskId, patch);
+      if (!r.ok) {
+        // Inline UI (EditableCell) zaten hata göstermeyi üstlenir; toast yine
+        // genel feedback için aktif
+        toast.error(r.message ?? "Kaydedilemedi");
+      }
+      return r;
     },
     [canEditRow, tasks, updateTaskOptimistic, saveTask, toast]
   );
