@@ -430,6 +430,23 @@ export default function GorevlerimPage() {
                     ? "Şu anda size doğrudan atanmış açık bir görev bulunmuyor."
                     : "Tüm görevlere bir atanan belirlenmiş durumda."
             }
+            action={
+              tab === "today" || tab === "overdue" ? (
+                <Button asChild variant="outline" size="sm">
+                  <Link href="/projeler">
+                    <FolderKanban className="mr-2 h-4 w-4" />
+                    Diğer projelere bak
+                  </Link>
+                </Button>
+              ) : tab === "mine" ? (
+                <Button asChild variant="outline" size="sm">
+                  <Link href="/canli-tablo">
+                    <ListTodo className="mr-2 h-4 w-4" />
+                    Canlı tabloya git
+                  </Link>
+                </Button>
+              ) : undefined
+            }
           />
         ) : (
           <StaggerList className="grid gap-3 sm:grid-cols-2">

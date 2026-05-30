@@ -19,6 +19,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { EmptyState } from "@/components/ui/empty-state";
+import {
+  OnboardingEmpty,
+  NoCreatePermissionEmpty,
+  FilteredEmpty,
+} from "@/components/tasks-table/SmartTasksEmptyState";
 import { TaskCardMobile } from "@/components/TaskCardMobile";
 import { MODERN_DENSITY_UI, PAGE_SIZE_OPTIONS } from "@/components/tasks-table/constants";
 import type { EditingUser } from "@/hooks/usePresence";
@@ -864,46 +869,22 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
             />
           </div>
         ) : tasks.length === 0 ? (
-          <EmptyState
-            icon={<ListTodo className="h-10 w-10" />}
-            title="Henüz görev yok"
-            description="İlk görevinizi ekleyerek ya da CSV ile toplu içe aktararak başlayın."
-            action={
-              canCreateTask ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => setNewTaskOpen(true)}
-                  className="bg-blue-600 text-white hover:bg-blue-700"
-                >
-                  <PlusCircle className="mr-2 h-4 w-4 shrink-0" aria-hidden />
-                  Yeni görev ekle
-                </Button>
-              ) : undefined
-            }
-            secondaryAction={
-              canImportCsv ? (
-                <Button type="button" size="sm" variant="outline" onClick={() => setImportOpen(true)}>
-                  <Upload className="mr-2 h-4 w-4" />
-                  CSV içe aktar
-                </Button>
-              ) : undefined
-            }
-          />
+          canCreateTask || canImportCsv ? (
+            <OnboardingEmpty
+              canCreateTask={canCreateTask}
+              canImportCsv={canImportCsv}
+              onCreateTask={() => setNewTaskOpen(true)}
+              onImportCsv={() => setImportOpen(true)}
+            />
+          ) : (
+            <NoCreatePermissionEmpty />
+          )
         ) : (
-          <EmptyState
-            variant="compact"
-            icon={<Search className="h-8 w-8" />}
-            title="Filtreye uyan görev yok"
-            description="Arama, durum veya proje filtrelerinizi değiştirerek tekrar deneyin."
-            action={
-              activeFilterCount > 0 ? (
-                <Button type="button" variant="outline" size="sm" onClick={clearFilters}>
-                  <X className="mr-2 h-4 w-4" />
-                  Filtreleri temizle
-                </Button>
-              ) : undefined
-            }
+          <FilteredEmpty
+            columnFilters={columnFilters}
+            projectFilter={projectFilter}
+            projectFilterOptions={projectFilterOptions}
+            onClearAll={clearFilters}
           />
         )
       )}
