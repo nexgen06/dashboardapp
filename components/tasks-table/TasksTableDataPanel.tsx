@@ -27,6 +27,25 @@ import {
 } from "@/components/tasks-table/SmartTasksEmptyState";
 import { ConditionalFormattingDialog } from "@/components/tasks-table/ConditionalFormattingDialog";
 import { CF_STYLES } from "@/hooks/useConditionalFormatting";
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  horizontalListSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { TaskCardMobile } from "@/components/TaskCardMobile";
 import { MODERN_DENSITY_UI, PAGE_SIZE_OPTIONS, ROW_HEIGHT_BY_DENSITY, VIRTUALIZE_THRESHOLD } from "@/components/tasks-table/constants";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -132,6 +151,8 @@ export type TasksTableDataPanelProps = {
   toggleGroup: (key: string) => void;
   setAllExpanded: () => void;
   setAllCollapsed: () => void;
+  /** dnd-kit ile kolon sıralama — drag bittiğinde mevcut sırayı verir, yeni dizisini bekler */
+  onColumnReorder?: (newOrder: string[]) => void;
   /* Conditional formatting (useConditionalFormatting) */
   cfRules: import("@/hooks/useConditionalFormatting").CfRule[];
   cfEnabledCount: number;
@@ -225,8 +246,30 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
     cfDeleteRule,
     cfUpdateRule,
     cfResetToPresets,
+    onColumnReorder,
   } = props;
   const [cfDialogOpen, setCfDialogOpen] = useState(false);
+  const [dragActiveColumnId, setDragActiveColumnId] = useState<string | null>(null);
+
+  // dnd-kit sensors — pointer (mouse+touch) + klavye (a11y)
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleColumnDragStart = (e: DragStartEvent) => {
+    setDragActiveColumnId(String(e.active.id));
+  };
+  const handleColumnDragEnd = (e: DragEndEvent) => {
+    setDragActiveColumnId(null);
+    const { active, over } = e;
+    if (!over || active.id === over.id || !onColumnReorder) return;
+    const currentOrder = table.getAllLeafColumns().map((c) => c.id);
+    const from = currentOrder.indexOf(String(active.id));
+    const to = currentOrder.indexOf(String(over.id));
+    if (from === -1 || to === -1) return;
+    onColumnReorder(arrayMove(currentOrder, from, to));
+  };
 
   return (
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -380,6 +423,13 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
           tasks.length > 0 && "min-h-[200px]"
         )}
       >
+        <DndContext
+          sensors={dndSensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleColumnDragStart}
+          onDragEnd={handleColumnDragEnd}
+          onDragCancel={() => setDragActiveColumnId(null)}
+        >
         <table
           className={cn("border-separate border-spacing-0 min-w-full", tableSkin.table, dui.table)}
           aria-describedby="live-table-caption"
@@ -397,8 +447,13 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
           <thead>
             {table.getHeaderGroups().map((headerGroup) => {
               const headers = headerGroup.headers;
+              // Sortable kolonlar: select/actions hariç (sürüklenemez)
+              const sortableIds = headers
+                .filter((h) => h.column.id !== "select" && h.column.id !== "actions")
+                .map((h) => h.column.id);
               return (
               <tr key={headerGroup.id}>
+                <SortableContext items={sortableIds} strategy={horizontalListSortingStrategy}>
                 {headers.map((header) => {
                   const col = header.column;
                   const isPinnedLeft = col.getIsPinned() === "left";
@@ -406,11 +461,11 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                   const resizeHandler = typeof header.getResizeHandler === "function" ? header.getResizeHandler() : undefined;
                   const wPx = Math.max(header.getSize(), 40);
                   return (
-                    <th
+                    <SortableHeaderCell
                       key={header.id}
-                      onDragOver={handleDragOver}
-                      onDrop={(e) => handleDrop(e, col.id)}
-                      aria-sort={
+                      columnId={col.id}
+                      isSortable={col.id !== "select" && col.id !== "actions"}
+                      ariaSort={
                         col.getCanSort?.() && col.getIsSorted() === "asc"
                           ? "ascending"
                           : col.getCanSort?.() && col.getIsSorted() === "desc"
@@ -424,7 +479,6 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                         tableSkin.headCell,
                         dui.th,
                         isModernTemplate && MODERN_DENSITY_UI[tableDensity].th,
-                        draggedColumnId === col.id && "opacity-50",
                         isPinnedLeft &&
                           "left-0 z-[25] shadow-[4px_0_10px_-4px_rgba(15,23,42,0.22),0_2px_8px_-5px_rgba(15,23,42,0.35)] dark:shadow-[4px_0_12px_-5px_rgba(0,0,0,0.75),0_2px_10px_-6px_rgba(0,0,0,0.8)]",
                         isPinnedRight &&
@@ -435,18 +489,9 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                         width: wPx,
                         minWidth: wPx,
                       }}
+                      gripClassName={cn(dui.grip, "text-slate-400/80 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300")}
                     >
                       <div className="flex min-w-0 items-center gap-1">
-                        <span
-                          draggable
-                          onDragStart={(e) => handleDragStart(e, col.id)}
-                          onDragEnd={handleDragEnd}
-                          className="inline-flex shrink-0 cursor-grab items-center active:cursor-grabbing"
-                          title="Sütunu sürükleyerek taşı"
-                          aria-label="Sütunu sürükle"
-                        >
-                          <GripVertical className={cn(dui.grip, "text-slate-400/80 dark:text-slate-500")} aria-hidden />
-                        </span>
                         {col.getCanSort?.() ? (
                           <button
                             type="button"
@@ -620,9 +665,10 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                           title="Genişliği değiştirmek için sürükleyin"
                         />
                       )}
-                    </th>
+                    </SortableHeaderCell>
                   );
                 })}
+                </SortableContext>
               </tr>
               );
             })}
@@ -885,6 +931,18 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
             ) : null}
           />
         </table>
+        <DragOverlay dropAnimation={null}>
+          {dragActiveColumnId && (
+            <div className="rounded-md border-2 border-indigo-400 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 shadow-xl dark:bg-slate-800 dark:text-slate-100">
+              {(() => {
+                const col = table.getAllLeafColumns().find((c) => c.id === dragActiveColumnId);
+                const header = col?.columnDef.header;
+                return typeof header === "string" ? header : dragActiveColumnId;
+              })()}
+            </div>
+          )}
+        </DragOverlay>
+        </DndContext>
       </div>
       </TooltipProvider>
       {filteredData.length > 0 && (
@@ -1080,6 +1138,80 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
  * actions, group başlık collapse — hepsi callback'lerle parent'ta tanımlandığı
  * için doğal şekilde çalışır.
  */
+/**
+ * Sortable <th> wrapper — dnd-kit useSortable hook.
+ *
+ * Grip handle (GripVertical) ile sürüklenir; sortable olmayan kolonlarda
+ * (select, actions) handle render edilmez ve listeners atanmaz. Drop hedefiyken
+ * sol kenarında 3px mavi indikatör görünür (Notion/Linear pattern).
+ *
+ * Children: th'nin iç içeriği (mevcut başlık + filtre dropdown + resize handle)
+ */
+function SortableHeaderCell({
+  columnId,
+  isSortable,
+  ariaSort,
+  className,
+  style,
+  gripClassName,
+  children,
+}: {
+  columnId: string;
+  isSortable: boolean;
+  ariaSort?: "ascending" | "descending" | "none";
+  className?: string;
+  style?: React.CSSProperties;
+  gripClassName?: string;
+  children: ReactNode;
+}) {
+  // Sortable olmayan kolonlar useSortable çağırılır ama listeners disabled
+  const sortable = useSortable({ id: columnId, disabled: !isSortable });
+  const { setNodeRef, attributes, listeners, transform, transition, isDragging, isOver, active } = sortable;
+  const isOverFromOther = isOver && active?.id !== columnId;
+  const combinedStyle: React.CSSProperties = {
+    ...style,
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+  // Sortable kolonlarda küçük grip butonu — listeners SADECE grip'e bağlı
+  // (sort/filter butonları tıklanabilir kalsın). Activation distance 6px ile
+  // accidental drag engellenir.
+  const gripSlot = isSortable ? (
+    <button
+      type="button"
+      {...attributes}
+      {...listeners}
+      className={cn(
+        "absolute left-0.5 top-1/2 z-[1] -translate-y-1/2 inline-flex h-5 w-3 cursor-grab items-center justify-center rounded opacity-0 transition-opacity active:cursor-grabbing",
+        "group-hover/th:opacity-100 focus-visible:opacity-100 hover:bg-slate-200/60 dark:hover:bg-slate-700/60",
+        gripClassName
+      )}
+      title="Sürükle (mouse / touch / klavye: Tab + Space + ←→)"
+      aria-label={`${columnId} sütununu sürükle`}
+    >
+      <GripVertical className="h-3 w-3" aria-hidden />
+    </button>
+  ) : null;
+
+  return (
+    <th
+      ref={setNodeRef}
+      aria-sort={ariaSort}
+      className={cn(
+        "group/th",
+        className,
+        // Drop hedefi indikatörü — Notion/Linear pattern
+        isOverFromOther && "ring-2 ring-inset ring-indigo-400 dark:ring-indigo-500"
+      )}
+      style={combinedStyle}
+    >
+      {gripSlot}
+      <div className={cn(isSortable && "pl-3")}>{children}</div>
+    </th>
+  );
+}
+
 function VirtualizedTbody({
   scrollRef,
   items,
