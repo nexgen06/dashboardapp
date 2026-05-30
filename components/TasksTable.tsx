@@ -16,6 +16,7 @@ import type { Task } from "@/types/tasks";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
 import { useProjects } from "@/hooks/useProjects";
 import { usePresence } from "@/hooks/usePresence";
+import { useTasksTableGrouping } from "@/hooks/useTasksTableGrouping";
 import {
   useSettings,
   getStatusOptions,
@@ -528,6 +529,19 @@ export function TasksTable({
 
   tableRef.current = table;
 
+  // Group by — kullanıcı tablo'yu status/assignee/priority/proje/due bucket bazında grupla
+  const projectNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    projectById.forEach((p, id) => {
+      m.set(String(id), p.name);
+    });
+    return m;
+  }, [projectById]);
+  const grouping = useTasksTableGrouping({
+    rows: table.getRowModel().rows,
+    projectNameById,
+  });
+
   const bulkSelection = useTasksTableBulkSelection({
     table,
     canBulkUpdate,
@@ -959,6 +973,12 @@ export function TasksTable({
         setImportOpen={setImportOpen}
         activeFilterCount={activeFilterCount}
         clearFilters={clearFilters}
+        groupingField={grouping.groupingField}
+        setGroupingField={grouping.setGroupingField}
+        groupedItems={grouping.groupedItems}
+        toggleGroup={grouping.toggleGroup}
+        setAllExpanded={grouping.setAllExpanded}
+        setAllCollapsed={grouping.setAllCollapsed}
       />
     </>
   );
