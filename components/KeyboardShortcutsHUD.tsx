@@ -75,6 +75,13 @@ export function KeyboardShortcutsHUD() {
         return;
       }
 
+      // Cmd+Shift+E → Bildirim merkezi (focus mode)
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "e" || e.key === "E")) {
+        e.preventDefault();
+        router.push("/bildirimler");
+        return;
+      }
+
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       // `?` ile HUD aç
@@ -108,7 +115,20 @@ export function KeyboardShortcutsHUD() {
         { keys: ["?"], description: "Bu kısayol listesini aç/kapa" },
         { keys: [modKey, "K"], description: "Komut paleti — proje, görev ve komut ara" },
         { keys: ["N"], description: "Komut paletini aç (hızlı oluşturma)" },
+        { keys: [modKey, "Shift", "E"], description: "Bildirim merkezi (Inbox Zero — focus mode)" },
         { keys: ["Esc"], description: "Açık modal/paneli kapat" },
+      ],
+    },
+    {
+      title: "Bildirim Merkezi (Inbox Zero)",
+      shortcuts: [
+        { keys: ["J", "↓"], description: "Sonraki bildirim" },
+        { keys: ["K", "↑"], description: "Önceki bildirim" },
+        { keys: ["E"], description: "Arşivle (okundu işaretle, sıradakine geç)" },
+        { keys: ["R"], description: "Aç — bildirimin hedef sayfasına git" },
+        { keys: ["D"], description: "Ertele — 1 saat / Bu akşam / Yarın / Pazartesi" },
+        { keys: ["Enter"], description: "Bildirimi aç (R ile aynı)" },
+        { keys: ["Esc"], description: "Sayfadan geri dön" },
       ],
     },
     {
