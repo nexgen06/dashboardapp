@@ -70,7 +70,7 @@ export function useTasksTableColumnPrefs({
     select: 44,
     status: 140,
     content: 260,
-    actions: 52,
+    actions: 44,
   });
   const [columnPickerOpen, setColumnPickerOpen] = useState(false);
   const [columnPickerSearch, setColumnPickerSearch] = useState("");

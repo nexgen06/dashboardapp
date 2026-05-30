@@ -10,7 +10,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { Task } from "@/types/tasks";
@@ -23,12 +22,14 @@ import type { ChipCatalog, RowChipValue } from "@/lib/chipSystem";
 import type { SpotlightDescriptor } from "@/components/tasks-table/spotlight";
 import { SelectAllCheckbox } from "@/components/tasks-table/SelectAllCheckbox";
 import { LiveTableRowRail } from "@/components/tasks-table/LiveTableRowRail";
+import { LiveTableRowActions } from "@/components/tasks-table/LiveTableRowActions";
 import { EditableCell } from "@/components/tasks-table/EditableCell";
 import { StatusCell } from "@/components/tasks-table/StatusCell";
 import { ReferenceSelectCell } from "@/components/tasks-table/ReferenceSelectCell";
 import { ExtraCellCopyButton } from "@/components/tasks-table/ExtraCellCopyButton";
 import { ChipSelectCell } from "@/components/chips/ChipBadge";
 import {
+  LIVE_TABLE_GHOST_ACTIONS_RAIL_WIDTH,
   LIVE_TABLE_SELECT_COLUMN_WIDTH,
   REFERENCE_WARNINGS_KEY,
 } from "@/components/tasks-table/constants";
@@ -78,14 +79,9 @@ import {
   ListTodo,
   AlertTriangle,
   MoreVertical,
-  MoreHorizontal,
-  MessageSquare,
   Flame,
   Calendar,
   CalendarClock,
-  Pencil,
-  Copy as CopyIcon,
-  Trash2,
 } from "lucide-react";
 
 const columnHelper = createColumnHelper<Task>();
@@ -841,142 +837,33 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
     ),
     columnHelper.display({
       id: "actions",
-      header: () => <span className="sr-only">İşlemler</span>,
+      header: () => null,
       cell: ({ row }) => {
         const task = row.original;
-        const isDeleting = deletingIds.has(task.id);
         const rowCanEdit = canEditRow(task);
-        const workflowActions = getWorkflowActionsForTask(task);
-        const canShowCopy = rowCanEdit && canCreateTask && canCopyRow(task);
-        const canShowDelete = rowCanEdit && canDeleteTask;
-        // Notion/Linear pattern: hover quick actions — sadece satır hover'da görünür
-        // group/row class'ı zaten <tr>'e ekli (TasksTableDataPanel.tsx)
-        const iconClass = "h-3.5 w-3.5";
         return (
-          <div className="relative flex items-center justify-end">
-            {/* Hover quick actions — desktop'ta absolute overlay (alan kaplamaz),
-                mobilde inline ve her zaman görünür (hover yok). */}
-            <div
-              className={cn(
-                "row-actions flex items-center gap-0.5 transition-opacity duration-150",
-                "opacity-100",
-                "sm:absolute sm:right-9 sm:top-1/2 sm:-translate-y-1/2",
-                "sm:rounded-md sm:border sm:border-slate-200 sm:bg-white sm:px-0.5 sm:py-0.5 sm:shadow-sm",
-                "dark:sm:border-slate-700 dark:sm:bg-slate-800",
-              )}
-              aria-label="Hızlı işlemler"
-            >
-              {rowCanEdit && (
-                <button
-                  type="button"
-                  onClick={() => setDetailTask(task)}
-                  className="rounded p-1 text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-700 dark:text-slate-400 dark:hover:bg-blue-900/40 dark:hover:text-blue-300"
-                  aria-label="Detay ve yorumlar"
-                  title="Detay ve yorumlar"
-                >
-                  <MessageSquare className={iconClass} aria-hidden />
-                </button>
-              )}
-              {rowCanEdit && (
-                <button
-                  type="button"
-                  onClick={() => setEditTask(task)}
-                  className="rounded p-1 text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-700 dark:text-slate-400 dark:hover:bg-blue-900/40 dark:hover:text-blue-300"
-                  aria-label="Düzenle"
-                  title="Düzenle"
-                >
-                  <Pencil className={iconClass} aria-hidden />
-                </button>
-              )}
-              {canShowCopy && (
-                <button
-                  type="button"
-                  onClick={() => handleCopyTask(task)}
-                  className="rounded p-1 text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-700 dark:text-slate-400 dark:hover:bg-blue-900/40 dark:hover:text-blue-300"
-                  aria-label="Kopyala"
-                  title="Kopyala"
-                >
-                  <CopyIcon className={iconClass} aria-hidden />
-                </button>
-              )}
-              {canShowDelete && (
-                <button
-                  type="button"
-                  onClick={() => handleDeleteTask(task.id)}
-                  disabled={isDeleting}
-                  className="rounded p-1 text-slate-500 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-40 dark:text-slate-400 dark:hover:bg-red-950/40 dark:hover:text-red-300"
-                  aria-label="Sil"
-                  title="Sil"
-                >
-                  <Trash2 className={iconClass} aria-hidden />
-                </button>
-              )}
-            </div>
-
-            {/* Diğer/Workflow menüsü — her zaman görünür (workflow yetkisi vs için) */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className={cn(dui.actionsBtn, "shrink-0")} aria-label="Diğer işlemler">
-                  <MoreHorizontal className={cn(dui.sortIcon, "shrink-0")} />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {/* Mobile/küçük ekran fallback — hover quick actions burada da var */}
-                {rowCanEdit && (
-                  <DropdownMenuItem onClick={() => setDetailTask(task)}>
-                    <MessageSquare className="mr-2 h-3.5 w-3.5" aria-hidden />
-                    Detay / Yorumlar
-                  </DropdownMenuItem>
-                )}
-                {rowCanEdit && (
-                  <DropdownMenuItem onClick={() => setEditTask(task)}>
-                    <Pencil className="mr-2 h-3.5 w-3.5" aria-hidden />
-                    Düzenle
-                  </DropdownMenuItem>
-                )}
-                {canShowCopy && (
-                  <DropdownMenuItem onClick={() => handleCopyTask(task)}>
-                    <CopyIcon className="mr-2 h-3.5 w-3.5" aria-hidden />
-                    Kopyala
-                  </DropdownMenuItem>
-                )}
-                {workflowActions.length > 0 && (
-                  <>
-                    <DropdownMenuSeparator />
-                    {workflowActions.map((action) => (
-                      <DropdownMenuItem
-                        key={action}
-                        onClick={() => void handleWorkflowAction(task, action)}
-                        className={cn(
-                          action === "approve" && "text-emerald-700 focus:text-emerald-700 dark:text-emerald-300 dark:focus:text-emerald-300",
-                          action === "reject" && "text-red-700 focus:text-red-700 dark:text-red-300 dark:focus:text-red-300"
-                        )}
-                      >
-                        {WORKFLOW_ACTION_LABELS[action]}
-                      </DropdownMenuItem>
-                    ))}
-                  </>
-                )}
-                {canShowDelete && (canShowCopy || rowCanEdit) && <DropdownMenuSeparator />}
-                {canShowDelete && (
-                  <DropdownMenuItem
-                    className="text-red-600 focus:text-red-600"
-                    onClick={() => handleDeleteTask(task.id)}
-                    disabled={isDeleting}
-                  >
-                    <Trash2 className="mr-2 h-3.5 w-3.5" aria-hidden />
-                    Sil
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+          <LiveTableRowActions
+            task={task}
+            rowCanEdit={rowCanEdit}
+            isDeleting={deletingIds.has(task.id)}
+            canShowCopy={rowCanEdit && canCreateTask && canCopyRow(task)}
+            canShowDelete={rowCanEdit && canDeleteTask}
+            workflowActions={getWorkflowActionsForTask(task)}
+            iconClass="h-3.5 w-3.5"
+            onDetail={() => setDetailTask(task)}
+            onEdit={() => setEditTask(task)}
+            onDuplicate={() => handleCopyTask(task)}
+            onDelete={() => handleDeleteTask(task.id)}
+            onWorkflow={(action) => void handleWorkflowAction(task, action)}
+            toast={toast}
+          />
         );
       },
-      size: 52, // Hover ikonları desktop'ta absolute overlay; column dar kalır
-      minSize: 44,
-      maxSize: 80,
+      size: LIVE_TABLE_GHOST_ACTIONS_RAIL_WIDTH,
+      minSize: 40,
+      maxSize: 52,
       enableResizing: false,
+      enableHiding: false,
     }),
     ],
     [

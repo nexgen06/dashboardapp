@@ -497,7 +497,7 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                         isSelectCol &&
                           cn("sticky left-0 z-[20] px-1 text-center", LIVE_TABLE_PIN_SHADOW_LEFT),
                         isActionsCol &&
-                          cn("sticky right-0 z-[20] px-1 text-right", LIVE_TABLE_PIN_SHADOW_RIGHT),
+                          cn("sticky right-0 z-[20] px-0 text-right", LIVE_TABLE_PIN_SHADOW_RIGHT),
                         isPinnedLeft &&
                           !isSelectCol &&
                           cn("sticky left-0 z-[25]", LIVE_TABLE_PIN_SHADOW_LEFT),
@@ -872,7 +872,11 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                       isSelectCol &&
                         cn("relative sticky left-0 z-[1] px-0 py-0", LIVE_TABLE_PIN_SHADOW_LEFT, pinBg),
                       isActionsCol &&
-                        cn("relative sticky right-0 z-[1] text-right", LIVE_TABLE_PIN_SHADOW_RIGHT, pinBg),
+                        cn(
+                          "relative sticky right-0 z-[1] px-0 py-0 text-right",
+                          LIVE_TABLE_PIN_SHADOW_RIGHT,
+                          pinBg
+                        ),
                       isPinnedLeft &&
                         !isSelectCol &&
                         cn("sticky left-0 z-10", LIVE_TABLE_PIN_SHADOW_LEFT, pinBg),
@@ -888,7 +892,7 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                     <div
                       className={cn(
                         "min-w-0 text-slate-700 dark:text-slate-200",
-                        isSelectCol ? "overflow-visible" : "overflow-hidden"
+                        isSelectCol || isActionsCol ? "overflow-visible" : "overflow-hidden"
                       )}
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}

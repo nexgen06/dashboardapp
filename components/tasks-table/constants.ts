@@ -207,10 +207,13 @@ export const COLUMN_SIZE_BOUNDS: Record<string, { min: number; max: number }> = 
   status: { min: 100, max: 220 },
   content: { min: 180, max: 480 },
   project: { min: 120, max: 280 },
-  actions: { min: 44, max: 80 },
+  actions: { min: 40, max: 52 },
 };
 
 export const DEFAULT_EXTRA_BOUNDS = { min: 100, max: 400 };
 
 /** Canlı tablo seçim sütunu varsayılan genişliği (px). */
 export const LIVE_TABLE_SELECT_COLUMN_WIDTH = 44;
+
+/** Sağ hayalet aksiyon rayı (hover işlemler). */
+export const LIVE_TABLE_GHOST_ACTIONS_RAIL_WIDTH = 44;
