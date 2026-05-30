@@ -1,34 +1,15 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
-import {
-  LayoutDashboard,
-  FolderKanban,
-  MessagesSquare,
-  Bell,
-  ListTodo,
-  Table2,
-  MessageSquarePlus,
-  Megaphone,
-  Mail,
-  Settings,
-  Shield,
-  BarChart3,
-  Database,
-  FileText,
-  ServerCog,
-  Sparkles,
-  Bot,
-  ChevronLeft,
-  ChevronRight,
-} from "lucide-react";
+import { usePathname } from "next/navigation";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { ChevronLeft, ChevronRight, Pin, PinOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/contexts/sidebar-context";
 import { useAuth } from "@/contexts/auth-context";
 import { useSettings } from "@/contexts/settings-context";
-import type { Permission } from "@/types/permissions";
 import { useProjectChatUnread } from "@/contexts/project-chat-unread-context";
 import {
   Tooltip,
@@ -36,7 +17,31 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Separator } from "@/components/ui/separator";
+import {
+  SIDEBAR_MODULES,
+  buildNavItemIndex,
+  isItemActive,
+  moduleForPath,
+  type ModuleId,
+  type NavItem,
+} from "@/components/layout/sidebarModules";
+import { useSidebarPins } from "@/hooks/useSidebarPins";
+import { softSpring } from "@/components/motion/motionPresets";
+
+/**
+ * VS Code activity bar pattern — iki kolonlu sidebar:
+ *   - Activity rail (56px solda): modül ikonları (Çalışma / Veri / Yönetim / Kişisel)
+ *   - Module column (220px sağda): seçili modülün item'ları + pinned bölümü
+ *
+ * Davranışlar:
+ *   - Route değişince aktif modül otomatik seçilir
+ *   - Kullanıcı manuel modül seçince override (route değişene kadar tutulur)
+ *   - "Daralt": modül kolonu kaybolur, sadece rail kalır (her item rail'de
+ *     küçük ikon olarak, tooltip ile)
+ *   - Pin/Unpin: hover'da ikon — pinli item'lar üstte ayrı bölümde
+ */
+const RAIL_WIDTH = 56;
+const COLUMN_WIDTH = 220;
 
 export function Sidebar() {
   const { isCollapsed, toggleSidebar } = useSidebar();
@@ -44,165 +49,268 @@ export function Sidebar() {
   const { settings } = useSettings();
   const { totalUnread } = useProjectChatUnread();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const tab = searchParams?.get("tab") ?? "";
+  const reduced = useReducedMotion();
+  const { pins, isPinned, togglePin, hydrated } = useSidebarPins();
 
-  const menuItems = [
-    { href: "/", label: "Dashboard", tooltip: "Özet ve hızlı erişim", icon: LayoutDashboard, permission: null as Permission | null, alsoRequire: null as Permission | null },
-    { href: "/projeler", label: "Projeler", icon: FolderKanban, permission: "area.projects" as const, alsoRequire: "projects.view" as const },
-    {
-      href: "/mesajlar",
-      label: "Mesajlar",
-      tooltip: "Proje sohbetleri ve okunmamışlar",
-      icon: MessagesSquare,
-      permission: "area.projects" as const,
-      alsoRequire: "projects.view" as const,
-    },
-    { href: "/gorevlerim", label: "Görevlerim", tooltip: "Mobil odaklı kişisel görev akışı", icon: ListTodo, permission: "area.liveTable" as const, alsoRequire: "liveTable.view" as const },
-    { href: "/canli-tablo", label: "Canlı Tablo", icon: Table2, permission: "area.liveTable" as const, alsoRequire: "liveTable.view" as const },
-    { href: "/bildirimler", label: "Bildirimler", tooltip: "Atama, gecikme ve sohbet bildirimleri", icon: Bell, permission: null as Permission | null, alsoRequire: null as Permission | null },
-    { href: "/raporlar", label: "Raporlar", tooltip: "Proje ve ekip performans raporları", icon: BarChart3, permission: "area.reports" as const, alsoRequire: "reports.view" as const },
-    { href: "/geri-bildirim", label: "Geri Bildirim", tooltip: "Öneri, hata bildirimi veya sorularını ilet", icon: MessageSquarePlus, permission: null as Permission | null, alsoRequire: null as Permission | null },
-    { href: "/ayarlar", label: "Ayarlar", icon: Settings, permission: "area.settings" as const, alsoRequire: "settings.view" as const },
-    { href: "/yonetim/kurumsal-admin", label: "Kurumsal admin", tooltip: "Sistem sağlığı, RLS, deploy ve veri bakımı", icon: ServerCog, permission: "area.userManagement" as const, alsoRequire: null },
-    { href: "/yonetim/kullanici-yetkileri", label: "Kullanıcı yetkileri", icon: Shield, permission: "area.userManagement" as const, alsoRequire: null },
-    { href: "/yonetim/gorev-istatistikleri", label: "Görev istatistikleri", icon: BarChart3, permission: "area.userManagement" as const, alsoRequire: null },
-    { href: "/yonetim/rapor-sablonlari", label: "Rapor şablonları", tooltip: "PDF/e-posta export şablonları", icon: FileText, permission: "area.userManagement" as const, alsoRequire: null },
-    { href: "/yonetim/referans-veriler", label: "Referans veriler", tooltip: "JSON kaynakları ve merkezi dropdown verileri", icon: Database, permission: "area.userManagement" as const, alsoRequire: null },
-    { href: "/yonetim/cip-kutuphanesi", label: "Çip Kütüphanesi", tooltip: "Merkezi çip şablonları ve kolon bağlantıları", icon: Sparkles, permission: "chipTemplates.view" as const, alsoRequire: null },
-    { href: "/yonetim/otomasyon-merkezi", label: "Otomasyon Merkezi", tooltip: "Koşul ve aksiyon bazlı operasyon kuralları", icon: Bot, permission: "automation.view" as const, alsoRequire: null },
-    { href: "/yonetim/pii-access", label: "PII erişim kayıtları", tooltip: "TCKN/Sicil kopya/export izleme", icon: Shield, permission: "area.piiAccess" as const, alsoRequire: "piiAccess.view" as const },
-    { href: "/yonetim/geri-bildirimler", label: "Geri bildirim yönetimi", tooltip: "Kullanıcılardan gelen öneri/hata/soru", icon: MessageSquarePlus, permission: "area.feedbackAdmin" as const, alsoRequire: "feedback.manage" as const },
-    { href: "/yonetim/duyurular", label: "Duyurular", tooltip: "Tüm kullanıcılara mesaj gönder", icon: Megaphone, permission: "area.announcementsAdmin" as const, alsoRequire: "notifications.send" as const },
-    { href: "/yonetim/eposta-bildirimleri", label: "E-posta bildirim ayarları", tooltip: "Hangi olaylarda e-posta gönderilsin (varsayılan kapalı)", icon: Mail, permission: "area.emailNotifAdmin" as const, alsoRequire: null },
-  ].filter((item) => {
-    if (item.permission && !hasPermission(item.permission)) return false;
-    if (item.alsoRequire && !hasPermission(item.alsoRequire)) return false;
-    return true;
-  });
+  // Modülleri yetki süzgecinden geçir — hiç item kalmayan modül gizlenir
+  const visibleModules = useMemo(() => {
+    return SIDEBAR_MODULES.map((m) => ({
+      ...m,
+      items: m.items.filter((it) => {
+        if (it.permission && !hasPermission(it.permission)) return false;
+        if (it.alsoRequire && !hasPermission(it.alsoRequire)) return false;
+        return true;
+      }),
+    })).filter((m) => m.items.length > 0);
+  }, [hasPermission]);
+
+  // Route'tan otomatik seçilen modül
+  const routeModule = useMemo(() => moduleForPath(pathname), [pathname]);
+  // Kullanıcı manuel seçtiyse route değişene kadar onu tut
+  const [manualModule, setManualModule] = useState<ModuleId | null>(null);
+  const activeModule = useMemo<ModuleId>(() => {
+    // Route değiştiğinde manual override sıfırlanır
+    return manualModule ?? routeModule;
+  }, [manualModule, routeModule]);
+
+  // Pinli item'ların gerçek NavItem objelerini bul
+  const navIndex = useMemo(() => buildNavItemIndex(), []);
+  const pinnedItems = useMemo(() => {
+    if (!hydrated) return [] as NavItem[];
+    return pins
+      .map((href) => navIndex.get(href))
+      .filter((it): it is NavItem => {
+        if (!it) return false;
+        if (it.permission && !hasPermission(it.permission)) return false;
+        if (it.alsoRequire && !hasPermission(it.alsoRequire)) return false;
+        return true;
+      });
+  }, [pins, navIndex, hasPermission, hydrated]);
+
+  const currentModule = visibleModules.find((m) => m.id === activeModule) ?? visibleModules[0];
 
   return (
-    <TooltipProvider delayDuration={0}>
+    <TooltipProvider delayDuration={120}>
       <aside
         data-tour="sidebar"
-        className={cn(
-          "flex flex-col border-r border-slate-200 bg-slate-100 transition-all duration-300 ease-in-out dark:border-slate-800 dark:bg-slate-900",
-          isCollapsed ? "w-[72px]" : "w-[250px]"
-        )}
+        className="flex border-r border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-900"
+        style={{ minHeight: "100vh" }}
       >
-        <div className="flex h-14 items-center border-b border-slate-200 px-4 dark:border-slate-800">
-          {!isCollapsed && (
-            settings.brandLogoDataUrl ? (
+        {/* === Activity rail === */}
+        <div
+          className="flex flex-col border-r border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/60"
+          style={{ width: RAIL_WIDTH }}
+        >
+          {/* Logo monogram */}
+          <div className="flex h-14 items-center justify-center border-b border-slate-200 dark:border-slate-800">
+            {settings.brandLogoDataUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={settings.brandLogoDataUrl}
-                alt="Marka logosu"
-                className="max-h-9 max-w-[180px] object-contain"
+                alt="Logo"
+                className="max-h-8 max-w-[44px] object-contain"
               />
             ) : (
-              <span className="text-lg font-semibold text-slate-800 dark:text-slate-100">
-                Panel
-              </span>
-            )
-          )}
-        </div>
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-sm font-bold text-white shadow-sm">
+                P
+              </div>
+            )}
+          </div>
 
-        <nav className="flex-1 space-y-1 p-3">
-          {menuItems.map((item) => {
-            const Icon = item.icon;
-            const isActive =
-              item.href === "/"
-                ? pathname === "/"
-                : item.href === "/ayarlar"
-                  ? pathname === "/ayarlar"
-                  : item.href.startsWith("/yonetim")
-                    ? pathname === item.href
-                    : item.href === "/projeler"
-                      ? pathname.startsWith("/projeler")
-                      : item.href === "/mesajlar"
-                      ? pathname.startsWith("/mesajlar")
-                      : item.href === "/gorevlerim"
-                        ? pathname === "/gorevlerim"
-                      : item.href === "/canli-tablo"
-                          ? pathname === "/canli-tablo"
-                          : false;
-
-            const chatUnread = (item.href === "/projeler" || item.href === "/mesajlar") && totalUnread > 0;
-            const linkContent = (
-              <Link
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-white text-blue-700 shadow-sm dark:bg-slate-800 dark:text-blue-300"
-                    : "text-slate-600 hover:bg-slate-200/80 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100",
-                  isCollapsed && "justify-center px-2"
-                )}
-              >
-                <span className="relative inline-flex shrink-0">
-                  <Icon className="h-5 w-5" />
-                  {chatUnread && isCollapsed && (
-                    <span className="absolute -right-1 -top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-blue-600 px-0.5 text-[10px] font-bold leading-none text-white">
-                      {totalUnread > 99 ? "99+" : totalUnread}
-                    </span>
-                  )}
-                </span>
-                {!isCollapsed && (
-                  <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
-                    <span>{item.label}</span>
-                    {chatUnread && (
-                      <span className="inline-flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[11px] font-bold leading-none text-white">
-                        {totalUnread > 99 ? "99+" : totalUnread}
-                      </span>
-                    )}
-                  </span>
-                )}
-              </Link>
-            );
-
-            if (isCollapsed) {
-              const tooltipText = "tooltip" in item && item.tooltip ? `${item.label} – ${item.tooltip}` : item.label;
+          {/* Modül butonları */}
+          <nav className="flex flex-1 flex-col gap-1 p-2" aria-label="Modüller">
+            {visibleModules.map((m) => {
+              const Icon = m.icon;
+              const isActive = m.id === activeModule;
+              const moduleHasBadge = m.id === "calisma" && totalUnread > 0; // örnek: bildirimler/mesajlar Çalışma'da
               return (
-                <Tooltip key={item.href}>
-                  <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
-                  <TooltipContent side="right">{tooltipText}</TooltipContent>
+                <Tooltip key={m.id}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setManualModule(m.id)}
+                      className={cn(
+                        "group relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
+                        isActive
+                          ? "bg-white text-indigo-700 shadow-sm dark:bg-slate-800 dark:text-indigo-300"
+                          : "text-slate-500 hover:bg-slate-200/70 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                      )}
+                      aria-label={m.label}
+                      aria-pressed={isActive}
+                    >
+                      {/* Aktif sol kenar accent — VS Code pattern */}
+                      {isActive && (
+                        <span
+                          aria-hidden
+                          className="absolute -left-2 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r-full bg-indigo-500"
+                        />
+                      )}
+                      <Icon className="h-5 w-5" />
+                      {moduleHasBadge && (
+                        <span className="absolute right-1 top-1 flex h-2 w-2">
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
+                          <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500" />
+                        </span>
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    <div className="flex flex-col">
+                      <span className="font-semibold">{m.label}</span>
+                      <span className="text-[11px] opacity-80">{m.description}</span>
+                    </div>
+                  </TooltipContent>
                 </Tooltip>
               );
-            }
+            })}
+          </nav>
 
-            return <div key={item.href}>{linkContent}</div>;
-          })}
-        </nav>
-
-        <Separator className="bg-slate-200 dark:bg-slate-800" />
-        <div className="p-3">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                onClick={toggleSidebar}
-                className={cn(
-                  "w-full justify-center text-slate-600 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100",
-                  isCollapsed ? "px-0" : "px-3"
-                )}
-                aria-label={isCollapsed ? "Sidebar'ı genişlet" : "Sidebar'ı daralt"}
-              >
-                {isCollapsed ? (
-                  <ChevronRight className="h-5 w-5" />
-                ) : (
-                  <>
-                    <ChevronLeft className="h-5 w-5 shrink-0" />
-                    <span className="ml-2 text-sm">Daralt</span>
-                  </>
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {isCollapsed ? "Genişlet" : "Daralt"}
-            </TooltipContent>
-          </Tooltip>
+          {/* Collapse toggle */}
+          <div className="border-t border-slate-200 p-2 dark:border-slate-800">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={toggleSidebar}
+                  className="h-10 w-10 p-0 text-slate-500 hover:bg-slate-200/70 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                  aria-label={isCollapsed ? "Sidebar'ı genişlet" : "Sidebar'ı daralt"}
+                >
+                  {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">{isCollapsed ? "Genişlet" : "Daralt"}</TooltipContent>
+            </Tooltip>
+          </div>
         </div>
+
+        {/* === Module column === */}
+        <AnimatePresence initial={false}>
+          {!isCollapsed && currentModule && (
+            <motion.div
+              key="module-column"
+              initial={reduced ? false : { width: 0, opacity: 0 }}
+              animate={{ width: COLUMN_WIDTH, opacity: 1 }}
+              exit={reduced ? undefined : { width: 0, opacity: 0 }}
+              transition={reduced ? { duration: 0 } : softSpring}
+              className="overflow-hidden"
+              style={{ width: COLUMN_WIDTH }}
+            >
+              <div className="flex h-full flex-col">
+                {/* Modül başlığı */}
+                <div className="flex h-14 items-center border-b border-slate-200 px-4 dark:border-slate-800">
+                  <span className="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    {currentModule.label}
+                  </span>
+                </div>
+
+                <nav className="flex-1 space-y-3 overflow-y-auto p-3" aria-label={`${currentModule.label} navigasyonu`}>
+                  {/* Pinned section — sadece pinli item varsa */}
+                  {pinnedItems.length > 0 && (
+                    <div>
+                      <p className="mb-1 px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                        Sabitlenenler
+                      </p>
+                      <div className="space-y-1">
+                        {pinnedItems.map((item) => (
+                          <SidebarNavLink
+                            key={`pin-${item.href}`}
+                            item={item}
+                            pathname={pathname}
+                            totalUnread={totalUnread}
+                            isPinned
+                            onTogglePin={() => togglePin(item.href)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Modül item'ları */}
+                  <div>
+                    {pinnedItems.length > 0 && (
+                      <p className="mb-1 px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                        {currentModule.label}
+                      </p>
+                    )}
+                    <div className="space-y-1">
+                      {currentModule.items.map((item) => (
+                        <SidebarNavLink
+                          key={item.href}
+                          item={item}
+                          pathname={pathname}
+                          totalUnread={totalUnread}
+                          isPinned={isPinned(item.href)}
+                          onTogglePin={() => togglePin(item.href)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </nav>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </aside>
     </TooltipProvider>
+  );
+}
+
+/** Tek nav link kartı + pin toggle (hover'da). */
+function SidebarNavLink({
+  item,
+  pathname,
+  totalUnread,
+  isPinned,
+  onTogglePin,
+}: {
+  item: NavItem;
+  pathname: string;
+  totalUnread: number;
+  isPinned: boolean;
+  onTogglePin: () => void;
+}) {
+  const Icon = item.icon;
+  const active = isItemActive(item, pathname);
+  const showChatBadge = (item.href === "/projeler" || item.href === "/mesajlar") && totalUnread > 0;
+
+  return (
+    <div className="group/nav relative">
+      <Link
+        href={item.href}
+        title={item.tooltip}
+        className={cn(
+          "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors",
+          active
+            ? "bg-white text-indigo-700 shadow-sm dark:bg-slate-800 dark:text-indigo-300"
+            : "text-slate-600 hover:bg-slate-200/80 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+        )}
+      >
+        <Icon className="h-4 w-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{item.label}</span>
+        {showChatBadge && (
+          <span className="inline-flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[10px] font-bold leading-none text-white">
+            {totalUnread > 99 ? "99+" : totalUnread}
+          </span>
+        )}
+      </Link>
+      {/* Pin toggle — hover veya zaten pinli ise görünür */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onTogglePin();
+        }}
+        className={cn(
+          "absolute right-1 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 transition-opacity hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-100",
+          isPinned ? "opacity-70" : "opacity-0 group-hover/nav:opacity-100 focus-visible:opacity-100"
+        )}
+        aria-label={isPinned ? "Sabitlemeyi kaldır" : "Sabitle"}
+        title={isPinned ? "Sabitlemeyi kaldır" : "Sabitle"}
+      >
+        {isPinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
+      </button>
+    </div>
   );
 }
