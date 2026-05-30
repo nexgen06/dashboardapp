@@ -51,7 +51,13 @@ import {
   resolveReferenceTargetKey,
   valuesMatch,
 } from "@/lib/referenceExtraDataEnrichment";
-import { getChipOptionsForColumn, setRowChipValue } from "@/lib/chipSystem";
+import {
+  getChipOptionsForColumn,
+  matchChipOptionIdFromCellValue,
+  resolveExtraColumnChip,
+  setRowChipValue,
+  upsertTableChipBinding,
+} from "@/lib/chipSystem";
 import {
   normalizeWorkflowStatus,
   WORKFLOW_ACTION_LABELS,
@@ -665,13 +671,19 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
                 )
               )
               .find(Boolean) ?? null;
-          if (chipBinding) {
-            const chipTemplate = chipCatalog.templates.find((template) => template.id === chipBinding.templateId) ?? null;
-            const chipOptions = chipCatalog.options.filter((option) => option.templateId === chipBinding.templateId);
+          const resolvedChip = resolveExtraColumnChip(
+            chipCatalog,
+            candidateProjectIds,
+            key,
+            typedOptions.length > 0 ? typedOptions.map(String) : undefined
+          );
+          if (resolvedChip) {
+            const { template: chipTemplate, options: chipOptions } = resolvedChip;
             const chipRow = rowChipValues.find(
-              (item) => item.taskId === taskId && item.templateId === chipBinding.templateId
+              (item) => item.taskId === taskId && item.templateId === chipTemplate.id
             );
-            if (chipTemplate && chipOptions.length > 0) {
+            const selectedOptionId = matchChipOptionIdFromCellValue(value, chipOptions, chipRow);
+            if (chipOptions.length > 0) {
               const chipDisabled = !rowCanEdit || (chipTemplate.managerOnly && !canManageSensitiveChips);
               return (
                 <div className="flex min-w-0 items-center gap-1">
@@ -686,12 +698,13 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
                   <ChipSelectCell
                     template={chipTemplate}
                     options={chipOptions}
-                    value={chipRow?.optionId ?? ""}
+                    value={selectedOptionId}
                     disabled={chipDisabled}
                     spotlight={spotlightActive && spotlightTaskIds.has(taskId)}
                     onChange={(optionId) => {
                       void (async () => {
                         try {
+                          const option = chipOptions.find((item) => item.id === optionId);
                           const next = await setRowChipValue({
                             taskId,
                             templateId: chipTemplate.id,
@@ -704,6 +717,17 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
                             ),
                             next,
                           ]);
+                          if (option) {
+                            handleDynamicCellSave(taskId, key, option.label);
+                          }
+                          const projectId = task.project_id ? String(task.project_id) : candidateProjectIds[0];
+                          if (projectId && !resolvedChip.binding && !chipBinding) {
+                            await upsertTableChipBinding({
+                              projectId,
+                              columnKey: key,
+                              templateId: chipTemplate.id,
+                            });
+                          }
                           toast.success("Çip güncellendi");
                         } catch (err) {
                           toast.error(err instanceof Error ? err.message : "Çip güncellenemedi.");

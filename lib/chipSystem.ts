@@ -1,6 +1,7 @@
 "use client";
 
 import { supabase } from "@/lib/supabaseClient";
+import { SMART_CHIP_COLUMN_PRESETS } from "@/lib/projectFormHelpers";
 
 export type ChipCategory =
   | "date"
@@ -609,14 +610,129 @@ export function getChipOptionsForColumn(
   columnKey: string,
   catalog: ChipCatalog
 ): ChipOption[] {
-  if (!projectId) return [];
-  const normalizedKey = (columnKey ?? "").trim().toLocaleLowerCase("tr");
-  const binding = catalog.bindings.find(
-    (b) => b.projectId === projectId && b.columnKey.trim().toLocaleLowerCase("tr") === normalizedKey
+  const resolved = resolveExtraColumnChip(catalog, projectId ? [projectId] : [], columnKey);
+  return resolved?.options ?? [];
+}
+
+export type ResolvedExtraColumnChip = {
+  template: ChipTemplate;
+  options: ChipOption[];
+  binding: TableChipBinding | null;
+};
+
+function normalizeExtraColumnKey(key: string): string {
+  return key.trim().toLocaleLowerCase("tr");
+}
+
+function chipTemplateByName(catalog: ChipCatalog, templateName: string): ChipTemplate | null {
+  const normalized = templateName.trim().toLocaleLowerCase("tr");
+  return (
+    catalog.templates.find((template) => template.name.trim().toLocaleLowerCase("tr") === normalized) ??
+    null
   );
-  if (!binding) return [];
+}
+
+function chipOptionsForTemplate(catalog: ChipCatalog, templateId: string): ChipOption[] {
   return catalog.options
-    .filter((o) => o.templateId === binding.templateId)
+    .filter((option) => option.templateId === templateId)
     .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+function resolveChipBySelectOptions(
+  catalog: ChipCatalog,
+  selectOptions: string[]
+): { template: ChipTemplate; options: ChipOption[] } | null {
+  const normalizedSelect = new Set(
+    selectOptions.map((option) => option.trim().toLocaleLowerCase("tr")).filter(Boolean)
+  );
+  if (normalizedSelect.size < 2) return null;
+
+  let best: { template: ChipTemplate; options: ChipOption[]; score: number } | null = null;
+  for (const template of catalog.templates) {
+    const options = chipOptionsForTemplate(catalog, template.id);
+    const score = options.filter((option) =>
+      normalizedSelect.has(option.label.trim().toLocaleLowerCase("tr"))
+    ).length;
+    if (score >= 2 && (!best || score > best.score)) {
+      best = { template, options, score };
+    }
+  }
+  return best ? { template: best.template, options: best.options } : null;
+}
+
+/** Canlı tablo ek sütunu için çip şablonu — explicit binding, preset veya select seçenek eşleşmesi. */
+export function resolveExtraColumnChip(
+  catalog: ChipCatalog,
+  projectIds: string[],
+  columnKey: string,
+  selectOptions?: string[]
+): ResolvedExtraColumnChip | null {
+  const normalizedKey = normalizeExtraColumnKey(columnKey);
+  if (!normalizedKey) return null;
+
+  const uniqueProjectIds = Array.from(new Set(projectIds.map((id) => String(id).trim()).filter(Boolean)));
+
+  for (const projectId of uniqueProjectIds) {
+    const binding = catalog.bindings.find(
+      (item) =>
+        item.projectId === projectId && normalizeExtraColumnKey(item.columnKey) === normalizedKey
+    );
+    if (!binding) continue;
+    const template = catalog.templates.find((item) => item.id === binding.templateId) ?? null;
+    const options = template ? chipOptionsForTemplate(catalog, template.id) : [];
+    if (template && options.length > 0) {
+      return { template, options, binding };
+    }
+  }
+
+  const preset = SMART_CHIP_COLUMN_PRESETS.find(
+    (item) => normalizeExtraColumnKey(item.label) === normalizedKey
+  );
+  if (preset) {
+    const template = chipTemplateByName(catalog, preset.templateName);
+    const options = template ? chipOptionsForTemplate(catalog, template.id) : [];
+    if (template && options.length > 0) {
+      const binding =
+        catalog.bindings.find(
+          (item) =>
+            uniqueProjectIds.includes(item.projectId) &&
+            item.templateId === template.id &&
+            normalizeExtraColumnKey(item.columnKey) === normalizedKey
+        ) ?? null;
+      return { template, options, binding };
+    }
+  }
+
+  const matchedByOptions = resolveChipBySelectOptions(catalog, selectOptions ?? []);
+  if (matchedByOptions) {
+    const binding =
+      catalog.bindings.find(
+        (item) =>
+          uniqueProjectIds.includes(item.projectId) &&
+          item.templateId === matchedByOptions.template.id &&
+          normalizeExtraColumnKey(item.columnKey) === normalizedKey
+      ) ?? null;
+    return { ...matchedByOptions, binding };
+  }
+
+  return null;
+}
+
+/** row_chip_values yoksa extra_data metninden seçili çip option id'si. */
+export function matchChipOptionIdFromCellValue(
+  extraValue: string | null | undefined,
+  chipOptions: ChipOption[],
+  rowChipValue?: RowChipValue | null
+): string {
+  if (rowChipValue?.optionId) return rowChipValue.optionId;
+  const trimmed = String(extraValue ?? "").trim();
+  if (!trimmed) return "";
+  const normalized = trimmed.toLocaleLowerCase("tr");
+  const matched = chipOptions.find(
+    (option) =>
+      option.label.trim().toLocaleLowerCase("tr") === normalized ||
+      option.value.trim().toLocaleLowerCase("tr") === normalized
+  );
+  return matched?.id ?? "";
 }
 
