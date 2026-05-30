@@ -248,7 +248,8 @@ values
   ('Ödeme Durumu', 'payment', 'Ödeme takip durumu', 'credit-card', 'amber', true, false),
   ('Sistem', 'system', 'Otomasyon tarafından üretilen sistem çipleri', 'sparkles', 'blue', true, true),
   ('Evrak', 'document', 'Evrak akış durumu', 'file-text', 'slate', true, false),
-  ('Gizlilik', 'privacy', 'Veri gizlilik sınıfı', 'shield', 'violet', true, true)
+  ('Gizlilik', 'privacy', 'Veri gizlilik sınıfı', 'shield', 'violet', true, true),
+  ('E-posta', 'email', 'Giden e-posta / bildirim durumu takibi', 'check-circle', 'cyan', true, false)
 on conflict (category, name) do update set
   description = excluded.description,
   icon = excluded.icon,
@@ -277,7 +278,11 @@ join (
     ('document','Evrak','Arşivlendi','archived','slate','archive',30,true),
     ('privacy','Gizlilik','Genel','public','emerald','unlock',10,false),
     ('privacy','Gizlilik','Hizmete Özel','internal','amber','lock-keyhole',20,false),
-    ('privacy','Gizlilik','Gizli','confidential','red','shield-alert',30,true)
+    ('privacy','Gizlilik','Gizli','confidential','red','shield-alert',30,true),
+    ('email','E-posta','Gönderilmedi','not_sent','slate','circle',10,false),
+    ('email','E-posta','Gönderim bekliyor','pending','amber','clock',20,false),
+    ('email','E-posta','Mail gönderildi','sent','emerald','check-circle',30,true),
+    ('email','E-posta','Gönderilemedi','failed','red','x-circle',40,true)
 ) as v(category, template_name, label, value, color, icon, sort_order, is_terminal)
   on t.category = v.category and t.name = v.template_name
 on conflict (template_id, value) do update set

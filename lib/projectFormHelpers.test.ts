@@ -33,12 +33,13 @@ describe("parseExtraColumnKeysFromForm", () => {
 });
 
 describe("SMART_CHIP_COLUMN_PRESETS", () => {
-  it("dört hazır çip kolonu tanımlı", () => {
+  it("beş hazır çip kolonu tanımlı", () => {
     expect(SMART_CHIP_COLUMN_PRESETS.map((p) => p.label)).toEqual([
       "Risk",
       "Ödeme Durumu",
       "Evrak",
       "Gizlilik",
+      "Mail Durumu",
     ]);
   });
 });
