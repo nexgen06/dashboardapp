@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import { X, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { RoleId } from "@/types/permissions";
 
 const STORAGE_KEY = "dashboardapp.onboarding.completed.v1";
 
@@ -16,41 +17,91 @@ type TourStep = {
   /** Hedef element CSS selector — `data-tour="X"` ile işaretle. Yoksa modal ekranda merkezde gösterilir. */
   targetSelector?: string;
   placement?: Placement;
+  /** Hangi roller için geçerli (boşsa tüm roller) */
+  roles?: RoleId[];
 };
 
-const STEPS: TourStep[] = [
+const COMMON_STEPS: TourStep[] = [
   {
     title: "Hoş geldin! 👋",
     body:
       "Bu kısa tur ile temel özellikleri 30 saniyede keşfet. İstediğin zaman atla butonuyla çıkabilir, ayarlardan tekrar başlatabilirsin.",
   },
   {
-    title: "Sol menü ile gezin",
+    title: "Sol menü modülleri",
     body:
-      "Dashboard, Projeler, Canlı Tablo, Mesajlar — tüm sayfalara buradan ulaşırsın. İkonların üzerine geldiğinde isimleri görünür.",
+      "Çalışma / Veri / Yönetim / Kişisel modülleri arasından geç. Aktif olduğun sayfanın modülü otomatik açılır.",
     targetSelector: '[data-tour="sidebar"]',
     placement: "right",
   },
   {
-    title: "Komut paleti",
+    title: "Komut Paleti",
     body:
-      "⌘K (Mac) veya Ctrl+K (Win) ile her yere hızlı atla, eylem çalıştır, tema değiştir. Power user'lar için en hızlı yol.",
+      "⌘K (Mac) veya Ctrl+K (Win) — her yere hızlı atla, görev oluştur, ayar değiştir, rehber sayfasına git. Power user'ların en hızlı yolu.",
     targetSelector: '[data-tour="command-palette"]',
     placement: "bottom",
   },
   {
-    title: "Bildirim merkezi",
+    title: "Bildirim Inbox Zero",
     body:
-      "Sana atanan projeler, yeni görevler, gecikmiş işler ve proje sohbetlerinden yeni mesajlar burada toplanır. Hepsini tek tıkla okundu işaretle.",
+      "⌘+Shift+E ile bildirim merkezini aç. J/K ile gez, E ile arşivle, D ile ertele — 30 saniyede 30 bildirimi temizle.",
     targetSelector: '[data-tour="notifications"]',
     placement: "bottom",
+  },
+];
+
+// Admin-spesifik adımlar
+const ADMIN_STEPS: TourStep[] = [
+  {
+    title: "Marka & Kurumsal kimlik",
+    body:
+      "Ayarlar → Görünüm'den kurumsal renginizi (HEX) ve logonuzu tanıtın. Tüm vurgular o renge döner, sidebar'da logonuz görünür.",
+    roles: ["admin"],
+  },
+  {
+    title: "Ekip & yetkiler",
+    body:
+      "Yönetim → Kullanıcı Yetkileri'nden ekibinizi davet edin, rolleri yönetin. Admin / PM / Member / Viewer — 4 hazır rol var.",
+    roles: ["admin"],
+  },
+];
+
+// Project Manager-spesifik adımlar
+const PM_STEPS: TourStep[] = [
+  {
+    title: "Canlı Tablo & gruplama",
+    body:
+      "Canlı Tablo'da tüm görevleri gör. Üstteki \"Grupla:\" dropdown ile durum/atanan/öncelik bazında düzenle. Header'a Shift+click ile çoklu sıralama.",
+    roles: ["admin", "project_manager"],
+  },
+];
+
+// Tüm roller için kapanış
+const CLOSING_STEPS: TourStep[] = [
+  {
+    title: "Yardım her yerde",
+    body:
+      "Her sayfada sağ üstte ? butonu — o sayfa için en uygun rehbere gider. `?` tuşu klavye kısayolları HUD'unu açar. Sağ üstte 🚀 başlangıç adımlarını gösterir.",
   },
   {
     title: "Hazırsın! ✨",
     body:
-      "İyi çalışmalar. Detaylı yardım için herhangi bir sayfada ⌘K ile komut paletini açabilirsin.",
+      "İyi çalışmalar. Sidebar → Kişisel → Kullanıcı Rehberi'nden tüm özellikleri detaylı öğrenebilirsin.",
   },
 ];
+
+/** Role'e göre tur adımları üret */
+function getStepsForRole(roleId: RoleId | null): TourStep[] {
+  const steps: TourStep[] = [...COMMON_STEPS];
+  if (roleId === "admin") {
+    steps.push(...ADMIN_STEPS);
+  }
+  if (roleId === "admin" || roleId === "project_manager") {
+    steps.push(...PM_STEPS);
+  }
+  steps.push(...CLOSING_STEPS);
+  return steps.filter((s) => !s.roles || (roleId && s.roles.includes(roleId)));
+}
 
 function loadCompleted(): boolean {
   if (typeof window === "undefined") return true;
@@ -89,6 +140,8 @@ export function OnboardingTour() {
   const [stepIdx, setStepIdx] = useState(0);
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
   const [viewport, setViewport] = useState({ w: 0, h: 0 });
+  // Role-aware adım listesi
+  const STEPS = useMemo(() => getStepsForRole(user?.roleId ?? null), [user?.roleId]);
 
   /** İlk girişte otomatik başlat (auth yüklü + kullanıcı var + flag yok) */
   useEffect(() => {
