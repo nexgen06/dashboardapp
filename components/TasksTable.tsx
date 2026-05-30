@@ -17,6 +17,7 @@ import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
 import { useProjects } from "@/hooks/useProjects";
 import { usePresence } from "@/hooks/usePresence";
 import { useTasksTableGrouping } from "@/hooks/useTasksTableGrouping";
+import { useConditionalFormatting } from "@/hooks/useConditionalFormatting";
 import {
   useSettings,
   getStatusOptions,
@@ -542,6 +543,10 @@ export function TasksTable({
     projectNameById,
   });
 
+  // Koşullu biçimlendirme (Excel pattern) — satır kurallara göre renklenir
+  const conditionalFormatting = useConditionalFormatting();
+
+
   const bulkSelection = useTasksTableBulkSelection({
     table,
     canBulkUpdate,
@@ -979,6 +984,14 @@ export function TasksTable({
         toggleGroup={grouping.toggleGroup}
         setAllExpanded={grouping.setAllExpanded}
         setAllCollapsed={grouping.setAllCollapsed}
+        cfRules={conditionalFormatting.rules}
+        cfEnabledCount={conditionalFormatting.enabledCount}
+        cfGetRuleForTask={conditionalFormatting.getRuleForTask}
+        cfToggleRule={conditionalFormatting.toggleRule}
+        cfAddRule={conditionalFormatting.addRule}
+        cfDeleteRule={conditionalFormatting.deleteRule}
+        cfUpdateRule={conditionalFormatting.updateRule}
+        cfResetToPresets={conditionalFormatting.resetToPresets}
       />
     </>
   );
