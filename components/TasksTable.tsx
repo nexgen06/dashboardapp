@@ -992,6 +992,7 @@ export function TasksTable({
         cfDeleteRule={conditionalFormatting.deleteRule}
         cfUpdateRule={conditionalFormatting.updateRule}
         cfResetToPresets={conditionalFormatting.resetToPresets}
+        onColumnReorder={setColumnOrder}
       />
     </>
   );
