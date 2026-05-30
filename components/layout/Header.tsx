@@ -7,6 +7,7 @@ import { User, Settings, LogOut, LogIn, Shield, Copy, Check, Search, UserCircle2
 import { useAuth } from "@/contexts/auth-context";
 import { useNotifications } from "@/contexts/notification-context";
 import { NotificationBell } from "@/components/NotificationBell";
+import { HelpButton } from "@/components/guide/HelpButton";
 import { openCommandPalette } from "@/components/CommandPalette";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useProfileLookup } from "@/contexts/profile-lookup-context";
@@ -124,6 +125,7 @@ export function Header() {
             <Search className="h-4 w-4" aria-hidden />
           </Button>
         )}
+        {user && <HelpButton />}
         {user && (
           <span data-tour="notifications" className="inline-flex">
             <NotificationBell summary={notificationSummary} />
