@@ -231,7 +231,7 @@ export function ConditionalFormattingDialog({
             className="inline-flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
           >
             <RotateCcw className="h-3 w-3" />
-            Varsayılan preset'lere dön
+            Varsayılan preset&apos;lere dön
           </button>
           <Button size="sm" onClick={() => onOpenChange(false)}>
             Kapat

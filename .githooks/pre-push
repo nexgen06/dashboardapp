@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Pre-push hook: push'tan önce hızlı doğrulama (typecheck + lint).
+# CI'da fail olmasın diye yerelde yakalar.
+#
+# Tam build için: npm run verify (manual)
+# Skip için (acil durum): git push --no-verify
+#
+# Kurulum: bash scripts/install-git-hooks.sh
+
+set -e
+
+# Renkler
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+echo -e "${YELLOW}🔍 pre-push: hızlı doğrulama (typecheck + lint)...${NC}"
+
+# package.json yoksa atla (örn. README-only commit)
+if [ ! -f "package.json" ]; then
+  echo "  package.json yok, atlanıyor"
+  exit 0
+fi
+
+# node_modules yoksa uyar
+if [ ! -d "node_modules" ]; then
+  echo -e "${YELLOW}  ⚠  node_modules yok — 'npm ci' çalıştır${NC}"
+  exit 1
+fi
+
+# Sadece TS değişikliği yoksa atla (perf için)
+CHANGED=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null || true)
+HAS_CODE=$(echo "$CHANGED" | grep -E '\.(ts|tsx|js|jsx)$' || true)
+# Pre-push'da staged değil, son commit'leri kontrol et
+COMMIT_CHANGED=$(git diff --name-only "@{u}"..HEAD 2>/dev/null || git diff --name-only HEAD~1..HEAD 2>/dev/null || true)
+HAS_CODE_COMMIT=$(echo "$COMMIT_CHANGED" | grep -E '\.(ts|tsx|js|jsx)$' || true)
+
+if [ -z "$HAS_CODE_COMMIT" ] && [ -z "$HAS_CODE" ]; then
+  echo "  TS/JS değişikliği yok, atlanıyor"
+  exit 0
+fi
+
+# Typecheck
+echo "  → npm run typecheck"
+if ! npm run typecheck --silent; then
+  echo -e "${RED}❌ TypeScript hatası — push iptal edildi${NC}"
+  echo -e "${YELLOW}   Düzelt veya acilse: git push --no-verify${NC}"
+  exit 1
+fi
+
+# Lint — sadece error'lar fail eder (warning'ler loglanır)
+echo "  → npm run lint (sadece error)"
+if ! npm run lint --silent -- --max-warnings=999 > /dev/null 2>&1; then
+  echo -e "${RED}❌ ESLint hatası — push iptal edildi${NC}"
+  echo -e "${YELLOW}   Detay için: npm run lint${NC}"
+  echo -e "${YELLOW}   Acil: git push --no-verify${NC}"
+  exit 1
+fi
+
+echo -e "${GREEN}✅ pre-push doğrulama başarılı${NC}"
+exit 0
