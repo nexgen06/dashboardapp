@@ -106,32 +106,32 @@ export default function AyarlarPage() {
       </div>
 
       <Tabs defaultValue="genel" className="w-full">
-        <TabsList className="bg-slate-100 p-1">
-          <TabsTrigger value="genel" className="data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm">
+        <TabsList className="bg-slate-100 p-1 dark:bg-slate-800">
+          <TabsTrigger value="genel" className="text-slate-600 data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm dark:text-slate-300 dark:data-[state=active]:bg-slate-900 dark:data-[state=active]:text-blue-400">
             <Globe className="mr-2 h-4 w-4" />
             Genel
           </TabsTrigger>
-          <TabsTrigger value="gorunum" className="data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm">
+          <TabsTrigger value="gorunum" className="text-slate-600 data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm dark:text-slate-300 dark:data-[state=active]:bg-slate-900 dark:data-[state=active]:text-blue-400">
             <Palette className="mr-2 h-4 w-4" />
             Görünüm
           </TabsTrigger>
-          <TabsTrigger value="bildirimler" className="data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm">
+          <TabsTrigger value="bildirimler" className="text-slate-600 data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm dark:text-slate-300 dark:data-[state=active]:bg-slate-900 dark:data-[state=active]:text-blue-400">
             <Bell className="mr-2 h-4 w-4" />
             Bildirimler
           </TabsTrigger>
-          <TabsTrigger value="gorevler" className="data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm">
+          <TabsTrigger value="gorevler" className="text-slate-600 data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm dark:text-slate-300 dark:data-[state=active]:bg-slate-900 dark:data-[state=active]:text-blue-400">
             <ListTodo className="mr-2 h-4 w-4" />
             Görevler
           </TabsTrigger>
-          <TabsTrigger value="guvenlik" className="data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm">
+          <TabsTrigger value="guvenlik" className="text-slate-600 data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm dark:text-slate-300 dark:data-[state=active]:bg-slate-900 dark:data-[state=active]:text-blue-400">
             <Shield className="mr-2 h-4 w-4" />
             Güvenlik
           </TabsTrigger>
-          <TabsTrigger value="entegrasyonlar" className="data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm">
+          <TabsTrigger value="entegrasyonlar" className="text-slate-600 data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm dark:text-slate-300 dark:data-[state=active]:bg-slate-900 dark:data-[state=active]:text-blue-400">
             <Key className="mr-2 h-4 w-4" />
             Entegrasyonlar
           </TabsTrigger>
-          <TabsTrigger value="gelismis" className="data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm">
+          <TabsTrigger value="gelismis" className="text-slate-600 data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm dark:text-slate-300 dark:data-[state=active]:bg-slate-900 dark:data-[state=active]:text-blue-400">
             <Zap className="mr-2 h-4 w-4" />
             Gelişmiş
           </TabsTrigger>
