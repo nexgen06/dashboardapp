@@ -1,3 +1,5 @@
+import { SMART_CHIP_COLUMN_PRESETS } from "@/lib/projectFormHelpers";
+
 export type ExtraColumnFormatKind = "phone" | "tckn" | "email" | "date";
 
 export type ExtraColumnFormatError = {
@@ -29,13 +31,39 @@ function compactKey(key: string): string {
   return normalizeKey(key).replace(/\s+/g, "");
 }
 
+function isSmartChipColumnKey(key: string): boolean {
+  const n = normalizeKey(key);
+  return SMART_CHIP_COLUMN_PRESETS.some((preset) => normalizeKey(preset.label) === n);
+}
+
+function isStatusColumnKey(key: string): boolean {
+  const n = normalizeKey(key);
+  return /\bdurumu\b/.test(n) || /\bstatus\b/.test(n) || /\bdurum\b/.test(n);
+}
+
+function isEmailAddressColumnKey(key: string): boolean {
+  const n = normalizeKey(key);
+  const compact = compactKey(key);
+
+  if (n.includes("e-posta") || n.includes("eposta") || compact.includes("email")) return true;
+  if (n.includes("mail adres") || n.includes("email address")) return true;
+  if (compact === "mail" || compact === "email" || compact === "eposta") return true;
+
+  // "mail" tek başına durum/çip sütunlarında geçebilir (Mail Durumu vb.) — yalnızca adres bağlamında
+  if (/\bmail\b/.test(n) && (n.includes("adres") || n.includes("address"))) return true;
+
+  return false;
+}
+
 export function getExtraColumnFormatKind(key: string): ExtraColumnFormatKind | null {
   const n = normalizeKey(key);
   const compact = compactKey(key);
 
+  if (isSmartChipColumnKey(key) || isStatusColumnKey(key)) return null;
+
   if (compact.includes("tckn") || compact === "tc" || compact.startsWith("tckimlik")) return "tckn";
   if (n.includes("tc kimlik") || n.includes("kimlik no")) return "tckn";
-  if (n.includes("e-posta") || n.includes("eposta") || n.includes("email") || n.includes("mail")) return "email";
+  if (isEmailAddressColumnKey(key)) return "email";
   if (n.includes("telefon") || n.includes("phone") || n.includes("gsm") || n.includes("cep")) return "phone";
   if (n.includes("tarih") || n.includes("date")) return "date";
 

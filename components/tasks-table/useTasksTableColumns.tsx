@@ -39,7 +39,6 @@ import {
   resolveRestoreStatus,
 } from "@/components/tasks-table/statusHelpers";
 import { isSensitiveExtraColumnKey, maskSensitiveExtraValue } from "@/lib/extraColumnSensitiveDisplay";
-import { getExtraColumnFormatKind } from "@/lib/extraColumnFormatRules";
 import { presenceEditorLines } from "@/lib/userDisplayName";
 import { formatDate } from "@/lib/formatDate";
 import { getRelativeTime } from "@/lib/relativeTime";
