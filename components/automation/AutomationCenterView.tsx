@@ -73,7 +73,7 @@ export function AutomationCenterView() {
   const { tasks } = useTasksWithRealtime();
   const toast = useToast();
   const confirm = useConfirm();
-  const canView = hasPermission("automation.view") || hasPermission("userManagement.view");
+  const canView = hasPermission("automation.view");
   const canManage = hasPermission("automation.manage") || user?.roleId === "admin" || user?.roleId === "project_manager";
   const [rules, setRules] = useState<AutomationRule[]>([]);
   const [logs, setLogs] = useState<AutomationLog[]>([]);

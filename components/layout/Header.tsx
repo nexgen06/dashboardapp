@@ -28,6 +28,8 @@ import { userInitialsFromDisplay } from "@/lib/userDisplayName";
 
 function getPageTitle(pathname: string): string {
   if (pathname === "/giris") return "Giriş";
+  if (pathname === "/profil/yetkiler") return "Rolüm ve yetkilerim";
+  if (pathname === "/profil") return "Profilim";
   if (pathname === "/ayarlar") return "Ayarlar";
   if (pathname === "/yonetim/kurumsal-admin") return "Kurumsal admin";
   if (pathname === "/yonetim/kullanici-yetkileri") return "Kullanıcı yetkileri";
@@ -208,20 +210,19 @@ export function Header() {
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem className="cursor-pointer" asChild>
-                <Link href="/yonetim/kullanici-yetkileri">
-                  {showUserManagementNav ? (
-                    <>
-                      <Shield className="mr-2 h-4 w-4" />
-                      Kullanıcı yetkileri
-                    </>
-                  ) : (
-                    <>
-                      <User className="mr-2 h-4 w-4" />
-                      Rolüm ve yetkiler
-                    </>
-                  )}
+                <Link href="/profil/yetkiler">
+                  <User className="mr-2 h-4 w-4" />
+                  Rolüm ve yetkilerim
                 </Link>
               </DropdownMenuItem>
+              {showUserManagementNav && (
+                <DropdownMenuItem className="cursor-pointer" asChild>
+                  <Link href="/yonetim/kullanici-yetkileri">
+                    <Shield className="mr-2 h-4 w-4" />
+                    Kullanıcı yönetimi
+                  </Link>
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem className="cursor-pointer" asChild>
                 <Link href="/ayarlar">
                   <Settings className="mr-2 h-4 w-4" />

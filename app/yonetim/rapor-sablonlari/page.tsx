@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { FileText, Image as ImageIcon, Layout, Loader2, Pencil, RefreshCw, Save, Shield, Sparkles, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
+import { YonetimAccessDenied } from "@/components/yonetim/YonetimAccessDenied";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
@@ -172,7 +173,9 @@ export default function RaporSablonlariPage() {
   const { isLoaded, hasPermission, user, isAdmin } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
-  const canView = hasPermission("userManagement.view");
+  const canView =
+    hasPermission("area.userManagement") ||
+    (hasPermission("area.reports") && hasPermission("reports.view"));
   const canEdit = hasPermission("userManagement.edit") || user?.roleId === "project_manager" || isAdmin;
   const { projects } = useProjects();
   const [templates, setTemplates] = useState<ManagedReportTemplate[]>([]);
@@ -363,17 +366,7 @@ export default function RaporSablonlariPage() {
   }
 
   if (!canView) {
-    return (
-      <div className="container max-w-4xl py-8">
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-center dark:border-amber-700 dark:bg-amber-950/30">
-          <Shield className="mx-auto mb-3 h-10 w-10 text-amber-600" />
-          <p className="font-medium text-slate-800 dark:text-slate-100">Bu sayfaya erişim yetkiniz yok.</p>
-          <Button asChild variant="outline" className="mt-4">
-            <Link href="/">Ana sayfaya dön</Link>
-          </Button>
-        </div>
-      </div>
-    );
+    return <YonetimAccessDenied />;
   }
 
   return (

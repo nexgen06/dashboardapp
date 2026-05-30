@@ -23,6 +23,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
+import { YonetimAccessDenied } from "@/components/yonetim/YonetimAccessDenied";
 import { useSettings } from "@/contexts/settings-context";
 import { useProjects } from "@/hooks/useProjects";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
@@ -170,6 +171,7 @@ function SectionCard({
 
 export default function KurumsalAdminPage() {
   const { isLoaded, hasPermission, isAdmin, user } = useAuth();
+  const canAccess = isAdmin || hasPermission("area.userManagement");
   const { settings } = useSettings();
   const { projects, isLoading: projectsLoading, error: projectsError } = useProjects();
   const { tasks, isLoading: tasksLoading, error: tasksError, realtimeConnection } = useTasksWithRealtime();
@@ -205,9 +207,9 @@ export default function KurumsalAdminPage() {
   }, [isAdmin, toast]);
 
   useEffect(() => {
-    if (!isLoaded || !hasPermission("userManagement.view")) return;
+    if (!isLoaded || !canAccess) return;
     void loadHealth();
-  }, [isLoaded, hasPermission, loadHealth]);
+  }, [isLoaded, canAccess, loadHealth]);
 
   const scriptSummary = useMemo(() => {
     const missing = checks.filter((item) => item.status === "missing").length;
@@ -292,20 +294,9 @@ export default function KurumsalAdminPage() {
     return <div className="container py-12 text-center text-slate-500 dark:text-slate-400">Yükleniyor...</div>;
   }
 
-  if (!hasPermission("userManagement.view")) {
+  if (!canAccess) {
     return (
-      <div className="container max-w-4xl py-8">
-        <EmptyState
-          icon={<ShieldCheck />}
-          title="Bu sayfaya erişim yetkiniz yok"
-          description="Kurumsal admin paneli yalnızca yönetim yetkisine sahip kullanıcılar içindir."
-          action={
-            <Button asChild variant="outline">
-              <Link href="/">Ana sayfaya dön</Link>
-            </Button>
-          }
-        />
-      </div>
+      <YonetimAccessDenied description="Kurumsal admin paneli yalnızca yönetici rolüne sahip kullanıcılar içindir." />
     );
   }
 

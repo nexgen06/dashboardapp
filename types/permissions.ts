@@ -178,7 +178,6 @@ export const ROLES: Record<RoleId, Role> = {
       "taskFiles.manage",
       "settings.view",
       "settings.edit",
-      "userManagement.view",
       "notifications.send",
       "area.reports",
       "reports.view",
@@ -210,7 +209,6 @@ export const ROLES: Record<RoleId, Role> = {
       "taskFiles.manage",
       "settings.view",
       "settings.edit",
-      "userManagement.view",
     ],
   },
   viewer: {
@@ -227,7 +225,6 @@ export const ROLES: Record<RoleId, Role> = {
       "chipTemplates.view",
       "taskFiles.view",
       "settings.view",
-      "userManagement.view",
     ],
   },
 };
@@ -348,7 +345,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "sensitiveChips.manage": "Yönetici/hassas çipleri değiştirme",
   "settings.view": "Ayarları görüntüleme",
   "settings.edit": "Ayarları düzenleme",
-  "userManagement.view": "Yetki listesini görüntüleme",
+  "userManagement.view": "Kullanıcı dizini ve rol matrisi (yönetici)",
   "userManagement.edit": "Kullanıcı rol / yetki düzenleme",
   "notifications.send": "Mesaj / bildirim gönderme",
   "area.reports": "Raporlar sekmesi",

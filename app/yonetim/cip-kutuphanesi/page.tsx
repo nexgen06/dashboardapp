@@ -34,7 +34,7 @@ export default function CipKutuphanesiPage() {
   const { projects } = useProjects();
   const toast = useToast();
   const confirm = useConfirm();
-  const canView = hasPermission("chipTemplates.view") || hasPermission("userManagement.view");
+  const canView = hasPermission("chipTemplates.view");
   const canManage = hasPermission("chipTemplates.manage") || user?.roleId === "admin" || user?.roleId === "project_manager";
   const [catalog, setCatalog] = useState<ChipCatalog>({ templates: [], options: [], bindings: [] });
   const [loading, setLoading] = useState(false);
