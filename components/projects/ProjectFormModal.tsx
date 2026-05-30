@@ -516,6 +516,18 @@ export function ProjectFormModal({
     setExtraColumnKeysText(next.join("\n"));
   };
 
+  const renameExtraColumnKeyInForm = (oldKey: string, newKey: string) => {
+    const trimmedNew = newKey.trim();
+    if (!trimmedNew) return;
+    const next = parseExtraColumnKeysFromForm(extraColumnKeysText).map((k) =>
+      k.trim().toLocaleLowerCase("tr") === oldKey.trim().toLocaleLowerCase("tr") ? trimmedNew : k
+    );
+    if (!next.some((k) => k.trim().toLocaleLowerCase("tr") === trimmedNew.toLocaleLowerCase("tr"))) {
+      next.push(trimmedNew);
+    }
+    setExtraColumnKeysText(Array.from(new Set(next.map((k) => k.trim()).filter(Boolean))).join("\n"));
+  };
+
   const normalizeEmailInputValue = (raw: string): string => {
     const value = raw.trim().toLowerCase();
     const match = value.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
@@ -1358,6 +1370,7 @@ export function ProjectFormModal({
         observedKeys={mergedKeys}
         sampleValuesByKey={observedSampleValues ?? {}}
         onColumnAdded={addExtraColumnKey}
+        onColumnRenamed={renameExtraColumnKeyInForm}
         existingExtraColumnKeys={project.extra_column_keys ?? []}
       />
     );

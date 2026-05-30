@@ -52,6 +52,8 @@ import { useTasksTableSavedViews } from "@/components/tasks-table/useTasksTableS
 import { useTasksTableRowHandlers } from "@/components/tasks-table/useTasksTableRowHandlers";
 import { useTasksTableKeyboardShortcuts } from "@/components/tasks-table/useTasksTableKeyboardShortcuts";
 import { useTasksTableRemoveExtraColumn } from "@/components/tasks-table/useTasksTableRemoveExtraColumn";
+import { useTasksTableRenameExtraColumn } from "@/components/tasks-table/useTasksTableRenameExtraColumn";
+import { RenameExtraColumnDialog } from "@/components/tasks-table/RenameExtraColumnDialog";
 import { TasksTableTopStrip } from "@/components/tasks-table/TasksTableTopStrip";
 import type { TasksTableProps } from "@/components/tasks-table/types";
 import { useToast } from "@/components/ui/toast";
@@ -696,6 +698,22 @@ export function TasksTable({
     toast,
   });
 
+  const {
+    renameExtraColumnDraft,
+    setRenameExtraColumnDraft,
+    renamingExtraColumn,
+    renameExtraColumnImpact,
+    executeRenameExtraColumn,
+  } = useTasksTableRenameExtraColumn({
+    projects,
+    tasks,
+    scopedProjectIdSet,
+    updateProject,
+    updateTaskOptimistic,
+    fetchTasks,
+    toast,
+  });
+
   if (isLoading) {
     return <TasksTableLoadingState />;
   }
@@ -911,6 +929,13 @@ export function TasksTable({
         impact={removeExtraColumnImpact}
         onConfirm={executeRemoveExtraColumn}
       />
+      <RenameExtraColumnDialog
+        draft={renameExtraColumnDraft}
+        onDraftChange={setRenameExtraColumnDraft}
+        renaming={renamingExtraColumn}
+        impact={renameExtraColumnImpact}
+        onConfirm={executeRenameExtraColumn}
+      />
       <TasksTableDataPanel
         table={table}
         mobileListScrollRef={mobileListScrollRef}
@@ -955,6 +980,7 @@ export function TasksTable({
         pinColumn={pinColumn}
         canEditProject={canEditProject}
         setRemoveExtraColumnKey={setRemoveExtraColumnKey}
+        setRenameExtraColumnDraft={setRenameExtraColumnDraft}
         recentlyUpdatedIds={recentlyUpdatedIds}
         editorsByRowId={editorsByRowId}
         rowAutomationStateByTaskId={rowAutomationStateByTaskId}

@@ -5,7 +5,9 @@ import {
   AlertTriangle,
   Archive,
   Calendar,
+  Check,
   CheckCircle2,
+  ChevronDown,
   Circle,
   CircleDot,
   Clock,
@@ -15,6 +17,9 @@ import {
   Lock,
   LockKeyhole,
   Loader2,
+  Mail,
+  MailCheck,
+  MailX,
   PauseCircle,
   Radar,
   Shield,
@@ -24,6 +29,8 @@ import {
   Unlock,
   XCircle,
 } from "lucide-react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import type { ChipOption, ChipTemplate, RowChipValue } from "@/lib/chipSystem";
 
@@ -62,6 +69,9 @@ const iconMap = {
   lock: Lock,
   "lock-keyhole": LockKeyhole,
   loader: Loader2,
+  mail: Mail,
+  "mail-check": MailCheck,
+  "mail-x": MailX,
   "pause-circle": PauseCircle,
   shield: Shield,
   "shield-alert": ShieldAlert,
@@ -74,6 +84,19 @@ const iconMap = {
 function resolveIcon(icon?: string | null) {
   if (!icon) return Circle;
   return iconMap[icon as keyof typeof iconMap] ?? Circle;
+}
+
+function ChipOptionIcon({
+  option,
+  template,
+  className,
+}: {
+  option: ChipOption;
+  template?: ChipTemplate | null;
+  className?: string;
+}) {
+  const Icon = resolveIcon(option.icon ?? template?.icon);
+  return <Icon className={cn("shrink-0", className)} aria-hidden />;
 }
 
 function isReflectorChip(option: ChipOption): boolean {
@@ -110,7 +133,6 @@ export function ChipBadge({
   spotlight?: boolean;
   className?: string;
 }) {
-  const Icon = resolveIcon(option.icon ?? template?.icon);
   const reflector = isReflectorChip(option);
   const title = [
     template?.name,
@@ -132,7 +154,7 @@ export function ChipBadge({
       title={title || undefined}
     >
       {spotlight && <Radar className="h-3 w-3 shrink-0 text-violet-600 dark:text-violet-300 animate-pulse" aria-label="Spotlight" />}
-      <Icon className="h-3 w-3 shrink-0" aria-hidden />
+      <ChipOptionIcon option={option} template={template} className="h-3 w-3" />
       <span className="truncate">{option.label}</span>
       {rowValue?.source === "automation" && <Sparkles className="h-3 w-3 shrink-0 opacity-75" aria-label="Otomasyon" />}
       {template?.managerOnly && <Lock className="h-3 w-3 shrink-0 opacity-75" aria-label="Yönetici çipi" />}
@@ -156,36 +178,149 @@ export function ChipSelectCell({
   onChange: (optionId: string) => void;
 }) {
   const current = options.find((option) => option.id === value) ?? null;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const listboxId = useId();
+  const anchorRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
+
+  useLayoutEffect(() => {
+    if (!menuOpen || !anchorRef.current) return;
+    const rect = anchorRef.current.getBoundingClientRect();
+    setMenuPos({ top: rect.bottom + 4, left: rect.left });
+  }, [menuOpen]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointer = (event: MouseEvent | TouchEvent) => {
+      const node = event.target as Node;
+      if (anchorRef.current?.contains(node)) return;
+      if (menuRef.current?.contains(node)) return;
+      setMenuOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    const onScroll = () => setMenuOpen(false);
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("touchstart", onPointer, { passive: true });
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("touchstart", onPointer);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [menuOpen]);
+
+  const triggerClass = cn(
+    "inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border px-2 text-xs font-semibold shadow-sm transition-colors focus:outline-none focus:ring-2 disabled:opacity-60",
+    current
+      ? selectColorClass[current.color] ?? selectColorClass[template.color] ?? selectColorClass.slate
+      : "border-slate-200 bg-white text-slate-500 focus:border-blue-500 focus:ring-blue-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300",
+    current?.color === "red" && "focus:border-red-500 focus:ring-red-500/25",
+    current?.color === "amber" && "focus:border-amber-500 focus:ring-amber-500/25",
+    current?.color === "emerald" && "focus:border-emerald-500 focus:ring-emerald-500/25",
+    current?.color === "blue" && "focus:border-blue-500 focus:ring-blue-500/25",
+    current?.color === "violet" && "focus:border-violet-500 focus:ring-violet-500/25",
+    current?.color === "cyan" && "focus:border-cyan-500 focus:ring-cyan-500/25",
+    current && isReflectorChip(current) && "chip-reflector",
+    current &&
+      isReflectorChip(current) &&
+      (current.color === "red" ||
+        /critical|kritik|rejected|reddedildi|blocked|engellendi/i.test(`${current.value} ${current.label}`)) &&
+      "chip-reflector-red",
+    current &&
+      isReflectorChip(current) &&
+      (current.color === "amber" ||
+        /overdue|gecikti|gecikmiş|missing|eksik|revision|revize/i.test(`${current.value} ${current.label}`)) &&
+      "chip-reflector-amber",
+    current && isReflectorChip(current) && current.color === "violet" && "chip-reflector-violet",
+    spotlight && "chip-spotlight chip-reflector"
+  );
+
+  const pickOption = useCallback(
+    (optionId: string) => {
+      onChange(optionId);
+      setMenuOpen(false);
+    },
+    [onChange]
+  );
+
   if (disabled) {
-    return current ? <ChipBadge template={template} option={current} spotlight={spotlight} /> : <span className="text-xs text-slate-400">—</span>;
+    return current ? (
+      <ChipBadge template={template} option={current} spotlight={spotlight} />
+    ) : (
+      <span className="text-xs text-slate-400">—</span>
+    );
   }
+
+  const menu =
+    menuOpen && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            ref={menuRef}
+            id={listboxId}
+            role="listbox"
+            aria-label={`${template.name} seçin`}
+            className="fixed z-[300] min-w-[11rem] max-w-[min(18rem,calc(100vw-1rem))] overflow-hidden rounded-md border border-slate-200 bg-white py-1 text-sm shadow-lg dark:border-slate-600 dark:bg-slate-800"
+            style={{ top: menuPos.top, left: menuPos.left }}
+          >
+            {options.map((option) => {
+              const selected = option.id === value;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  className={cn(
+                    "flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-slate-800 hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-700",
+                    selected && "bg-slate-50 dark:bg-slate-700/60"
+                  )}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    pickOption(option.id);
+                  }}
+                >
+                  <ChipOptionIcon option={option} template={template} className="h-3.5 w-3.5" />
+                  <span className="min-w-0 truncate">{option.label}</span>
+                  {selected && <Check className="ml-auto h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />}
+                </button>
+              );
+            })}
+          </div>,
+          document.body
+        )
+      : null;
+
   return (
-    <select
-      value={value ?? ""}
-      onChange={(event) => event.target.value && onChange(event.target.value)}
-      className={cn(
-        "h-7 max-w-full rounded-full border px-2 text-xs font-semibold shadow-sm transition-colors focus:outline-none focus:ring-2 disabled:opacity-60",
-        current
-          ? selectColorClass[current.color] ?? selectColorClass[template.color] ?? selectColorClass.slate
-          : "border-slate-200 bg-white text-slate-500 focus:border-blue-500 focus:ring-blue-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300",
-        current?.color === "red" && "focus:border-red-500 focus:ring-red-500/25",
-        current?.color === "amber" && "focus:border-amber-500 focus:ring-amber-500/25",
-        current?.color === "emerald" && "focus:border-emerald-500 focus:ring-emerald-500/25",
-        current?.color === "blue" && "focus:border-blue-500 focus:ring-blue-500/25",
-        current?.color === "violet" && "focus:border-violet-500 focus:ring-violet-500/25",
-        current?.color === "cyan" && "focus:border-cyan-500 focus:ring-cyan-500/25",
-        current && isReflectorChip(current) && "chip-reflector",
-        current && isReflectorChip(current) && (current.color === "red" || /critical|kritik|rejected|reddedildi|blocked|engellendi/i.test(`${current.value} ${current.label}`)) && "chip-reflector-red",
-        current && isReflectorChip(current) && (current.color === "amber" || /overdue|gecikti|gecikmiş|missing|eksik|revision|revize/i.test(`${current.value} ${current.label}`)) && "chip-reflector-amber",
-        current && isReflectorChip(current) && current.color === "violet" && "chip-reflector-violet",
-        spotlight && "chip-spotlight chip-reflector"
-      )}
-      title={template.name}
-    >
-      <option value="">—</option>
-      {options.map((option) => (
-        <option key={option.id} value={option.id}>{option.label}</option>
-      ))}
-    </select>
+    <>
+      <button
+        ref={anchorRef}
+        type="button"
+        title={template.name}
+        aria-haspopup="listbox"
+        aria-expanded={menuOpen}
+        aria-controls={menuOpen ? listboxId : undefined}
+        className={cn(triggerClass, "cursor-pointer hover:opacity-90")}
+        onClick={(event) => {
+          event.stopPropagation();
+          setMenuOpen((open) => !open);
+        }}
+      >
+        {current ? (
+          <>
+            <ChipOptionIcon option={current} template={template} className="h-3 w-3" />
+            <span className="truncate">{current.label}</span>
+          </>
+        ) : (
+          <span className="text-slate-400">—</span>
+        )}
+        <ChevronDown className="h-3 w-3 shrink-0 opacity-60" aria-hidden />
+      </button>
+      {menu}
+    </>
   );
 }

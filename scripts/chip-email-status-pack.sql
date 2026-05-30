@@ -21,8 +21,8 @@ join (
   values
     ('email','E-posta','Gönderilmedi','not_sent','slate','circle',10,false),
     ('email','E-posta','Gönderim bekliyor','pending','amber','clock',20,false),
-    ('email','E-posta','Mail gönderildi','sent','emerald','check-circle',30,true),
-    ('email','E-posta','Gönderilemedi','failed','red','x-circle',40,true)
+    ('email','E-posta','Mail gönderildi','sent','emerald','mail-check',30,true),
+    ('email','E-posta','Gönderilemedi','failed','red','mail-x',40,true)
 ) as v(category, template_name, label, value, color, icon, sort_order, is_terminal)
   on t.category = v.category and t.name = v.template_name
 on conflict (template_id, value) do update set
