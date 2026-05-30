@@ -10,8 +10,10 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { CheckCircle2, AlertTriangle, Info, X, Undo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { slideInRightVariants } from "@/components/motion/motionPresets";
 
 /**
  * Hafif toast + undo sistemi.
@@ -155,9 +157,11 @@ function Toaster({
       aria-live="polite"
       aria-atomic="false"
     >
-      {toasts.map((t) => (
-        <ToastCard key={t.id} toast={t} onDismiss={onDismiss} />
-      ))}
+      <AnimatePresence initial={false}>
+        {toasts.map((t) => (
+          <ToastCard key={t.id} toast={t} onDismiss={onDismiss} />
+        ))}
+      </AnimatePresence>
     </div>,
     document.body
   );
@@ -188,13 +192,17 @@ const KIND_STYLES: Record<ToastKind, { bar: string; icon: React.ReactNode; ring:
 
 function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {
   const style = KIND_STYLES[toast.kind];
+  const reduced = useReducedMotion();
   return (
-    <div
+    <motion.div
       role={toast.kind === "error" ? "alert" : "status"}
+      layout
+      variants={reduced ? undefined : slideInRightVariants}
+      initial={reduced ? false : "hidden"}
+      animate={reduced ? undefined : "visible"}
+      exit={reduced ? undefined : "exit"}
       className={cn(
         "pointer-events-auto flex w-full min-w-[280px] max-w-md items-start gap-3 overflow-hidden rounded-lg border-2 border-slate-200 bg-white pl-0 pr-3 py-3 shadow-2xl ring-1 dark:border-slate-700 dark:bg-slate-800",
-        // tailwindcss-animate ile sağdan kayarak gir + opaklık
-        "animate-in slide-in-from-right-8 fade-in duration-300",
         style.ring
       )}
     >
@@ -227,6 +235,6 @@ function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
       >
         <X className="h-4 w-4" aria-hidden />
       </button>
-    </div>
+    </motion.div>
   );
 }
