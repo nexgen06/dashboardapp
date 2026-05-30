@@ -81,7 +81,7 @@ import {
 const columnHelper = createColumnHelper<Task>();
 
 export type UseTasksTableColumnsParams = {
-  handleSave: (id: string, patch: Partial<Task>) => void | Promise<void>;
+  handleSave: (id: string, patch: Partial<Task>) => void | Promise<{ ok: boolean; message?: string }>;
   statusOptions: string[];
   tableDensity: LiveTableDensity;
   tableTemplate: LiveTableTemplate;
