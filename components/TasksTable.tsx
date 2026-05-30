@@ -546,6 +546,7 @@ export function TasksTable({
   // Koşullu biçimlendirme (Excel pattern) — satır kurallara göre renklenir
   const conditionalFormatting = useConditionalFormatting();
 
+
   const bulkSelection = useTasksTableBulkSelection({
     table,
     canBulkUpdate,
