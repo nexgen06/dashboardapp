@@ -48,7 +48,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { TaskCardMobile } from "@/components/TaskCardMobile";
-import { MODERN_DENSITY_UI, PAGE_SIZE_OPTIONS, ROW_HEIGHT_BY_DENSITY, VIRTUALIZE_THRESHOLD, LIVE_TABLE_THEAD_CELL_CLASS, LIVE_TABLE_SORT_IDLE_ICON_CLASS, LIVE_TABLE_PIN_SHADOW_LEFT, LIVE_TABLE_PIN_SHADOW_RIGHT } from "@/components/tasks-table/constants";
+import { MODERN_DENSITY_UI, PAGE_SIZE_OPTIONS, ROW_HEIGHT_BY_DENSITY, VIRTUALIZE_THRESHOLD, LIVE_TABLE_THEAD_CELL_CLASS, LIVE_TABLE_SORT_IDLE_ICON_CLASS, LIVE_TABLE_PIN_SHADOW_LEFT, LIVE_TABLE_PIN_SHADOW_RIGHT, LIVE_TABLE_SCROLL_SHELL_CLASS, LIVE_TABLE_THEAD_HEIGHT_BY_DENSITY } from "@/components/tasks-table/constants";
 import { liveTablePinCellBg } from "@/components/tasks-table/LiveTableRowRail";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { EditingUser } from "@/hooks/usePresence";
@@ -418,7 +418,8 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
       <div
         ref={liveTableScrollRef}
         className={cn(
-          "scrollbar-themed hidden md:flex flex-1 min-h-0 w-full min-w-0 overflow-y-auto overflow-x-auto isolate [overflow-anchor:none]",
+          LIVE_TABLE_SCROLL_SHELL_CLASS,
+          "hidden md:flex flex-1 min-h-0 w-full min-w-0 overflow-y-auto overflow-x-auto isolate [overflow-anchor:none]",
           tableSkin.shell,
           requiresSingleProjectSelection && "!hidden",
           /* Sayfa düzeni flex’te bazen yükseklik sınırlanmıyor; viewport tavanı iç scroll + thead sticky’yi garanti eder (genişlet modunda portal zaten sınırlı). */
@@ -427,6 +428,9 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
           isFullWidth && "min-h-0 max-h-none flex-1",
           tasks.length > 0 && "min-h-[200px]"
         )}
+        style={{
+          ["--live-table-thead-height" as string]: `${LIVE_TABLE_THEAD_HEIGHT_BY_DENSITY[tableDensity]}px`,
+        }}
       >
         <DndContext
           sensors={dndSensors}
@@ -473,6 +477,7 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                     <SortableHeaderCell
                       key={header.id}
                       columnId={col.id}
+                      dataCol={isSelectCol ? "select" : isActionsCol ? "actions" : undefined}
                       isSortable={col.id !== "select" && col.id !== "actions"}
                       ariaSort={
                         col.getCanSort?.() && col.getIsSorted() === "asc"
@@ -646,6 +651,7 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                             )}
                           </div>
                         )}
+                        {col.id !== "select" && col.id !== "actions" && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon" className={cn(dui.colMenuBtn, "shrink-0 text-slate-500")} aria-label="Sütun menüsü">
@@ -681,6 +687,7 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                             )}
                           </DropdownMenuContent>
                         </DropdownMenu>
+                        )}
                       </div>
                       {col.getCanResize?.() && resizeHandler && (
                         <div
@@ -711,7 +718,8 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
             renderGroupHeader={(item) => (
               <tr
                 key={`grp-${item.key}`}
-                className="sticky top-9 z-[5] bg-slate-100/95 backdrop-blur dark:bg-slate-800/95"
+                className="live-table-group-header sticky z-[5]"
+                style={{ top: "var(--live-table-thead-height, 44px)" }}
               >
                 <td
                   colSpan={table.getVisibleLeafColumns().length}
@@ -1192,6 +1200,7 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
  */
 function SortableHeaderCell({
   columnId,
+  dataCol,
   isSortable,
   ariaSort,
   className,
@@ -1200,6 +1209,7 @@ function SortableHeaderCell({
   children,
 }: {
   columnId: string;
+  dataCol?: string;
   isSortable: boolean;
   ariaSort?: "ascending" | "descending" | "none";
   className?: string;
@@ -1241,6 +1251,7 @@ function SortableHeaderCell({
     <th
       ref={setNodeRef}
       aria-sort={ariaSort}
+      data-col={dataCol}
       className={cn(
         "group/th",
         className,

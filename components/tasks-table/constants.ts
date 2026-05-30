@@ -152,7 +152,7 @@ export const LIVE_TABLE_TEMPLATE_UI: Record<
       "rounded-lg border border-slate-200 bg-slate-50/80 shadow-sm dark:border-slate-700/80 dark:bg-slate-950/40 dark:shadow-[0_18px_42px_-32px_rgba(0,0,0,0.8)]",
     table: "bg-white dark:bg-slate-900",
     headCell:
-      "border-b border-slate-200/90 bg-slate-50/95 font-medium uppercase tracking-wider text-[10px] text-slate-500 dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-400",
+      "border-b border-slate-200/90 font-medium uppercase tracking-wider text-[10px] text-slate-500 dark:border-slate-700 dark:text-slate-400",
     row: "border-b border-slate-100 dark:border-slate-800",
     bodyCell: "border-b border-slate-100 dark:border-slate-800",
     pinnedCell: "bg-white dark:bg-slate-900",
@@ -162,16 +162,26 @@ export const LIVE_TABLE_TEMPLATE_UI: Record<
       "live-table-modern-shell rounded-2xl border border-slate-200/90 bg-white shadow-[0_20px_44px_-30px_rgba(16,24,40,0.38)] dark:border-slate-700/80 dark:bg-slate-900/80 dark:shadow-[0_24px_52px_-30px_rgba(0,0,0,0.82)]",
     table: "live-table-modern table-modern-skin bg-white dark:bg-slate-900",
     headCell:
-      "border-b border-slate-200 bg-slate-50/95 font-medium uppercase tracking-wider text-[10px] text-slate-500 dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-400",
+      "border-b border-slate-200 font-medium uppercase tracking-wider text-[10px] text-slate-500 dark:border-slate-700 dark:text-slate-400",
     row: "border-b border-slate-100/90 dark:border-slate-800/90",
     bodyCell: "border-b border-slate-100/90 dark:border-slate-800/90",
     pinnedCell: "bg-white dark:bg-slate-900",
   },
 };
 
-/** Sticky thead — scroll'da net ayrım (Faz 2). */
+/** Sticky thead — scroll'da buzlu cam + net alt çizgi (Faz 2). */
 export const LIVE_TABLE_THEAD_CELL_CLASS =
-  "sticky top-0 z-[15] select-none backdrop-blur-md";
+  "sticky top-0 z-[15] select-none bg-slate-50/95 backdrop-blur-md dark:bg-slate-900/95 supports-[backdrop-filter]:bg-slate-50/90 dark:supports-[backdrop-filter]:bg-slate-900/90";
+
+/** Tablo gövdesi scroll kabuğu — scrollbar-themed ile birlikte kullanılır. */
+export const LIVE_TABLE_SCROLL_SHELL_CLASS = "live-table-scroll-shell scrollbar-themed";
+
+/** Grup başlığı sticky offset (thead yüksekliği, px). */
+export const LIVE_TABLE_THEAD_HEIGHT_BY_DENSITY: Record<LiveTableDensity, number> = {
+  compact: 36,
+  normal: 44,
+  comfortable: 52,
+};
 
 /** Sıralama yokken sort ikonu — sütun hover'ında görünür. */
 export const LIVE_TABLE_SORT_IDLE_ICON_CLASS =
