@@ -67,7 +67,7 @@ export function useTasksTableColumnPrefs({
   const [columnOrder, setColumnOrder] = useState<ColumnOrderState>(BASE_COLUMN_ORDER_STABLE);
   const [columnPinning, setColumnPinning] = useState<ColumnPinningState>({ left: [], right: [] });
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({
-    select: 36,
+    select: 44,
     status: 140,
     content: 260,
     actions: 52,

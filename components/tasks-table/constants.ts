@@ -176,7 +176,7 @@ export const MODERN_DENSITY_UI: Record<LiveTableDensity, { th: string; td: strin
 };
 
 export const COLUMN_SIZE_BOUNDS: Record<string, { min: number; max: number }> = {
-  select: { min: 28, max: 48 },
+  select: { min: 36, max: 52 },
   status: { min: 100, max: 220 },
   content: { min: 180, max: 480 },
   project: { min: 120, max: 280 },
@@ -185,10 +185,5 @@ export const COLUMN_SIZE_BOUNDS: Record<string, { min: number; max: number }> = 
 
 export const DEFAULT_EXTRA_BOUNDS = { min: 100, max: 400 };
 
-/** Canlı tablo satır seçimi — hover cihazlarda gizli, satır/tablo hover veya seçiliyken görünür. */
-export const LIVE_TABLE_ROW_SELECT_CHECKBOX_CLASS =
-  "shrink-0 transition-opacity duration-150 focus-visible:opacity-100 opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/live-table:opacity-100 [@media(hover:hover)]:group-hover/row:opacity-100 data-[selected=true]:opacity-100";
-
-/** Başlık "tümünü seç" — tablo hover veya sayfada seçim varken görünür. */
-export const LIVE_TABLE_HEADER_SELECT_CHECKBOX_CLASS =
-  "shrink-0 transition-opacity duration-150 focus-visible:opacity-100 opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/live-table:opacity-100 data-[active=true]:opacity-100";
+/** Canlı tablo seçim sütunu varsayılan genişliği (px). */
+export const LIVE_TABLE_SELECT_COLUMN_WIDTH = 44;

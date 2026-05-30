@@ -49,6 +49,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { TaskCardMobile } from "@/components/TaskCardMobile";
 import { MODERN_DENSITY_UI, PAGE_SIZE_OPTIONS, ROW_HEIGHT_BY_DENSITY, VIRTUALIZE_THRESHOLD } from "@/components/tasks-table/constants";
+import { liveTableSelectRailPinBg } from "@/components/tasks-table/LiveTableRowRail";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { EditingUser } from "@/hooks/usePresence";
 import type { TaskAutomationState } from "@/lib/taskAutomationState";
@@ -463,7 +464,10 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                   const isPinnedLeft = col.getIsPinned() === "left";
                   const isPinnedRight = col.getIsPinned() === "right";
                   const resizeHandler = typeof header.getResizeHandler === "function" ? header.getResizeHandler() : undefined;
-                  const wPx = Math.max(header.getSize(), 40);
+                  const isSelectCol = col.id === "select";
+                  const wPx = isSelectCol
+                    ? Math.max(header.getSize(), 36)
+                    : Math.max(header.getSize(), 40);
                   return (
                     <SortableHeaderCell
                       key={header.id}
@@ -483,6 +487,9 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                         tableSkin.headCell,
                         dui.th,
                         isModernTemplate && MODERN_DENSITY_UI[tableDensity].th,
+                        isSelectCol &&
+                          "sticky left-0 z-[20] px-1 text-center shadow-[4px_0_10px_-4px_rgba(15,23,42,0.22),0_2px_8px_-5px_rgba(15,23,42,0.35)] dark:shadow-[4px_0_12px_-5px_rgba(0,0,0,0.75),0_2px_10px_-6px_rgba(0,0,0,0.8)]",
+                        isSelectCol && tableSkin.pinnedCell,
                         isPinnedLeft &&
                           "left-0 z-[25] shadow-[4px_0_10px_-4px_rgba(15,23,42,0.22),0_2px_8px_-5px_rgba(15,23,42,0.35)] dark:shadow-[4px_0_12px_-5px_rgba(0,0,0,0.75),0_2px_10px_-6px_rgba(0,0,0,0.8)]",
                         isPinnedRight &&
@@ -821,7 +828,7 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                 automationState?.locked &&
                   !isEditedByOthers &&
                   "border-l-4 border-l-slate-500 shadow-[inset_0_0_0_1px_rgba(100,116,139,0.18)] dark:border-l-slate-400 dark:shadow-[inset_0_0_0_1px_rgba(148,163,184,0.2)]",
-                isSelected && !isEditedByOthers && "border-l-4 border-l-blue-500 dark:border-l-blue-400",
+                isSelected && !isEditedByOthers && "bg-blue-50/40 dark:bg-blue-950/15",
                 isEditedByOthers &&
                   "relative z-[1] cursor-default border-l-4 border-l-violet-500 shadow-[inset_0_0_0_1px_rgba(139,92,246,0.16)] dark:border-l-violet-400 dark:shadow-[inset_0_0_0_1px_rgba(167,139,250,0.2)]",
                 // CF accent border (sadece diğer accent yoksa)
@@ -832,12 +839,17 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
               const rowTooltipClass =
                 "z-[400] max-w-[min(22rem,calc(100vw-2rem))] border-2 border-violet-500 bg-violet-100 px-3 py-2.5 text-sm font-semibold leading-snug text-violet-950 shadow-[0_8px_32px_rgba(0,0,0,0.18)] animate-in fade-in-0 zoom-in-95 dark:border-violet-400 dark:bg-violet-900/95 dark:text-violet-50 md:text-base";
               const rowCells = visibleCells.map((cell) => {
+                const isSelectCol = cell.column.id === "select";
                 const isPinnedLeft = cell.column.getIsPinned() === "left";
                 const isPinnedRight = cell.column.getIsPinned() === "right";
-                const wPx = Math.max(cell.column.getSize(), 40);
+                const wPx = isSelectCol
+                  ? Math.max(cell.column.getSize(), 36)
+                  : Math.max(cell.column.getSize(), 40);
+                const selectRailBg = isSelectCol ? liveTableSelectRailPinBg(isSelected, isEditedByOthers) : "";
                 return (
                   <td
                     key={cell.id}
+                    data-col={isSelectCol ? "select" : undefined}
                     className={cn(
                       "align-middle transition-colors",
                       tableSkin.bodyCell,
@@ -845,16 +857,31 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                       isModernTemplate && MODERN_DENSITY_UI[tableDensity].td,
                       !rowCanEdit && "select-none",
                       isEditedByOthers && rowLockedByOthersBg,
-                      isPinnedLeft && "sticky left-0 z-10 shadow-[4px_0_10px_-5px_rgba(15,23,42,0.18)] dark:shadow-[4px_0_12px_-6px_rgba(0,0,0,0.75)]",
+                      isSelectCol &&
+                        cn(
+                          "relative sticky left-0 z-[1] px-0 py-0 shadow-[4px_0_10px_-5px_rgba(15,23,42,0.18)] dark:shadow-[4px_0_12px_-6px_rgba(0,0,0,0.75)]",
+                          selectRailBg,
+                          !isEditedByOthers && tableSkin.pinnedCell
+                        ),
+                      isPinnedLeft &&
+                        !isSelectCol &&
+                        "sticky left-0 z-10 shadow-[4px_0_10px_-5px_rgba(15,23,42,0.18)] dark:shadow-[4px_0_12px_-6px_rgba(0,0,0,0.75)]",
                       isPinnedRight && "sticky right-0 z-10 shadow-[-4px_0_10px_-5px_rgba(15,23,42,0.18)] dark:shadow-[-4px_0_12px_-6px_rgba(0,0,0,0.75)]",
-                      (isPinnedLeft || isPinnedRight) && cn(pinnedBg, tableSkin.pinnedCell)
+                      (isPinnedLeft || isPinnedRight) &&
+                        !isSelectCol &&
+                        cn(pinnedBg, tableSkin.pinnedCell)
                     )}
                     style={{
                       width: wPx,
                       minWidth: wPx,
                     }}
                   >
-                    <div className="min-w-0 overflow-hidden text-slate-700 dark:text-slate-200">
+                    <div
+                      className={cn(
+                        "min-w-0 text-slate-700 dark:text-slate-200",
+                        isSelectCol ? "overflow-visible" : "overflow-hidden"
+                      )}
+                    >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </div>
                   </td>

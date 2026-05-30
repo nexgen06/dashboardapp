@@ -22,14 +22,14 @@ import type { ProjectColumn } from "@/lib/projectColumns";
 import type { ChipCatalog, RowChipValue } from "@/lib/chipSystem";
 import type { SpotlightDescriptor } from "@/components/tasks-table/spotlight";
 import { SelectAllCheckbox } from "@/components/tasks-table/SelectAllCheckbox";
+import { LiveTableRowRail } from "@/components/tasks-table/LiveTableRowRail";
 import { EditableCell } from "@/components/tasks-table/EditableCell";
 import { StatusCell } from "@/components/tasks-table/StatusCell";
 import { ReferenceSelectCell } from "@/components/tasks-table/ReferenceSelectCell";
 import { ExtraCellCopyButton } from "@/components/tasks-table/ExtraCellCopyButton";
 import { ChipSelectCell } from "@/components/chips/ChipBadge";
 import {
-  LIVE_TABLE_HEADER_SELECT_CHECKBOX_CLASS,
-  LIVE_TABLE_ROW_SELECT_CHECKBOX_CLASS,
+  LIVE_TABLE_SELECT_COLUMN_WIDTH,
   REFERENCE_WARNINGS_KEY,
 } from "@/components/tasks-table/constants";
 import { EXTRA_DATA_LINK_KEY, isSafeUrl } from "@/components/tasks-table/taskFormHelpers";
@@ -71,7 +71,6 @@ import {
   type TaskWorkflowAction,
 } from "@/lib/taskWorkflow";
 import {
-  User,
   ChevronDown,
   Lock,
   Unlock,
@@ -206,32 +205,18 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
     () => [
     columnHelper.display({
       id: "select",
-      header: ({ table }) => {
-        const hasPageSelection = table.getIsSomePageRowsSelected();
-        return (
-          <span className="flex items-center justify-center">
-            <SelectAllCheckbox
-              checked={table.getIsAllPageRowsSelected()}
-              indeterminate={table.getIsSomePageRowsSelected() && !table.getIsAllPageRowsSelected()}
-              onChange={table.getToggleAllPageRowsSelectedHandler()}
-              className={cn(
-                dui.rowCheckbox,
-                LIVE_TABLE_HEADER_SELECT_CHECKBOX_CLASS
-              )}
-              data-active={hasPageSelection ? "true" : undefined}
-            />
-          </span>
-        );
-      },
+      header: ({ table }) => (
+        <span className="flex items-center justify-center">
+          <SelectAllCheckbox
+            checked={table.getIsAllPageRowsSelected()}
+            indeterminate={table.getIsSomePageRowsSelected() && !table.getIsAllPageRowsSelected()}
+            onChange={table.getToggleAllPageRowsSelectedHandler()}
+            className={dui.rowCheckbox}
+          />
+        </span>
+      ),
       cell: ({ row }) => {
         const editors = editorsByRowId.get(row.original.id) ?? [];
-        const first = editors[0];
-        const line =
-          editors.length === 0
-            ? null
-            : editors.length === 1
-              ? presenceEditorLines(first).primary
-              : `${presenceEditorLines(first).primary} +${editors.length - 1}`;
         const editorsTooltip =
           editors.length === 0
             ? ""
@@ -242,49 +227,20 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
                 })
                 .join("\n");
         return (
-          <div className="flex min-w-0 flex-col items-start gap-1">
-            <input
-              type="checkbox"
-              checked={row.getIsSelected()}
-              disabled={!row.getCanSelect()}
-              onChange={row.getToggleSelectedHandler()}
-              className={cn(dui.rowCheckbox, LIVE_TABLE_ROW_SELECT_CHECKBOX_CLASS)}
-              data-selected={row.getIsSelected() ? "true" : undefined}
-              aria-label="Satırı seç"
-            />
-            {line != null && (
-              <Tooltip delayDuration={160}>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex max-w-full cursor-default items-center gap-0.5 rounded px-0.5 text-left text-[10px] font-medium leading-tight text-violet-700 outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-violet-400 dark:text-violet-300"
-                    aria-label={`Düzenleyen: ${editors.map((e) => presenceEditorLines(e).primary).join(", ")}`}
-                  >
-                    <User className="h-3 w-3 shrink-0 opacity-80" aria-hidden />
-                    <span className="min-w-0 truncate">{line}</span>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent
-                  side="right"
-                  align="start"
-                  sideOffset={10}
-                  className="z-[400] max-w-[min(20rem,calc(100vw-2rem))] border-2 border-violet-500 bg-violet-100 px-3 py-2.5 text-sm font-semibold text-violet-950 shadow-[0_8px_32px_rgba(0,0,0,0.18)] dark:border-violet-400 dark:bg-violet-900/95 dark:text-violet-50 md:text-base"
-                >
-                  <span className="block text-[0.65rem] font-bold uppercase tracking-wide text-violet-700 dark:text-violet-200">
-                    Bu satırda düzenleme
-                  </span>
-                  <span className="mt-1.5 block whitespace-pre-line break-words text-[13px] font-semibold leading-snug md:text-sm">
-                    {editorsTooltip}
-                  </span>
-                </TooltipContent>
-              </Tooltip>
-            )}
-          </div>
+          <LiveTableRowRail
+            task={row.original}
+            checked={row.getIsSelected()}
+            disabled={!row.getCanSelect()}
+            onToggle={row.getToggleSelectedHandler()}
+            checkboxClassName={dui.rowCheckbox}
+            editors={editors.map((e) => presenceEditorLines(e))}
+            editorsTooltip={editorsTooltip}
+          />
         );
       },
-      size: 36,
-      minSize: 28,
-      maxSize: 48,
+      size: LIVE_TABLE_SELECT_COLUMN_WIDTH,
+      minSize: 36,
+      maxSize: 52,
       enableResizing: false,
       enableHiding: false,
     }),
