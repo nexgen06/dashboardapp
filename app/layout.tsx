@@ -30,7 +30,9 @@ export default function RootLayout({
         <ToastProvider>
         <ModalsProvider>
         <AuthGuard>
-        <Suspense fallback={<div className="flex min-h-screen items-center justify-center text-slate-500">Yükleniyor…</div>}>
+        {/* AuthGuard zaten branded splash gösteriyor; bu Suspense'in fallback'i
+            ekrana flash yapmasın diye sade tutuluyor (route geçişlerinde devreye girer). */}
+        <Suspense fallback={<div className="min-h-screen bg-slate-50 dark:bg-slate-950" aria-hidden />}>
           <AppLayout>{children}</AppLayout>
         </Suspense>
         </AuthGuard>
