@@ -59,6 +59,7 @@ const iconMap = {
   "alert-triangle": AlertTriangle,
   archive: Archive,
   calendar: Calendar,
+  check: Check,
   "check-circle": CheckCircle2,
   circle: Circle,
   "circle-dot": CircleDot,
@@ -81,9 +82,75 @@ const iconMap = {
   "x-circle": XCircle,
 };
 
-function resolveIcon(icon?: string | null) {
-  if (!icon) return Circle;
-  return iconMap[icon as keyof typeof iconMap] ?? Circle;
+function normalizeIconSlug(icon?: string | null): string | null {
+  const raw = icon?.trim();
+  if (!raw) return null;
+  return raw.toLowerCase().replace(/_/g, "-");
+}
+
+/** Durum sütunu ile aynı ikon dili — etiket/value'dan yedek tahmin. */
+export function inferChipOptionIconSlug(option: Pick<ChipOption, "label" | "value">): string | null {
+  const value = option.value.trim().toLocaleLowerCase("tr");
+  const label = option.label.trim().toLocaleLowerCase("tr");
+  const text = `${value} ${label}`;
+
+  if (value === "failed" || /gönderilemedi|gonderilemedi|bounce|başarısız|basarisiz/.test(text)) {
+    return "x-circle";
+  }
+  if (value === "not_sent" || /gönderilmedi|gonderilmedi/.test(text)) {
+    return "circle";
+  }
+  if (value === "pending" || /bekliyor|kuyruk|pending/.test(text)) {
+    return "clock";
+  }
+  if (
+    value === "sent" ||
+    /^mail[_-]?(g[oö]nderildi|sent)$/.test(value) ||
+    ((/gönderildi|gonderildi|mail gönderildi|mail gonderildi/.test(text)) &&
+      !/gönderilemedi|gonderilemedi/.test(text))
+  ) {
+    return "check";
+  }
+  return null;
+}
+
+/** E-posta şablonu ve eski mail-* slug'ları için durum ikonuna çevir. */
+const LEGACY_ICON_ALIASES: Partial<Record<keyof typeof iconMap, keyof typeof iconMap>> = {
+  "mail-check": "check",
+  "mail-x": "x-circle",
+  mail: "circle",
+};
+
+function resolveChipOptionIconComponent(option: ChipOption, template?: ChipTemplate | null) {
+  const inferred = inferChipOptionIconSlug(option);
+
+  // E-posta şablonu: DB'deki eski zarf ikonlarını yok say, durum ikonları kullan.
+  if (template?.category === "email" && inferred) {
+    return { Icon: iconMap[inferred as keyof typeof iconMap], slug: inferred };
+  }
+
+  // Manuel eklenmiş mail durumu value'ları (sent dışında mail_gönderildi vb.)
+  if (inferred && /^(not_sent|pending|sent|failed|mail[_-]?(gonderildi|gönderildi|sent))$/i.test(option.value.trim())) {
+    return { Icon: iconMap[inferred as keyof typeof iconMap], slug: inferred };
+  }
+
+  const explicit = normalizeIconSlug(option.icon);
+  if (explicit) {
+    const canonical = (LEGACY_ICON_ALIASES[explicit as keyof typeof iconMap] ?? explicit) as keyof typeof iconMap;
+    if (iconMap[canonical]) {
+      return { Icon: iconMap[canonical], slug: canonical };
+    }
+  }
+
+  if (inferred && iconMap[inferred as keyof typeof iconMap]) {
+    return { Icon: iconMap[inferred as keyof typeof iconMap], slug: inferred };
+  }
+
+  const templateSlug = normalizeIconSlug(template?.icon);
+  if (templateSlug && iconMap[templateSlug as keyof typeof iconMap]) {
+    return { Icon: iconMap[templateSlug as keyof typeof iconMap], slug: templateSlug };
+  }
+  return { Icon: Circle, slug: "circle" };
 }
 
 function ChipOptionIcon({
@@ -95,8 +162,14 @@ function ChipOptionIcon({
   template?: ChipTemplate | null;
   className?: string;
 }) {
-  const Icon = resolveIcon(option.icon ?? template?.icon);
-  return <Icon className={cn("shrink-0", className)} aria-hidden />;
+  const { Icon, slug } = resolveChipOptionIconComponent(option, template);
+  return (
+    <Icon
+      className={cn("shrink-0", className)}
+      strokeWidth={slug === "check" ? 3 : undefined}
+      aria-hidden
+    />
+  );
 }
 
 function isReflectorChip(option: ChipOption): boolean {
