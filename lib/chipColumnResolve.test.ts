@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  findPersistableChipOption,
+  isLocalChipOptionId,
   matchChipOptionIdFromCellValue,
   resolveExtraColumnChip,
   type ChipCatalog,
@@ -66,10 +68,47 @@ describe("resolveExtraColumnChip", () => {
     ]);
     expect(resolved?.template.name).toBe("E-posta");
   });
+
+  it("DB seçenekleri boşken select etiketlerinden sentetik çip üretir", () => {
+    const resolved = resolveExtraColumnChip(
+      catalog({ options: [] }),
+      ["proj-1"],
+      "Mail Durumu",
+      ["Gönderilmedi", "Gönderim bekliyor", "Mail gönderildi", "Gönderilemedi"]
+    );
+    expect(resolved?.template.name).toBe("E-posta");
+    expect(resolved?.options).toHaveLength(4);
+    expect(resolved?.options[0]?.icon).toBe("circle");
+    expect(resolved?.options[2]?.icon).toBe("check");
+    expect(resolved?.options[0]?.id).toMatch(/^local:/);
+  });
+
+  it("DB ve select boşken Mail Durumu için varsayılan e-posta etiketlerini kullanır", () => {
+    const resolved = resolveExtraColumnChip(catalog({ options: [] }), ["proj-1"], "Mail Durumu");
+    expect(resolved?.options).toHaveLength(4);
+    expect(resolved?.options.map((option) => option.label)).toEqual([
+      "Gönderilmedi",
+      "Gönderim bekliyor",
+      "Mail gönderildi",
+      "Gönderilemedi",
+    ]);
+  });
 });
 
 describe("matchChipOptionIdFromCellValue", () => {
   it("extra_data metninden option id eşleştirir", () => {
     expect(matchChipOptionIdFromCellValue("Mail Gönderildi", emailOptions, null)).toBe("opt-2");
+  });
+});
+
+describe("local chip option helpers", () => {
+  it("isLocalChipOptionId local: ile başlayan id'leri tanır", () => {
+    expect(isLocalChipOptionId("local:tpl-email:0")).toBe(true);
+    expect(isLocalChipOptionId("opt-1")).toBe(false);
+  });
+
+  it("findPersistableChipOption DB seçeneğini etiketle bulur", () => {
+    const found = findPersistableChipOption(catalog(), "tpl-email", "Mail gönderildi");
+    expect(found?.id).toBe("opt-2");
   });
 });

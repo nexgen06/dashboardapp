@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inferChipOptionIconSlug } from "@/components/chips/ChipBadge";
+import { inferChipOptionIconSlug } from "@/lib/chipOptionIcons";
 
 describe("inferChipOptionIconSlug", () => {
   it("mail durumları için farklı ikonlar", () => {

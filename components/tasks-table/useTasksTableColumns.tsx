@@ -52,7 +52,9 @@ import {
   valuesMatch,
 } from "@/lib/referenceExtraDataEnrichment";
 import {
+  findPersistableChipOption,
   getChipOptionsForColumn,
+  isLocalChipOptionId,
   matchChipOptionIdFromCellValue,
   resolveExtraColumnChip,
   setRowChipValue,
@@ -596,7 +598,7 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
             );
           }
 
-          const normalizedExtraKey = key.trim().toLocaleLowerCase("tr");
+          const normalizedExtraKey = key.trim().replace(/\s+/g, " ").toLocaleLowerCase("tr");
           const candidateProjectIds = [
             task.project_id ? String(task.project_id) : "",
             ...(Array.isArray(projectFilter) && projectFilter.length === 1 ? [projectFilter[0]] : []),
@@ -667,7 +669,7 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
                 chipCatalog.bindings.find(
                   (binding) =>
                     binding.projectId === projectId &&
-                    binding.columnKey.trim().toLocaleLowerCase("tr") === normalizedExtraKey
+                    binding.columnKey.trim().replace(/\s+/g, " ").toLocaleLowerCase("tr") === normalizedExtraKey
                 )
               )
               .find(Boolean) ?? null;
@@ -705,21 +707,30 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
                       void (async () => {
                         try {
                           const option = chipOptions.find((item) => item.id === optionId);
-                          const next = await setRowChipValue({
-                            taskId,
-                            templateId: chipTemplate.id,
-                            optionId,
-                            source: "manual",
-                          });
-                          setRowChipValues((prev) => [
-                            ...prev.filter(
-                              (item) => !(item.taskId === taskId && item.templateId === chipTemplate.id)
-                            ),
-                            next,
-                          ]);
-                          if (option) {
-                            handleDynamicCellSave(taskId, key, option.label);
+                          if (!option) return;
+
+                          const persistable =
+                            isLocalChipOptionId(optionId)
+                              ? findPersistableChipOption(chipCatalog, chipTemplate.id, option.label)
+                              : option;
+
+                          if (persistable && !isLocalChipOptionId(persistable.id)) {
+                            const next = await setRowChipValue({
+                              taskId,
+                              templateId: chipTemplate.id,
+                              optionId: persistable.id,
+                              source: "manual",
+                            });
+                            setRowChipValues((prev) => [
+                              ...prev.filter(
+                                (item) => !(item.taskId === taskId && item.templateId === chipTemplate.id)
+                              ),
+                              next,
+                            ]);
                           }
+
+                          handleDynamicCellSave(taskId, key, option.label);
+
                           const projectId = task.project_id ? String(task.project_id) : candidateProjectIds[0];
                           if (projectId && !resolvedChip.binding && !chipBinding) {
                             await upsertTableChipBinding({

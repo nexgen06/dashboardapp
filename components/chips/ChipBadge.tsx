@@ -32,6 +32,7 @@ import {
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
+import { inferChipOptionIconSlug } from "@/lib/chipOptionIcons";
 import type { ChipOption, ChipTemplate, RowChipValue } from "@/lib/chipSystem";
 
 const colorClass: Record<string, string> = {
@@ -88,31 +89,8 @@ function normalizeIconSlug(icon?: string | null): string | null {
   return raw.toLowerCase().replace(/_/g, "-");
 }
 
-/** Durum sütunu ile aynı ikon dili — etiket/value'dan yedek tahmin. */
-export function inferChipOptionIconSlug(option: Pick<ChipOption, "label" | "value">): string | null {
-  const value = option.value.trim().toLocaleLowerCase("tr");
-  const label = option.label.trim().toLocaleLowerCase("tr");
-  const text = `${value} ${label}`;
-
-  if (value === "failed" || /gönderilemedi|gonderilemedi|bounce|başarısız|basarisiz/.test(text)) {
-    return "x-circle";
-  }
-  if (value === "not_sent" || /gönderilmedi|gonderilmedi/.test(text)) {
-    return "circle";
-  }
-  if (value === "pending" || /bekliyor|kuyruk|pending/.test(text)) {
-    return "clock";
-  }
-  if (
-    value === "sent" ||
-    /^mail[_-]?(g[oö]nderildi|sent)$/.test(value) ||
-    ((/gönderildi|gonderildi|mail gönderildi|mail gonderildi/.test(text)) &&
-      !/gönderilemedi|gonderilemedi/.test(text))
-  ) {
-    return "check";
-  }
-  return null;
-}
+/** @deprecated import from @/lib/chipOptionIcons */
+export { inferChipOptionIconSlug } from "@/lib/chipOptionIcons";
 
 /** E-posta şablonu ve eski mail-* slug'ları için durum ikonuna çevir. */
 const LEGACY_ICON_ALIASES: Partial<Record<keyof typeof iconMap, keyof typeof iconMap>> = {
