@@ -16,6 +16,7 @@ import {
   normalizeTaskAssigneeEmail,
   pickRoundRobinAssignee,
 } from "@/lib/projectImportAssignee";
+import { normalizeImportedDueDate } from "@/lib/importDate";
 import { normalizeProjectPriority } from "@/lib/projectFormHelpers";
 
 export type TaskInsert = {
@@ -125,7 +126,7 @@ export async function buildProjectImportTasks(
             project_id: projectId,
             extra_data: Object.keys(extra_data).length > 0 ? extra_data : null,
             priority: stdPriorityRaw ? (normalizeImportedPriority(stdPriorityRaw) ?? projectPriority ?? undefined) : (projectPriority ?? undefined),
-            ...(stdDueRaw ? { due_date: stdDueRaw } : {}),
+            ...(stdDueRaw ? { due_date: normalizeImportedDueDate(stdDueRaw) } : {}),
           } as TaskInsert);
         }
       }
@@ -186,7 +187,7 @@ export async function buildProjectImportTasks(
             priority: stdPriorityRaw
               ? (normalizeImportedPriority(stdPriorityRaw) ?? projectPriority ?? undefined)
               : (projectPriority ?? undefined),
-            ...(stdDueRaw ? { due_date: stdDueRaw } : {}),
+            ...(stdDueRaw ? { due_date: normalizeImportedDueDate(stdDueRaw) } : {}),
           });
         }
       }

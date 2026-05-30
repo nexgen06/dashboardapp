@@ -581,13 +581,13 @@ tr[data-selected="true"] td[data-col="select"] {
 
 /* ── 6) Modern table skin (hücre yapısı korunur, sadece görsel katman) ── */
 .table-modern-skin thead th {
-  letter-spacing: 0.02em;
-  font-weight: 600;
-  color: rgb(102 112 133);
-  text-transform: none;
-  font-size: 12px;
-  line-height: 18px;
-  border-bottom-color: rgb(228 231 236 / 0.95);
+  letter-spacing: 0.05em;
+  font-weight: 500;
+  color: rgb(100 116 139);
+  text-transform: uppercase;
+  font-size: 10px;
+  line-height: 16px;
+  border-bottom-color: rgb(226 232 240 / 0.95);
 }
 
 .table-modern-skin tbody tr {

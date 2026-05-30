@@ -841,7 +841,7 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
     ),
     columnHelper.display({
       id: "actions",
-      header: "İşlemler",
+      header: () => <span className="sr-only">İşlemler</span>,
       cell: ({ row }) => {
         const task = row.original;
         const isDeleting = deletingIds.has(task.id);
@@ -858,12 +858,9 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
                 mobilde inline ve her zaman görünür (hover yok). */}
             <div
               className={cn(
-                "flex items-center gap-0.5 transition-opacity duration-150",
-                // Mobile (< sm): inline, her zaman görünür
+                "row-actions flex items-center gap-0.5 transition-opacity duration-150",
                 "opacity-100",
-                // Desktop (>= sm): absolute overlay, hover'da görünür
                 "sm:absolute sm:right-9 sm:top-1/2 sm:-translate-y-1/2",
-                "sm:opacity-0 sm:group-hover/row:opacity-100 sm:focus-within:opacity-100",
                 "sm:rounded-md sm:border sm:border-slate-200 sm:bg-white sm:px-0.5 sm:py-0.5 sm:shadow-sm",
                 "dark:sm:border-slate-700 dark:sm:bg-slate-800",
               )}

@@ -58,4 +58,16 @@ describe("buildTaskImportRows", () => {
     expect(report.validRows).toBe(1);
     expect(report.skippedEmptyRows).toBe(1);
   });
+
+  it("son tarihi ISO'ya çevirir", () => {
+    const headers = ["Başlık", "Son Tarih"];
+    const rows = [["Görev A", "21.01.2015"]];
+    const mapping = autoColumnMapping(headers);
+    mapping.due_date = 1;
+    const { tasks } = buildTaskImportRows(headers, rows, mapping, {
+      defaultStatus: "Yapılacak",
+      defaultPriority: null,
+    });
+    expect(tasks[0]?.due_date).toBe("2015-01-21");
+  });
 });

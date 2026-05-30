@@ -48,8 +48,8 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { TaskCardMobile } from "@/components/TaskCardMobile";
-import { MODERN_DENSITY_UI, PAGE_SIZE_OPTIONS, ROW_HEIGHT_BY_DENSITY, VIRTUALIZE_THRESHOLD } from "@/components/tasks-table/constants";
-import { liveTableSelectRailPinBg } from "@/components/tasks-table/LiveTableRowRail";
+import { MODERN_DENSITY_UI, PAGE_SIZE_OPTIONS, ROW_HEIGHT_BY_DENSITY, VIRTUALIZE_THRESHOLD, LIVE_TABLE_THEAD_CELL_CLASS, LIVE_TABLE_SORT_IDLE_ICON_CLASS, LIVE_TABLE_PIN_SHADOW_LEFT, LIVE_TABLE_PIN_SHADOW_RIGHT } from "@/components/tasks-table/constants";
+import { liveTablePinCellBg } from "@/components/tasks-table/LiveTableRowRail";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { EditingUser } from "@/hooks/usePresence";
 import type { TaskAutomationState } from "@/lib/taskAutomationState";
@@ -418,7 +418,7 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
       <div
         ref={liveTableScrollRef}
         className={cn(
-          "hidden md:flex flex-1 min-h-0 w-full min-w-0 overflow-y-auto overflow-x-auto isolate [overflow-anchor:none]",
+          "scrollbar-themed hidden md:flex flex-1 min-h-0 w-full min-w-0 overflow-y-auto overflow-x-auto isolate [overflow-anchor:none]",
           tableSkin.shell,
           requiresSingleProjectSelection && "!hidden",
           /* Sayfa düzeni flex’te bazen yükseklik sınırlanmıyor; viewport tavanı iç scroll + thead sticky’yi garanti eder (genişlet modunda portal zaten sınırlı). */
@@ -465,6 +465,7 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                   const isPinnedRight = col.getIsPinned() === "right";
                   const resizeHandler = typeof header.getResizeHandler === "function" ? header.getResizeHandler() : undefined;
                   const isSelectCol = col.id === "select";
+                  const isActionsCol = col.id === "actions";
                   const wPx = isSelectCol
                     ? Math.max(header.getSize(), 36)
                     : Math.max(header.getSize(), 40);
@@ -483,18 +484,21 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                               : undefined
                       }
                       className={cn(
-                        "relative sticky top-0 z-[15] select-none text-left backdrop-blur",
+                        LIVE_TABLE_THEAD_CELL_CLASS,
+                        "relative text-left",
                         tableSkin.headCell,
                         dui.th,
                         isModernTemplate && MODERN_DENSITY_UI[tableDensity].th,
                         isSelectCol &&
-                          "sticky left-0 z-[20] px-1 text-center shadow-[4px_0_10px_-4px_rgba(15,23,42,0.22),0_2px_8px_-5px_rgba(15,23,42,0.35)] dark:shadow-[4px_0_12px_-5px_rgba(0,0,0,0.75),0_2px_10px_-6px_rgba(0,0,0,0.8)]",
-                        isSelectCol && tableSkin.pinnedCell,
+                          cn("sticky left-0 z-[20] px-1 text-center", LIVE_TABLE_PIN_SHADOW_LEFT),
+                        isActionsCol &&
+                          cn("sticky right-0 z-[20] px-1 text-right", LIVE_TABLE_PIN_SHADOW_RIGHT),
                         isPinnedLeft &&
-                          "left-0 z-[25] shadow-[4px_0_10px_-4px_rgba(15,23,42,0.22),0_2px_8px_-5px_rgba(15,23,42,0.35)] dark:shadow-[4px_0_12px_-5px_rgba(0,0,0,0.75),0_2px_10px_-6px_rgba(0,0,0,0.8)]",
+                          !isSelectCol &&
+                          cn("sticky left-0 z-[25]", LIVE_TABLE_PIN_SHADOW_LEFT),
                         isPinnedRight &&
-                          "right-0 z-[25] shadow-[-4px_0_10px_-4px_rgba(15,23,42,0.22),0_2px_8px_-5px_rgba(15,23,42,0.35)] dark:shadow-[-4px_0_12px_-5px_rgba(0,0,0,0.75),0_2px_10px_-6px_rgba(0,0,0,0.8)]",
-                        (isPinnedLeft || isPinnedRight) && tableSkin.pinnedCell
+                          !isActionsCol &&
+                          cn("sticky right-0 z-[25]", LIVE_TABLE_PIN_SHADOW_RIGHT),
                       )}
                       style={{
                         width: wPx,
@@ -516,7 +520,7 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                             ) : col.getIsSorted() === "desc" ? (
                               <ArrowDown className={cn(dui.sortIcon, "shrink-0 text-blue-600")} />
                             ) : (
-                              <ArrowUpDown className={cn(dui.sortIcon, "shrink-0 text-slate-400")} />
+                              <ArrowUpDown className={cn(dui.sortIcon, LIVE_TABLE_SORT_IDLE_ICON_CLASS)} />
                             )}
                             {/* Multi-sort sıra göstergesi (yalnız 2+ kolon sıralandığında) */}
                             {col.getIsSorted() && table.getState().sorting.length > 1 && (
@@ -536,10 +540,13 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                               size="icon"
                               className={cn(
                                 dui.colFilterBtn,
-                                "shrink-0",
+                                "shrink-0 transition-opacity duration-150",
                                 columnFilters[col.id]?.length > 0
                                   ? "text-blue-600 bg-blue-50 hover:bg-blue-100 dark:text-blue-400 dark:bg-blue-900/30 dark:hover:bg-blue-900/50"
-                                  : "text-slate-400 hover:text-slate-600"
+                                  : cn(
+                                      "text-slate-400 hover:text-slate-600",
+                                      "opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/th:opacity-100 focus-visible:opacity-100"
+                                    )
                               )}
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -789,10 +796,6 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                 }
               }
               const rowLockedByOthersBg = "";
-              const pinnedDefaultBg = "bg-white dark:bg-slate-900";
-              const pinnedBg = isEditedByOthers
-                ? rowLockedByOthersBg
-                : pinnedDefaultBg;
               const isRecentlyUpdated = recentlyUpdatedIds.has(row.original.id);
               /** Satır hover'ında "Son güncelleyen: X · Y önce" göstergesi (native tooltip) */
               const lastEditorTitle = (() => {
@@ -840,16 +843,17 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                 "z-[400] max-w-[min(22rem,calc(100vw-2rem))] border-2 border-violet-500 bg-violet-100 px-3 py-2.5 text-sm font-semibold leading-snug text-violet-950 shadow-[0_8px_32px_rgba(0,0,0,0.18)] animate-in fade-in-0 zoom-in-95 dark:border-violet-400 dark:bg-violet-900/95 dark:text-violet-50 md:text-base";
               const rowCells = visibleCells.map((cell) => {
                 const isSelectCol = cell.column.id === "select";
+                const isActionsCol = cell.column.id === "actions";
                 const isPinnedLeft = cell.column.getIsPinned() === "left";
                 const isPinnedRight = cell.column.getIsPinned() === "right";
                 const wPx = isSelectCol
                   ? Math.max(cell.column.getSize(), 36)
                   : Math.max(cell.column.getSize(), 40);
-                const selectRailBg = isSelectCol ? liveTableSelectRailPinBg(isSelected, isEditedByOthers) : "";
+                const pinBg = liveTablePinCellBg(isSelected, isEditedByOthers);
                 return (
                   <td
                     key={cell.id}
-                    data-col={isSelectCol ? "select" : undefined}
+                    data-col={isSelectCol ? "select" : isActionsCol ? "actions" : undefined}
                     className={cn(
                       "align-middle transition-colors",
                       tableSkin.bodyCell,
@@ -858,18 +862,15 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                       !rowCanEdit && "select-none",
                       isEditedByOthers && rowLockedByOthersBg,
                       isSelectCol &&
-                        cn(
-                          "relative sticky left-0 z-[1] px-0 py-0 shadow-[4px_0_10px_-5px_rgba(15,23,42,0.18)] dark:shadow-[4px_0_12px_-6px_rgba(0,0,0,0.75)]",
-                          selectRailBg,
-                          !isEditedByOthers && tableSkin.pinnedCell
-                        ),
+                        cn("relative sticky left-0 z-[1] px-0 py-0", LIVE_TABLE_PIN_SHADOW_LEFT, pinBg),
+                      isActionsCol &&
+                        cn("relative sticky right-0 z-[1] text-right", LIVE_TABLE_PIN_SHADOW_RIGHT, pinBg),
                       isPinnedLeft &&
                         !isSelectCol &&
-                        "sticky left-0 z-10 shadow-[4px_0_10px_-5px_rgba(15,23,42,0.18)] dark:shadow-[4px_0_12px_-6px_rgba(0,0,0,0.75)]",
-                      isPinnedRight && "sticky right-0 z-10 shadow-[-4px_0_10px_-5px_rgba(15,23,42,0.18)] dark:shadow-[-4px_0_12px_-6px_rgba(0,0,0,0.75)]",
-                      (isPinnedLeft || isPinnedRight) &&
-                        !isSelectCol &&
-                        cn(pinnedBg, tableSkin.pinnedCell)
+                        cn("sticky left-0 z-10", LIVE_TABLE_PIN_SHADOW_LEFT, pinBg),
+                      isPinnedRight &&
+                        !isActionsCol &&
+                        cn("sticky right-0 z-10", LIVE_TABLE_PIN_SHADOW_RIGHT, pinBg)
                     )}
                     style={{
                       width: wPx,

@@ -93,9 +93,12 @@ export function LiveTableRowRail({
   );
 }
 
-/** Select sütunu sticky hücre arka planı — satır hover/seçim ile senkron. */
-export function liveTableSelectRailPinBg(isSelected: boolean, isEditedByOthers: boolean): string {
+/** Pin'li hücre arka planı (select, actions, pinned) — satır hover/seçim ile senkron. */
+export function liveTablePinCellBg(isSelected: boolean, isEditedByOthers: boolean): string {
   if (isEditedByOthers) return "bg-inherit";
   if (isSelected) return "bg-blue-50/40 dark:bg-blue-950/15";
   return "bg-white group-hover/row:bg-slate-50/70 dark:bg-slate-900 dark:group-hover/row:bg-slate-800/40";
 }
+
+/** @deprecated liveTablePinCellBg kullanın */
+export const liveTableSelectRailPinBg = liveTablePinCellBg;

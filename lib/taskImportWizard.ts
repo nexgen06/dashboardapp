@@ -1,4 +1,5 @@
 import { parseCSV } from "@/lib/csvParser";
+import { normalizeImportedDueDate } from "@/lib/importDate";
 import { parseJSON } from "@/lib/jsonParser";
 import {
   detectStandardField,
@@ -155,6 +156,7 @@ export function buildTaskImportRows(
   const mapped = mappedColumnIndices(mapping);
   const tasks: TaskImportRow[] = [];
   let skippedEmptyRows = 0;
+  let invalidDueDateRows = 0;
   const contentCounts = new Map<string, number>();
 
   const cell = (row: string[], index: number | undefined) =>
@@ -185,6 +187,9 @@ export function buildTaskImportRows(
       contentCounts.set(content, (contentCounts.get(content) ?? 0) + 1);
     }
 
+    const dueIso = dueRaw ? normalizeImportedDueDate(dueRaw) : null;
+    if (dueRaw && !dueIso) invalidDueDateRows += 1;
+
     tasks.push({
       content: content || "",
       status: statusRaw ? normalizeImportedStatus(statusRaw) : options.defaultStatus,
@@ -192,7 +197,7 @@ export function buildTaskImportRows(
       priority: priorityRaw
         ? normalizeImportedPriority(priorityRaw) ?? options.defaultPriority ?? null
         : options.defaultPriority ?? null,
-      ...(dueRaw ? { due_date: dueRaw } : {}),
+      ...(dueIso ? { due_date: dueIso } : {}),
       extra_data: Object.keys(extra_data).length > 0 ? extra_data : null,
     });
   }
@@ -207,6 +212,11 @@ export function buildTaskImportRows(
       `Olası mükerrer görev başlıkları: ${duplicateContentWarnings.slice(0, 5).join("; ")}${
         duplicateContentWarnings.length > 5 ? ` (+${duplicateContentWarnings.length - 5} daha)` : ""
       }`
+    );
+  }
+  if (invalidDueDateRows > 0) {
+    warnings.push(
+      `${invalidDueDateRows} satırda son tarih okunamadı (gün.ay.yıl veya YYYY-MM-DD beklenir).`
     );
   }
 

@@ -10,6 +10,7 @@ import {
 } from "@/lib/realtimeFallback";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { Task } from "@/types/tasks";
+import { normalizeImportedDueDate } from "@/lib/importDate";
 
 type PostgresChangePayload = {
   eventType: "INSERT" | "UPDATE" | "DELETE";
@@ -389,7 +390,9 @@ export function useTasksInternal(options?: UseTasksOptions) {
         last_updated_by: "anon",
       };
       if (task.project_id != null) row.project_id = task.project_id;
-      if (task.due_date != null && String(task.due_date).trim() !== "") row.due_date = task.due_date;
+      if (task.due_date != null && String(task.due_date).trim() !== "") {
+        row.due_date = normalizeImportedDueDate(task.due_date) ?? null;
+      }
       if (task.priority != null && String(task.priority).trim() !== "") row.priority = task.priority;
       if (task.extra_data != null && Object.keys(task.extra_data).length > 0) row.extra_data = task.extra_data;
       const { data, error: insertError } = await supabase
@@ -419,7 +422,9 @@ export function useTasksInternal(options?: UseTasksOptions) {
           last_updated_by: "anon",
         };
         if (t.project_id != null) row.project_id = t.project_id;
-        if (t.due_date != null && String(t.due_date).trim() !== "") row.due_date = t.due_date;
+        if (t.due_date != null && String(t.due_date).trim() !== "") {
+          row.due_date = normalizeImportedDueDate(t.due_date) ?? null;
+        }
         if (t.priority != null && String(t.priority).trim() !== "") row.priority = t.priority;
         if (t.extra_data != null && Object.keys(t.extra_data).length > 0) row.extra_data = t.extra_data;
         return row;
