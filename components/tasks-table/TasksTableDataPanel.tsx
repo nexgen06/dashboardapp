@@ -1,7 +1,7 @@
 "use client";
 
 import type { Dispatch, ReactNode, RefObject, SetStateAction } from "react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { flexRender, type Table } from "@tanstack/react-table";
 import type { Task } from "@/types/tasks";
 import type { Project } from "@/types/project";
@@ -25,6 +25,8 @@ import {
   NoCreatePermissionEmpty,
   FilteredEmpty,
 } from "@/components/tasks-table/SmartTasksEmptyState";
+import { ConditionalFormattingDialog } from "@/components/tasks-table/ConditionalFormattingDialog";
+import { CF_STYLES } from "@/hooks/useConditionalFormatting";
 import { TaskCardMobile } from "@/components/TaskCardMobile";
 import { MODERN_DENSITY_UI, PAGE_SIZE_OPTIONS, ROW_HEIGHT_BY_DENSITY, VIRTUALIZE_THRESHOLD } from "@/components/tasks-table/constants";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -43,6 +45,7 @@ import {
   PlusCircle,
   Search,
   SlidersHorizontal,
+  Sparkles,
   Trash2,
   Upload,
   X,
@@ -129,6 +132,15 @@ export type TasksTableDataPanelProps = {
   toggleGroup: (key: string) => void;
   setAllExpanded: () => void;
   setAllCollapsed: () => void;
+  /* Conditional formatting (useConditionalFormatting) */
+  cfRules: import("@/hooks/useConditionalFormatting").CfRule[];
+  cfEnabledCount: number;
+  cfGetRuleForTask: (task: Task) => import("@/hooks/useConditionalFormatting").CfRule | null;
+  cfToggleRule: (id: string) => void;
+  cfAddRule: (rule: Omit<import("@/hooks/useConditionalFormatting").CfRule, "id">) => void;
+  cfDeleteRule: (id: string) => void;
+  cfUpdateRule: (id: string, patch: Partial<import("@/hooks/useConditionalFormatting").CfRule>) => void;
+  cfResetToPresets: () => void;
 };
 
 export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
@@ -205,7 +217,16 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
     toggleGroup,
     setAllExpanded,
     setAllCollapsed,
+    cfRules,
+    cfEnabledCount,
+    cfGetRuleForTask,
+    cfToggleRule,
+    cfAddRule,
+    cfDeleteRule,
+    cfUpdateRule,
+    cfResetToPresets,
   } = props;
+  const [cfDialogOpen, setCfDialogOpen] = useState(false);
 
   return (
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -296,6 +317,26 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
             </button>
           </>
         )}
+        {/* Koşullu biçim butonu */}
+        <button
+          type="button"
+          onClick={() => setCfDialogOpen(true)}
+          className={cn(
+            "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] font-medium transition-colors",
+            cfEnabledCount > 0
+              ? "border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-700 dark:bg-violet-900/30 dark:text-violet-300"
+              : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+          )}
+          title="Satırları koşula göre renklendir (Excel pattern)"
+        >
+          <Sparkles className="h-3 w-3" aria-hidden />
+          Koşullu Biçim
+          {cfEnabledCount > 0 && (
+            <span className="inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-violet-200 px-1 text-[9px] font-bold leading-none text-violet-800 dark:bg-violet-800 dark:text-violet-100">
+              {cfEnabledCount}
+            </span>
+          )}
+        </button>
         {/* Sıralama göstergesi + temizle */}
         {table.getState().sorting.length > 0 && (
           <div className="ml-auto flex items-center gap-2">
@@ -313,6 +354,17 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
           </div>
         )}
       </div>
+      {/* CF dialog */}
+      <ConditionalFormattingDialog
+        open={cfDialogOpen}
+        onOpenChange={setCfDialogOpen}
+        rules={cfRules}
+        onToggle={cfToggleRule}
+        onAdd={cfAddRule}
+        onDelete={cfDeleteRule}
+        onUpdate={cfUpdateRule}
+        onReset={cfResetToPresets}
+      />
 
       {/* MASAÜSTÜ — tablo (md ve üstü) */}
       <div
@@ -693,18 +745,27 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                   : "";
                 return [lockLabel, whoLabel, whenLabel].filter(Boolean).join(" · ");
               })();
+              // Koşullu biçim: eşleşen ilk kuralın stili (selection/presence/automation öncelikli)
+              const cfRule = cfGetRuleForTask(row.original);
+              const cfStyle = cfRule ? CF_STYLES[cfRule.style] : null;
               const rowClassName = cn(
                 "group/row transition-[background-color,box-shadow,border-color] duration-150",
                 tableSkin.row,
                 isModernTemplate && "live-table-modern-row",
                 rowCanEdit ? "cursor-default" : "cursor-default select-none",
                 isRecentlyUpdated && "animate-[pulse_1.5s_ease-in-out_2]",
+                // CF bg sadece presence/selection yokken (öbürleri öncelikli, üst üste bindirme yapmasın)
+                cfStyle && !isEditedByOthers && !isSelected && !automationState?.locked && cfStyle.rowClass,
+                cfRule?.bold && "font-semibold",
                 automationState?.locked &&
                   !isEditedByOthers &&
                   "border-l-4 border-l-slate-500 shadow-[inset_0_0_0_1px_rgba(100,116,139,0.18)] dark:border-l-slate-400 dark:shadow-[inset_0_0_0_1px_rgba(148,163,184,0.2)]",
                 isSelected && !isEditedByOthers && "border-l-4 border-l-blue-500 dark:border-l-blue-400",
                 isEditedByOthers &&
                   "relative z-[1] cursor-default border-l-4 border-l-violet-500 shadow-[inset_0_0_0_1px_rgba(139,92,246,0.16)] dark:border-l-violet-400 dark:shadow-[inset_0_0_0_1px_rgba(167,139,250,0.2)]",
+                // CF accent border (sadece diğer accent yoksa)
+                cfStyle && !isEditedByOthers && !isSelected && !automationState?.locked && "border-l-4",
+                cfStyle && !isEditedByOthers && !isSelected && !automationState?.locked && cfStyle.accentClass,
                 isSpotlightHit && ""
               );
               const rowTooltipClass =
