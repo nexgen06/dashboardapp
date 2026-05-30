@@ -16,7 +16,9 @@ import {
   TrendingUp,
   PieChart as PieIcon,
   LineChart as LineIcon,
+  Printer,
 } from "lucide-react";
+import { PrintHeader, PrintFooter } from "@/components/print/PrintLayout";
 import { useAuth } from "@/contexts/auth-context";
 import { useProjects } from "@/hooks/useProjects";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
@@ -295,10 +297,15 @@ export default function RaporlarPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-6 sm:px-6 lg:px-8">
-      <Breadcrumb items={[{ label: "Raporlar" }]} />
+    <div className="printable mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-6 sm:px-6 lg:px-8">
+      {/* Print-only header (yalnız çıktıda görünür) */}
+      <PrintHeader title="Görev Raporu" subtitle={RANGE_LABELS[range]} />
 
-      <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-slate-200 pb-3 dark:border-slate-700">
+      <div className="no-print">
+        <Breadcrumb items={[{ label: "Raporlar" }]} />
+      </div>
+
+      <header className="no-print flex flex-wrap items-baseline justify-between gap-2 border-b border-slate-200 pb-3 dark:border-slate-700">
         <div className="flex items-center gap-2">
           <BarChart3 className="h-5 w-5 text-slate-500 dark:text-slate-400" aria-hidden />
           <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-50">
@@ -327,6 +334,16 @@ export default function RaporlarPage() {
           <Button variant="outline" size="sm" onClick={handleExport} className="gap-1.5">
             <Download className="h-3.5 w-3.5" aria-hidden />
             CSV indir
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.print()}
+            className="gap-1.5"
+            title="Tarayıcının yazdırma ekranı açılır — oradan 'PDF olarak kaydet' seçeneği kullanılabilir."
+          >
+            <Printer className="h-3.5 w-3.5" aria-hidden />
+            Yazdır / PDF
           </Button>
         </div>
       </header>
@@ -534,6 +551,7 @@ export default function RaporlarPage() {
           </p>
         </>
       )}
+      <PrintFooter />
     </div>
   );
 }

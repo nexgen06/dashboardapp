@@ -85,7 +85,7 @@ export function Header() {
   const isDemoUser = user?.id === "demo";
 
   return (
-    <header className="sticky top-0 z-10 flex h-14 items-center justify-between gap-4 border-b border-slate-200 bg-white px-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:px-6">
+    <header data-print-hide className="sticky top-0 z-10 flex h-14 items-center justify-between gap-4 border-b border-slate-200 bg-white px-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:px-6">
       <div className="flex min-w-0 items-center gap-2">
         <h1 className="truncate text-lg font-semibold text-slate-800 dark:text-slate-100">{pageTitle}</h1>
         {isDemoUser && (

@@ -331,7 +331,128 @@
   }
 }
 
+/* ════════════════════════════════════════════════════════════════════════════
+   D3 — PRINT / PDF STYLESHEET
+   Kurumsal rapor çıktıları için sayfa kırılımı, header/footer, sayfa numarası.
+   Kullanım: yazdırılacak içeriği <main class="printable"> içine sar.
+   PrintHeader + PrintFooter component'leri (.print-only) sadece print'te görünür.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Print dışında — print-only elementleri ekranda gizle */
+.print-only {
+  display: none !important;
+}
+
 @media print {
+  /* ── Sayfa kenar boşlukları + sayfa numarası ── */
+  @page {
+    size: A4 portrait;
+    margin: 18mm 14mm 22mm 14mm;
+    /* @bottom-center desteği kısmi — yedek olarak PrintFooter da render eder */
+    @bottom-center {
+      content: counter(page) " / " counter(pages);
+      font-family: var(--font-geist-sans), system-ui, sans-serif;
+      font-size: 9pt;
+      color: #64748b;
+    }
+  }
+
+  /* ── Global reset: koyu modu zorla light yap ── */
+  html, body {
+    background: white !important;
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  html.dark, .dark body {
+    background: white !important;
+    color: #0f172a !important;
+  }
+
+  /* ── Sidebar, header, mobil nav, etkileşim öğeleri gizlenir ── */
+  aside[data-tour="sidebar"],
+  header[data-print-hide],
+  nav[aria-label="Mobil alt navigasyon"],
+  .no-print,
+  .print-only-screen,
+  [data-print-hide="true"] {
+    display: none !important;
+  }
+
+  /* Print-only öğeler görünür hale gelir */
+  .print-only {
+    display: block !important;
+  }
+
+  /* ── Yazdırılabilir ana alan tam genişliğe yayılsın ── */
+  main.printable, .printable {
+    width: 100% !important;
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: white !important;
+  }
+
+  /* ── Tipografi: ekran size'larını kağıt için küçült ── */
+  body {
+    font-size: 10pt;
+    line-height: 1.45;
+  }
+  h1 { font-size: 18pt; margin: 0 0 6pt 0; }
+  h2 { font-size: 14pt; margin: 12pt 0 4pt 0; }
+  h3 { font-size: 12pt; margin: 10pt 0 4pt 0; }
+
+  /* ── Sayfa kırılımı kontrolü ── */
+  h1, h2, h3 {
+    break-after: avoid-page;
+    page-break-after: avoid;
+  }
+  /* Kart / section / blok elementlerin ortadan bölünmesini engelle */
+  .print-keep-together,
+  section,
+  article,
+  .recharts-wrapper {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* Tablo: thead her sayfada tekrarlasın; satırlar bölünmesin */
+  table { width: 100%; border-collapse: collapse; }
+  thead { display: table-header-group; }
+  tfoot { display: table-footer-group; }
+  tr, td, th {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  th, td {
+    padding: 4pt 6pt;
+    border-bottom: 0.5pt solid #cbd5e1;
+    color: #0f172a !important;
+    background: white !important;
+  }
+  thead th {
+    background: #f1f5f9 !important;
+    font-weight: 600;
+    border-bottom: 1pt solid #94a3b8;
+  }
+
+  /* ── Render edilemeyen / gereksiz öğeler ── */
+  button, .btn-no-print { display: none !important; }
+  /* Kart shadow'ları PDF'te leke yapar */
+  .shadow-sm, .shadow, .shadow-md, .shadow-lg, .shadow-xl, .shadow-2xl {
+    box-shadow: none !important;
+  }
+  /* Link rengi: standart, ama URL eklenmesin (gürültü) */
+  a { color: inherit !important; text-decoration: none !important; }
+
+  /* Badge'leri çıktıda korumalı renkli tut */
+  [class*="bg-emerald-"], [class*="bg-blue-"], [class*="bg-red-"],
+  [class*="bg-amber-"], [class*="bg-violet-"], [class*="bg-indigo-"] {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ── Gizlilik: hassas alanlar print'te de maskeli kalır ── */
   [data-sensitive="true"] {
     color: transparent !important;
     text-shadow: none !important;
@@ -341,6 +462,40 @@
   [data-sensitive="true"]::before {
     content: "•••••••" !important;
     color: #64748b !important;
+  }
+
+  /* ── Print header/footer: her sayfada görünmez ama ilk sayfada içerik header'ı ── */
+  .print-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12pt;
+    padding-bottom: 6pt;
+    border-bottom: 1pt solid #cbd5e1;
+  }
+  .print-header img.print-logo {
+    max-height: 36pt;
+    max-width: 120pt;
+    object-fit: contain;
+  }
+  .print-header .print-title {
+    font-size: 16pt;
+    font-weight: 700;
+    color: #0f172a;
+  }
+  .print-header .print-meta {
+    font-size: 9pt;
+    color: #64748b;
+    text-align: right;
+  }
+
+  .print-footer {
+    margin-top: 18pt;
+    padding-top: 6pt;
+    border-top: 0.5pt solid #cbd5e1;
+    font-size: 8pt;
+    color: #64748b;
+    text-align: center;
   }
 }
 
