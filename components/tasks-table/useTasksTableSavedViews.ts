@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateA
 import type { ColumnOrderState, ColumnPinningState, SortingState, VisibilityState } from "@tanstack/react-table";
 import type { AdvancedFilterRule } from "@/lib/liveTableAdvancedFilters";
 import { getProjectDefaultSavedView, normalizeSavedViewGroupingField, type SavedViewConfig } from "@/lib/savedViews";
+import { normalizeLiveTableColumnPinning } from "@/lib/liveTableColumnPinning";
+import { normalizeLiveTableColumnVisibility } from "@/lib/liveTableColumnVisibility";
 import type { GroupingField } from "@/hooks/useTasksTableGrouping";
 
 type ToastApi = { info: (msg: string) => void };
@@ -102,7 +104,7 @@ export function useTasksTableSavedViews(options: UseTasksTableSavedViewsOptions)
       },
       sort: sorting.map((s) => ({ id: s.id, desc: s.desc })),
       columns: {
-        visibility: { ...columnVisibility } as Record<string, boolean>,
+        visibility: normalizeLiveTableColumnVisibility(columnVisibility) as Record<string, boolean>,
         order: [...columnOrder],
         pinning: {
           left: columnPinning.left ?? [],
@@ -147,13 +149,15 @@ export function useTasksTableSavedViews(options: UseTasksTableSavedViewsOptions)
       setSorting(config.sort);
     }
     const c = config.columns;
-    if (c?.visibility) setColumnVisibility(c.visibility);
+    if (c?.visibility) setColumnVisibility(normalizeLiveTableColumnVisibility(c.visibility));
     if (Array.isArray(c?.order) && c.order.length > 0) setColumnOrder(c.order);
     if (c?.pinning) {
-      setColumnPinning({
-        left: c.pinning.left ?? [],
-        right: c.pinning.right ?? [],
-      });
+      setColumnPinning(
+        normalizeLiveTableColumnPinning({
+          left: c.pinning.left ?? [],
+          right: c.pinning.right ?? [],
+        })
+      );
     }
     setGroupingField(normalizeSavedViewGroupingField(config.grouping?.field));
   }, [resolveProjectContextFromSavedFilters, setProjectFilter, setGroupingField]);

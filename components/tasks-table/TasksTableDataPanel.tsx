@@ -49,6 +49,11 @@ import { CSS } from "@dnd-kit/utilities";
 import { TaskCardMobile } from "@/components/TaskCardMobile";
 import { MODERN_DENSITY_UI, PAGE_SIZE_OPTIONS, ROW_HEIGHT_BY_DENSITY, VIRTUALIZE_THRESHOLD, LIVE_TABLE_THEAD_CELL_CLASS, LIVE_TABLE_SORT_IDLE_ICON_CLASS, LIVE_TABLE_SCROLL_SHELL_CLASS, LIVE_TABLE_THEAD_HEIGHT_BY_DENSITY, LIVE_TABLE_SIMPLIFIED_GRID_CLASS, LIVE_TABLE_GHOST_ACTIONS_RAIL_WIDTH, LIVE_TABLE_SELECT_COLUMN_WIDTH } from "@/components/tasks-table/constants";
 import { liveTablePinCellBg } from "@/components/tasks-table/LiveTableRowRail";
+import {
+  isLiveTableStickyLeft,
+  isLiveTableStickyRight,
+  liveTableStickyCellStyle,
+} from "@/lib/liveTableColumnPinning";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { EditingUser } from "@/hooks/usePresence";
 import type { TaskAutomationState } from "@/lib/taskAutomationState";
@@ -103,6 +108,7 @@ export type TasksTableDataPanelProps = {
   dui: Record<string, string>;
   requiresSingleProjectSelection: boolean;
   liveTableSumPx: number;
+  liveTableViewportWidth: number;
   liveTableNeedsHorizontalScroll: boolean;
   tasks: Task[];
   handleDragOver: (e: React.DragEvent) => void;
@@ -191,6 +197,7 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
     dui,
     requiresSingleProjectSelection,
     liveTableSumPx,
+    liveTableViewportWidth,
     liveTableNeedsHorizontalScroll,
     tasks,
     handleDragOver,
@@ -416,7 +423,7 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
         ref={liveTableScrollRef}
         className={cn(
           LIVE_TABLE_SCROLL_SHELL_CLASS,
-          "hidden md:flex flex-1 min-h-0 w-full min-w-0 overflow-y-auto overflow-x-auto isolate [overflow-anchor:none]",
+          "hidden md:flex flex-1 min-h-0 w-full min-w-0 overflow-y-auto overflow-x-auto [overflow-anchor:none]",
           tableSkin.shell,
           requiresSingleProjectSelection && "!hidden",
           /* Sayfa düzeni flex’te bazen yükseklik sınırlanmıyor; viewport tavanı iç scroll + thead sticky’yi garanti eder (genişlet modunda portal zaten sınırlı). */
@@ -442,9 +449,10 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
           style={{
             tableLayout: "fixed",
             width:
-              liveTableSumPx > 0 ? (liveTableNeedsHorizontalScroll ? `${liveTableSumPx}px` : "100%") : "100%",
-            minWidth:
-              liveTableSumPx > 0 ? (liveTableNeedsHorizontalScroll ? `${liveTableSumPx}px` : "100%") : "100%",
+              liveTableSumPx > 0
+                ? `${Math.max(liveTableSumPx, liveTableViewportWidth > 0 ? liveTableViewportWidth : liveTableSumPx)}px`
+                : "100%",
+            minWidth: liveTableViewportWidth > 0 ? `${liveTableViewportWidth}px` : "100%",
           }}
         >
           <caption id="live-table-caption" className="sr-only">
@@ -462,11 +470,11 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                 <SortableContext items={sortableIds} strategy={horizontalListSortingStrategy}>
                 {headers.map((header) => {
                   const col = header.column;
-                  const isPinnedLeft = col.getIsPinned() === "left";
-                  const isPinnedRight = col.getIsPinned() === "right";
                   const resizeHandler = typeof header.getResizeHandler === "function" ? header.getResizeHandler() : undefined;
                   const isSelectCol = col.id === "select";
                   const isActionsCol = col.id === "actions";
+                  const stickyLeft = isLiveTableStickyLeft(col);
+                  const stickyRight = isLiveTableStickyRight(col);
                   const wPx = isSelectCol
                     ? LIVE_TABLE_SELECT_COLUMN_WIDTH
                     : isActionsCol
@@ -494,19 +502,20 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                         dui.th,
                         isModernTemplate && MODERN_DENSITY_UI[tableDensity].th,
                         isSelectCol &&
-                          cn("sticky left-0 z-[20] px-0 py-0 text-center"),
+                          cn("sticky z-[20] px-0 py-0 text-center"),
                         isActionsCol &&
-                          cn("sticky right-0 z-[20] px-0 text-right"),
-                        isPinnedLeft &&
+                          cn("sticky z-[20] px-0 text-right"),
+                        stickyLeft &&
                           !isSelectCol &&
-                          cn("sticky left-0 z-[25]"),
-                        isPinnedRight &&
+                          cn("sticky z-[25]"),
+                        stickyRight &&
                           !isActionsCol &&
-                          cn("sticky right-0 z-[25]"),
+                          cn("sticky z-[25]"),
                       )}
                       style={{
                         width: wPx,
                         minWidth: wPx,
+                        ...liveTableStickyCellStyle(col),
                       }}
                       gripClassName={cn(dui.grip, "text-slate-400/80 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300")}
                     >
@@ -842,8 +851,8 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
               const rowCells = visibleCells.map((cell) => {
                 const isSelectCol = cell.column.id === "select";
                 const isActionsCol = cell.column.id === "actions";
-                const isPinnedLeft = cell.column.getIsPinned() === "left";
-                const isPinnedRight = cell.column.getIsPinned() === "right";
+                const stickyLeft = isLiveTableStickyLeft(cell.column);
+                const stickyRight = isLiveTableStickyRight(cell.column);
                 const wPx = isSelectCol
                   ? LIVE_TABLE_SELECT_COLUMN_WIDTH
                   : isActionsCol
@@ -862,19 +871,20 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                       !rowCanEdit && "select-none",
                       isEditedByOthers && rowLockedByOthersBg,
                       isSelectCol &&
-                        cn("relative sticky left-0 z-[1] px-0 py-0", pinBg),
+                        cn("relative sticky z-[10] px-0 py-0", pinBg),
                       isActionsCol &&
-                        cn("relative sticky right-0 z-[1] px-0 py-0 text-right", pinBg),
-                      isPinnedLeft &&
+                        cn("relative sticky z-[10] px-0 py-0 text-right", pinBg),
+                      stickyLeft &&
                         !isSelectCol &&
-                        cn("sticky left-0 z-10", pinBg),
-                      isPinnedRight &&
+                        cn("sticky z-10", pinBg),
+                      stickyRight &&
                         !isActionsCol &&
-                        cn("sticky right-0 z-10", pinBg)
+                        cn("sticky z-10", pinBg)
                     )}
                     style={{
                       width: wPx,
                       minWidth: wPx,
+                      ...liveTableStickyCellStyle(cell.column),
                     }}
                   >
                     <div
@@ -1213,12 +1223,14 @@ function SortableHeaderCell({
   const sortable = useSortable({ id: columnId, disabled: !isSortable });
   const { setNodeRef, attributes, listeners, transform, transition, isDragging, isOver, active } = sortable;
   const isOverFromOther = isOver && active?.id !== columnId;
-  const combinedStyle: React.CSSProperties = {
-    ...style,
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.4 : 1,
-  };
+  const combinedStyle: React.CSSProperties = isSortable
+    ? {
+        ...style,
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.4 : 1,
+      }
+    : style;
   // Sortable kolonlarda küçük grip butonu — listeners SADECE grip'e bağlı
   // (sort/filter butonları tıklanabilir kalsın). Activation distance 6px ile
   // accidental drag engellenir.

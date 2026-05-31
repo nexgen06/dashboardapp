@@ -976,6 +976,7 @@ export function TasksTable({
         dui={dui}
         requiresSingleProjectSelection={requiresSingleProjectSelection}
         liveTableSumPx={liveTableSumPx}
+        liveTableViewportWidth={liveTableViewportWidth}
         liveTableNeedsHorizontalScroll={liveTableNeedsHorizontalScroll}
         tasks={tasks}
         handleDragOver={handleDragOver}
