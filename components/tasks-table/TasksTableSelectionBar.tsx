@@ -84,7 +84,7 @@ export function TasksTableSelectionBar({
   // Atama dropdown için unique kullanıcı listesi (varsa)
   const uniqueAssignees = useMemo(() => {
     if (!assigneeOptions) return [];
-    return Array.from(new Set(assigneeOptions.map((s) => s.trim()).filter(Boolean))).slice(0, 20);
+    return Array.from(new Set(assigneeOptions.map((s) => s.trim()).filter(Boolean)));
   }, [assigneeOptions]);
 
   if (selectedCount <= 0) return null;
@@ -186,7 +186,7 @@ export function TasksTableSelectionBar({
                   {uniqueAssignees.length > 0 && <DropdownMenuSeparator />}
                   {uniqueAssignees.length === 0 ? (
                     <DropdownMenuItem disabled className="text-xs text-slate-400">
-                      Üye listesi yok
+                      Proje ekibinde atanabilir üye yok
                     </DropdownMenuItem>
                   ) : (
                     uniqueAssignees.map((email) => (

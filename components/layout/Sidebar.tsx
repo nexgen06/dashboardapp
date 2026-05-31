@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
@@ -44,7 +44,7 @@ const RAIL_WIDTH = 56;
 const COLUMN_WIDTH = 220;
 
 export function Sidebar() {
-  const { isCollapsed, toggleSidebar } = useSidebar();
+  const { isCollapsed, toggleSidebar, expandSidebar, collapseSidebar } = useSidebar();
   const { hasPermission } = useAuth();
   const { settings } = useSettings();
   const { totalUnread } = useProjectChatUnread();
@@ -89,6 +89,26 @@ export function Sidebar() {
 
   const currentModule = visibleModules.find((m) => m.id === activeModule) ?? visibleModules[0];
 
+  // Esc tuşu sidebar genişken kapatır — power user için
+  // Input/modal içinde yazılırken tetiklemesin diye target tag kontrolü yapılır
+  useEffect(() => {
+    if (isCollapsed) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const t = e.target as HTMLElement | null;
+      if (!t) return;
+      const tag = t.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || t.isContentEditable) return;
+      // Açık modal/popover'larda Esc onlara öncelikli (Radix dialog vs.) — bizim
+      // listener daha sonra çalışırsa modal kapanır + sidebar kapanır olur.
+      // Bu yüzden sadece body'de focus iken kapat:
+      if (document.activeElement && document.activeElement !== document.body) return;
+      collapseSidebar();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isCollapsed, collapseSidebar]);
+
   return (
     <TooltipProvider delayDuration={120}>
       <aside
@@ -101,21 +121,33 @@ export function Sidebar() {
           className="flex flex-col border-r border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/60"
           style={{ width: RAIL_WIDTH }}
         >
-          {/* Logo monogram */}
-          <div className="flex h-14 items-center justify-center border-b border-slate-200 dark:border-slate-800">
-            {settings.brandLogoDataUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={settings.brandLogoDataUrl}
-                alt="Logo"
-                className="max-h-8 max-w-[44px] object-contain"
-              />
-            ) : (
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-sm font-bold text-white shadow-sm">
-                P
-              </div>
-            )}
-          </div>
+          {/* Logo — tıkla sidebar aç/kapa toggle */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={toggleSidebar}
+                className="flex h-14 w-full items-center justify-center border-b border-slate-200 transition-colors hover:bg-slate-100/80 dark:border-slate-800 dark:hover:bg-slate-800/50"
+                aria-label={isCollapsed ? "Sidebar'ı genişlet" : "Sidebar'ı daralt"}
+              >
+                {settings.brandLogoDataUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={settings.brandLogoDataUrl}
+                    alt="Logo"
+                    className="max-h-8 max-w-[44px] object-contain"
+                  />
+                ) : (
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-sm font-bold text-white shadow-sm transition-transform hover:scale-105">
+                    P
+                  </div>
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              {isCollapsed ? "Sidebar'ı genişlet" : "Sidebar'ı daralt"}
+            </TooltipContent>
+          </Tooltip>
 
           {/* Modül butonları */}
           <nav className="flex flex-1 flex-col gap-1 p-2" aria-label="Modüller">
@@ -128,7 +160,20 @@ export function Sidebar() {
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      onClick={() => setManualModule(m.id)}
+                      onClick={() => {
+                        // Akıllı davranış:
+                        //   - Collapsed iken: aç + bu modülü göster
+                        //   - Expanded + aktif modüle tıkla: kapat (toggle)
+                        //   - Expanded + farklı modüle tıkla: modülü değiştir
+                        if (isCollapsed) {
+                          expandSidebar();
+                          setManualModule(m.id);
+                        } else if (m.id === activeModule) {
+                          collapseSidebar();
+                        } else {
+                          setManualModule(m.id);
+                        }
+                      }}
                       className={cn(
                         "group relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
                         isActive
