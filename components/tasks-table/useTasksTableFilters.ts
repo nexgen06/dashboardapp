@@ -20,6 +20,7 @@ import {
 import type { LiveTablePersistedPrefs } from "@/lib/liveTableColumnPersistence";
 import type { SavedViewConfig } from "@/lib/savedViews";
 import { getChipOptionsForColumn, buildChipValueResolver, type ChipCatalog, type RowChipValue } from "@/lib/chipSystem";
+import { collectProjectAssigneeEmails } from "@/lib/projectAssignees";
 import { isUrgentPriorityValue } from "@/lib/urgentTaskPriority";
 
 export type UseTasksTableFiltersOptions = {
@@ -126,17 +127,11 @@ export function useTasksTableFilters({
     if (valid.length !== projectFilter.length) setProjectFilter(valid);
   }, [projectFilter, projectFilterOptions]);
 
-  /** Atanan dropdown: tüm görünür projelerdeki atananlar. */
+  /** Atanan dropdown: proje kartındaki ekip üyeleri (görev atanmış olması şart değil). */
   const assigneeFilterOptions = useMemo(() => {
-    const set = new Set<string>();
-    projects.forEach((p) => {
-      (p.assigned_emails ?? []).forEach((e) => {
-        const v = String(e).trim();
-        if (v) set.add(v);
-      });
-    });
-    return Array.from(set).sort();
-  }, [projects]);
+    const scopeIds = projectFilter.length > 0 ? projectFilter : undefined;
+    return collectProjectAssigneeEmails(projects, scopeIds);
+  }, [projects, projectFilter]);
 
   useEffect(() => {
     if (Array.isArray(assigneeFilter) && assigneeFilter.length > 0 && assigneeFilterOptions.length > 0) {

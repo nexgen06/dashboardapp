@@ -19,6 +19,8 @@ function getInitialCollapsed(): boolean {
 type SidebarContextType = {
   isCollapsed: boolean;
   toggleSidebar: () => void;
+  expandSidebar: () => void;
+  collapseSidebar: () => void;
 };
 
 const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
@@ -31,9 +33,11 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const toggleSidebar = () => setIsCollapsed((prev) => !prev);
+  const expandSidebar = () => setIsCollapsed(false);
+  const collapseSidebar = () => setIsCollapsed(true);
 
   return (
-    <SidebarContext.Provider value={{ isCollapsed, toggleSidebar }}>
+    <SidebarContext.Provider value={{ isCollapsed, toggleSidebar, expandSidebar, collapseSidebar }}>
       {children}
     </SidebarContext.Provider>
   );

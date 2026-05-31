@@ -16,6 +16,10 @@ import type { Task } from "@/types/tasks";
 import { useTasksWithRealtime } from "@/hooks/useTasksWithRealtime";
 import { useProjects } from "@/hooks/useProjects";
 import { usePresence } from "@/hooks/usePresence";
+import {
+  collectProjectAssigneeEmails,
+  resolveBulkAssigneeProjectIds,
+} from "@/lib/projectAssignees";
 import { useTasksTableGrouping } from "@/hooks/useTasksTableGrouping";
 import { useConditionalFormatting } from "@/hooks/useConditionalFormatting";
 import {
@@ -576,6 +580,17 @@ export function TasksTable({
     handleBulkPriorityUpdate,
   } = bulkSelection;
 
+  const bulkAssigneeOptions = useMemo(() => {
+    const selectedProjectIds = tasks
+      .filter((task) => selectedIds.includes(task.id) && task.project_id)
+      .map((task) => String(task.project_id));
+    const scopeIds = resolveBulkAssigneeProjectIds({
+      selectedProjectIds,
+      projectFilter,
+    });
+    return collectProjectAssigneeEmails(projects, scopeIds);
+  }, [tasks, selectedIds, projectFilter, projects]);
+
   const tableExport = useTasksTableExport({
     table,
     tasks,
@@ -855,7 +870,7 @@ export function TasksTable({
         setBulkStatusOpen={setBulkStatusOpen}
         statusOptions={statusOptions}
         priorityOptions={priorityOptions}
-        assigneeOptions={Array.from(new Set(tasks.map((t) => (t.assignee ?? "").trim()).filter(Boolean)))}
+        assigneeOptions={bulkAssigneeOptions}
         onBulkStatusUpdate={handleBulkStatusUpdate}
         onBulkPriorityUpdate={handleBulkPriorityUpdate}
         onBulkAssign={handleBulkAssign}

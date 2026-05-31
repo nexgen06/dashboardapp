@@ -192,9 +192,9 @@ export default function AyarlarPage() {
         </Button>
         {isAdmin && canEditSettings && (
           <Button variant="outline" onClick={resetToDefaults} className="text-slate-700 dark:text-slate-300">
-            <RotateCcw className="mr-2 h-4 w-4" />
-            Tüm ayarları varsayılana sıfırla
-          </Button>
+          <RotateCcw className="mr-2 h-4 w-4" />
+          Tüm ayarları varsayılana sıfırla
+        </Button>
         )}
         {isDirty && (
           <span className="text-sm text-slate-500 dark:text-slate-400">
