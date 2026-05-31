@@ -12,6 +12,7 @@ import { GorevOzeti } from "@/components/GorevOzeti";
 import { Shield, Loader2, Table2, Columns3, GanttChart, CalendarDays, PanelLeftClose, PanelLeftOpen, ShieldAlert } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { LIVE_TABLE_ACTION_BAR_BTN_CLASS } from "@/components/tasks-table/constants";
 import { Section } from "@/components/ui/section";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -124,24 +125,24 @@ export default function CanliTabloPage() {
       <span className="hidden text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-500 sm:inline">
         Görünüm
       </span>
-      <TabsList className="h-8 shrink-0 rounded-lg border border-slate-200 bg-slate-100/80 p-0.5 dark:border-slate-800 dark:bg-slate-900/80">
-        <TabsTrigger value="table" className="h-7 gap-1.5 rounded-md px-2.5 text-xs data-[state=active]:bg-white data-[state=active]:text-slate-950 dark:data-[state=active]:bg-slate-950 dark:data-[state=active]:text-slate-100">
+      <TabsList className="inline-flex h-8 items-stretch gap-0.5 rounded-lg border border-slate-200 bg-slate-100/80 p-0.5 dark:border-slate-800 dark:bg-slate-900/80">
+        <TabsTrigger value="table" className="inline-flex h-full items-center gap-1.5 rounded-md px-2.5 text-xs data-[state=active]:bg-white data-[state=active]:text-slate-950 dark:data-[state=active]:bg-slate-950 dark:data-[state=active]:text-slate-100">
           <Table2 className="h-3.5 w-3.5" aria-hidden />
           Tablo
         </TabsTrigger>
-        <TabsTrigger value="kanban" className="h-7 gap-1.5 rounded-md px-2.5 text-xs data-[state=active]:bg-white data-[state=active]:text-slate-950 dark:data-[state=active]:bg-slate-950 dark:data-[state=active]:text-slate-100">
+        <TabsTrigger value="kanban" className="inline-flex h-full items-center gap-1.5 rounded-md px-2.5 text-xs data-[state=active]:bg-white data-[state=active]:text-slate-950 dark:data-[state=active]:bg-slate-950 dark:data-[state=active]:text-slate-100">
           <Columns3 className="h-3.5 w-3.5" aria-hidden />
           Kanban
         </TabsTrigger>
-        <TabsTrigger value="gantt" className="h-7 gap-1.5 rounded-md px-2.5 text-xs data-[state=active]:bg-white data-[state=active]:text-slate-950 dark:data-[state=active]:bg-slate-950 dark:data-[state=active]:text-slate-100">
+        <TabsTrigger value="gantt" className="inline-flex h-full items-center gap-1.5 rounded-md px-2.5 text-xs data-[state=active]:bg-white data-[state=active]:text-slate-950 dark:data-[state=active]:bg-slate-950 dark:data-[state=active]:text-slate-100">
           <GanttChart className="h-3.5 w-3.5" aria-hidden />
           Gantt
         </TabsTrigger>
-        <TabsTrigger value="calendar" className="h-7 gap-1.5 rounded-md px-2.5 text-xs data-[state=active]:bg-white data-[state=active]:text-slate-950 dark:data-[state=active]:bg-slate-950 dark:data-[state=active]:text-slate-100">
+        <TabsTrigger value="calendar" className="inline-flex h-full items-center gap-1.5 rounded-md px-2.5 text-xs data-[state=active]:bg-white data-[state=active]:text-slate-950 dark:data-[state=active]:bg-slate-950 dark:data-[state=active]:text-slate-100">
           <CalendarDays className="h-3.5 w-3.5" aria-hidden />
           Takvim
         </TabsTrigger>
-        <TabsTrigger value="risk" className="h-7 gap-1.5 rounded-md px-2.5 text-xs data-[state=active]:bg-white data-[state=active]:text-slate-950 dark:data-[state=active]:bg-slate-950 dark:data-[state=active]:text-slate-100">
+        <TabsTrigger value="risk" className="inline-flex h-full items-center gap-1.5 rounded-md px-2.5 text-xs data-[state=active]:bg-white data-[state=active]:text-slate-950 dark:data-[state=active]:bg-slate-950 dark:data-[state=active]:text-slate-100">
           <ShieldAlert className="h-3.5 w-3.5" aria-hidden />
           Risk
         </TabsTrigger>
@@ -157,12 +158,10 @@ export default function CanliTabloPage() {
    * Açıkken: PanelLeftClose ikonu + "Özeti gizle"
    */
   const renderSummaryToggle = () => (
-    <Button
+    <button
       type="button"
-      variant="outline"
-      size="sm"
       onClick={() => setSummaryCollapsed((value) => !value)}
-      className="h-8 shrink-0 gap-1.5 text-xs"
+      className={LIVE_TABLE_ACTION_BAR_BTN_CLASS}
       aria-pressed={!summaryCollapsed}
       title={summaryCollapsed ? "Görev özetini göster" : "Görev özetini gizle"}
     >
@@ -172,7 +171,7 @@ export default function CanliTabloPage() {
         <PanelLeftClose className="h-3.5 w-3.5" aria-hidden />
       )}
       <span className="hidden xl:inline">{summaryCollapsed ? "Özeti göster" : "Özeti gizle"}</span>
-    </Button>
+    </button>
   );
 
   /**

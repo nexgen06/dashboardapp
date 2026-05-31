@@ -5,6 +5,8 @@ import {
   COLUMN_SIZE_BOUNDS,
   COLUMN_VISIBILITY_LABELS,
   DEFAULT_EXTRA_BOUNDS,
+  LIVE_TABLE_GHOST_ACTIONS_RAIL_WIDTH,
+  LIVE_TABLE_SELECT_COLUMN_WIDTH,
 } from "@/components/tasks-table/constants";
 
 function charPxForDensity(d: LiveTableDensity): number {
@@ -73,6 +75,14 @@ export function measureIntrinsicColumnWidths(
   const pad = paddingForDensity(density);
   const next: ColumnSizingState = {};
   for (const id of visibleColumnIds) {
+    if (id === "select") {
+      next[id] = LIVE_TABLE_SELECT_COLUMN_WIDTH;
+      continue;
+    }
+    if (id === "actions") {
+      next[id] = LIVE_TABLE_GHOST_ACTIONS_RAIL_WIDTH;
+      continue;
+    }
     const bounds = getColumnSizeBounds(id);
     if (!bounds) continue;
     const headerLabel =

@@ -16,7 +16,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -48,7 +47,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { TaskCardMobile } from "@/components/TaskCardMobile";
-import { MODERN_DENSITY_UI, PAGE_SIZE_OPTIONS, ROW_HEIGHT_BY_DENSITY, VIRTUALIZE_THRESHOLD, LIVE_TABLE_THEAD_CELL_CLASS, LIVE_TABLE_SORT_IDLE_ICON_CLASS, LIVE_TABLE_PIN_SHADOW_LEFT, LIVE_TABLE_PIN_SHADOW_RIGHT, LIVE_TABLE_SCROLL_SHELL_CLASS, LIVE_TABLE_THEAD_HEIGHT_BY_DENSITY, LIVE_TABLE_SIMPLIFIED_GRID_CLASS } from "@/components/tasks-table/constants";
+import { MODERN_DENSITY_UI, PAGE_SIZE_OPTIONS, ROW_HEIGHT_BY_DENSITY, VIRTUALIZE_THRESHOLD, LIVE_TABLE_THEAD_CELL_CLASS, LIVE_TABLE_SORT_IDLE_ICON_CLASS, LIVE_TABLE_SCROLL_SHELL_CLASS, LIVE_TABLE_THEAD_HEIGHT_BY_DENSITY, LIVE_TABLE_SIMPLIFIED_GRID_CLASS, LIVE_TABLE_GHOST_ACTIONS_RAIL_WIDTH, LIVE_TABLE_SELECT_COLUMN_WIDTH } from "@/components/tasks-table/constants";
 import { liveTablePinCellBg } from "@/components/tasks-table/LiveTableRowRail";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { EditingUser } from "@/hooks/usePresence";
@@ -121,7 +120,6 @@ export type TasksTableDataPanelProps = {
   clearColumnFilter: (columnId: string) => void;
   toggleColumnFilterValue: (columnId: string, value: string) => void;
   getUniqueValuesForColumn: (columnId: string) => string[];
-  pinColumn: (columnId: string, side: "left" | "right" | "unpin") => void;
   canEditProject: boolean;
   setRemoveExtraColumnKey: Dispatch<SetStateAction<string | null>>;
   setRenameExtraColumnDraft: Dispatch<SetStateAction<RenameExtraColumnDraft | null>>;
@@ -210,7 +208,6 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
     clearColumnFilter,
     toggleColumnFilterValue,
     getUniqueValuesForColumn,
-    pinColumn,
     canEditProject,
     setRemoveExtraColumnKey,
     setRenameExtraColumnDraft,
@@ -451,7 +448,7 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
           }}
         >
           <caption id="live-table-caption" className="sr-only">
-            Canlı görev tablosu. Sütun başlıklarını sürükleyerek sırayı değiştirebilir, kenardan genişletebilirsiniz. Sütun menüsü ile sabitleme ve sıfırlama yapılabilir.
+            Canlı görev tablosu. Sütun başlıklarını sürükleyerek sırayı değiştirebilir, kenardan genişletebilirsiniz.
           </caption>
           <thead>
             {table.getHeaderGroups().map((headerGroup) => {
@@ -471,8 +468,10 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                   const isSelectCol = col.id === "select";
                   const isActionsCol = col.id === "actions";
                   const wPx = isSelectCol
-                    ? Math.max(header.getSize(), 36)
-                    : Math.max(header.getSize(), 40);
+                    ? LIVE_TABLE_SELECT_COLUMN_WIDTH
+                    : isActionsCol
+                      ? LIVE_TABLE_GHOST_ACTIONS_RAIL_WIDTH
+                      : Math.max(header.getSize(), 40);
                   return (
                     <SortableHeaderCell
                       key={header.id}
@@ -495,15 +494,15 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                         dui.th,
                         isModernTemplate && MODERN_DENSITY_UI[tableDensity].th,
                         isSelectCol &&
-                          cn("sticky left-0 z-[20] px-1 text-center", LIVE_TABLE_PIN_SHADOW_LEFT),
+                          cn("sticky left-0 z-[20] px-0 py-0 text-center"),
                         isActionsCol &&
-                          cn("sticky right-0 z-[20] px-0 text-right", LIVE_TABLE_PIN_SHADOW_RIGHT),
+                          cn("sticky right-0 z-[20] px-0 text-right"),
                         isPinnedLeft &&
                           !isSelectCol &&
-                          cn("sticky left-0 z-[25]", LIVE_TABLE_PIN_SHADOW_LEFT),
+                          cn("sticky left-0 z-[25]"),
                         isPinnedRight &&
                           !isActionsCol &&
-                          cn("sticky right-0 z-[25]", LIVE_TABLE_PIN_SHADOW_RIGHT),
+                          cn("sticky right-0 z-[25]"),
                       )}
                       style={{
                         width: wPx,
@@ -651,7 +650,7 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                             )}
                           </div>
                         )}
-                        {col.id !== "select" && col.id !== "actions" && (
+                        {col.id.startsWith("extra:") && canEditProject && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon" className={cn(dui.colMenuBtn, "shrink-0 text-slate-500")} aria-label="Sütun menüsü">
@@ -659,12 +658,6 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="start">
-                            <DropdownMenuItem onClick={() => pinColumn(col.id, "left")}>Sol tarafa sabitle</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => pinColumn(col.id, "right")}>Sağ tarafa sabitle</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => pinColumn(col.id, "unpin")}>Sabitlemeyi kaldır</DropdownMenuItem>
-                            {col.id.startsWith("extra:") && canEditProject && (
-                              <>
-                                <DropdownMenuSeparator />
                                 <DropdownMenuItem
                                   onClick={() =>
                                     setRenameExtraColumnDraft({
@@ -683,8 +676,6 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                                   <Trash2 className="mr-2 h-4 w-4" aria-hidden />
                                   Bu sütunu projeden kaldır…
                                 </DropdownMenuItem>
-                              </>
-                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                         )}
@@ -839,7 +830,6 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                 automationState?.locked &&
                   !isEditedByOthers &&
                   "border-l-4 border-l-slate-500 shadow-[inset_0_0_0_1px_rgba(100,116,139,0.18)] dark:border-l-slate-400 dark:shadow-[inset_0_0_0_1px_rgba(148,163,184,0.2)]",
-                isSelected && !isEditedByOthers && "bg-blue-50/40 dark:bg-blue-950/15",
                 isEditedByOthers &&
                   "relative z-[1] cursor-default border-l-4 border-l-violet-500 shadow-[inset_0_0_0_1px_rgba(139,92,246,0.16)] dark:border-l-violet-400 dark:shadow-[inset_0_0_0_1px_rgba(167,139,250,0.2)]",
                 // CF accent border (sadece diğer accent yoksa)
@@ -855,8 +845,10 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                 const isPinnedLeft = cell.column.getIsPinned() === "left";
                 const isPinnedRight = cell.column.getIsPinned() === "right";
                 const wPx = isSelectCol
-                  ? Math.max(cell.column.getSize(), 36)
-                  : Math.max(cell.column.getSize(), 40);
+                  ? LIVE_TABLE_SELECT_COLUMN_WIDTH
+                  : isActionsCol
+                    ? LIVE_TABLE_GHOST_ACTIONS_RAIL_WIDTH
+                    : Math.max(cell.column.getSize(), 40);
                 const pinBg = liveTablePinCellBg(isSelected, isEditedByOthers);
                 return (
                   <td
@@ -870,19 +862,15 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                       !rowCanEdit && "select-none",
                       isEditedByOthers && rowLockedByOthersBg,
                       isSelectCol &&
-                        cn("relative sticky left-0 z-[1] px-0 py-0", LIVE_TABLE_PIN_SHADOW_LEFT, pinBg),
+                        cn("relative sticky left-0 z-[1] px-0 py-0", pinBg),
                       isActionsCol &&
-                        cn(
-                          "relative sticky right-0 z-[1] px-0 py-0 text-right",
-                          LIVE_TABLE_PIN_SHADOW_RIGHT,
-                          pinBg
-                        ),
+                        cn("relative sticky right-0 z-[1] px-0 py-0 text-right", pinBg),
                       isPinnedLeft &&
                         !isSelectCol &&
-                        cn("sticky left-0 z-10", LIVE_TABLE_PIN_SHADOW_LEFT, pinBg),
+                        cn("sticky left-0 z-10", pinBg),
                       isPinnedRight &&
                         !isActionsCol &&
-                        cn("sticky right-0 z-10", LIVE_TABLE_PIN_SHADOW_RIGHT, pinBg)
+                        cn("sticky right-0 z-10", pinBg)
                     )}
                     style={{
                       width: wPx,

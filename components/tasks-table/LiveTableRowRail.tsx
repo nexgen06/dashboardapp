@@ -65,17 +65,22 @@ export function LiveTableRowRail({
   const urgencyStrip = LIVE_TABLE_URGENCY_STRIP_CLASS[urgency];
 
   return (
-    <div className="relative flex min-w-0 items-center gap-1.5 pl-1">
+    <div className="relative flex w-full items-center justify-center">
       {urgencyStrip ? (
         <span
-          className={cn("absolute inset-y-0 left-0 w-[3px]", urgencyStrip)}
+          className={cn("pointer-events-none absolute inset-y-0 left-0 w-[3px]", urgencyStrip)}
           aria-hidden
           title={URGENCY_LABEL[urgency]}
         />
       ) : null}
+      {editors.length > 0 ? (
+        <span className="pointer-events-none absolute -right-px top-1/2 z-[2] -translate-y-1/2">
+          <LiveTablePresenceDot editors={editors} editorsTooltip={editorsTooltip} />
+        </span>
+      ) : null}
       <span
         className={cn(
-          "shrink-0 transition-opacity duration-150 focus-within:opacity-100",
+          "relative shrink-0 transition-opacity duration-150 focus-within:opacity-100",
           checked ? "opacity-100" : "opacity-0 [@media(hover:hover)]:group-hover/row:opacity-100"
         )}
       >
@@ -88,16 +93,13 @@ export function LiveTableRowRail({
           aria-label="Satırı seç"
         />
       </span>
-      <LiveTablePresenceDot editors={editors} editorsTooltip={editorsTooltip} />
     </div>
   );
 }
 
-/** Pin'li hücre arka planı (select, actions, pinned) — satır hover/seçim ile senkron. */
-export function liveTablePinCellBg(isSelected: boolean, isEditedByOthers: boolean): string {
-  if (isEditedByOthers) return "bg-inherit";
-  if (isSelected) return "bg-blue-50/40 dark:bg-blue-950/15";
-  return "bg-white group-hover/row:bg-slate-50/70 dark:bg-slate-900 dark:group-hover/row:bg-slate-800/40";
+/** Pin sticky hücre — zemin rengi tbody > td kurallarından gelir. */
+export function liveTablePinCellBg(_isSelected: boolean, isEditedByOthers: boolean): string {
+  return isEditedByOthers ? "live-table-pin-cell--presence" : "live-table-pin-cell";
 }
 
 /** @deprecated liveTablePinCellBg kullanın */

@@ -7,7 +7,12 @@ import type { Project } from "@/types/project";
 import type { LiveTableDensity, LiveTableTemplate, Settings } from "@/contexts/settings-context";
 import type { AdvancedFilterRule } from "@/lib/liveTableAdvancedFilters";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+import {
+  LIVE_TABLE_TOOLBAR_BTN_CLASS,
+  LIVE_TABLE_TOOLBAR_ICON_BTN_CLASS,
+  LIVE_TABLE_TOOLBAR_INPUT_CLASS,
+  LIVE_TABLE_TOOLBAR_SELECT_CLASS,
+} from "@/components/tasks-table/constants";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -303,7 +308,7 @@ export function TasksTableFiltersPanel(props: TasksTableFiltersPanelProps) {
               placeholder="Görev veya kişi ara…"
               value={globalSearch}
               onChange={(e) => setGlobalSearch(e.target.value)}
-              className="h-8 w-full rounded-md border border-slate-200 bg-white pl-8 pr-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
+              className={LIVE_TABLE_TOOLBAR_INPUT_CLASS}
             />
           </div>
 
@@ -311,7 +316,7 @@ export function TasksTableFiltersPanel(props: TasksTableFiltersPanelProps) {
           <select
             value={projectLinkedFilter}
             onChange={(e) => setProjectLinkedFilter(e.target.value as "proje" | "tümü")}
-            className="h-8 rounded-md border border-slate-200 bg-white px-2 pr-7 text-xs text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+            className={LIVE_TABLE_TOOLBAR_SELECT_CLASS}
             title="Canlı tabloda varsayılan olarak sadece projeye bağlı görevler gösterilir"
           >
             <option value="proje">Proje görevleri</option>
@@ -320,7 +325,7 @@ export function TasksTableFiltersPanel(props: TasksTableFiltersPanelProps) {
           <button
             type="button"
             className={cn(
-              "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
+              LIVE_TABLE_TOOLBAR_BTN_CLASS,
               activeAdvancedFilterRuleCount > 0
                 ? "border-blue-400 bg-blue-50 text-blue-800 dark:border-blue-600 dark:bg-blue-900/30 dark:text-blue-200"
                 : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
@@ -345,7 +350,7 @@ export function TasksTableFiltersPanel(props: TasksTableFiltersPanelProps) {
               type="button"
               onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
               className={cn(
-                "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20",
+                LIVE_TABLE_TOOLBAR_BTN_CLASS,
                 Array.isArray(statusFilter) && statusFilter.length > 0
                   ? "border-amber-400 bg-amber-50 text-amber-800 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-300"
                   : "border-slate-300 bg-white text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
@@ -753,33 +758,30 @@ export function TasksTableFiltersPanel(props: TasksTableFiltersPanelProps) {
           })()}
           {/* /Hızlı filtre dropdownları */}
 
-          {/* Görünüm kontrolleri — sağa hizalı */}
+          {/* Görünüm kontrolleri — sol toolbar ile aynı h-8 standardı */}
           <div
-            className={cn(
-              "ml-auto flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1",
-              isModernTemplate
-                ? "rounded-xl border-slate-200 bg-white/95 shadow-sm dark:border-slate-700 dark:bg-slate-900/80"
-                : "border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/70"
-            )}
+            className="ml-auto flex shrink-0 items-center gap-1.5"
             onDoubleClick={(e) => {
               const tag = (e.target as HTMLElement).tagName;
               if (["BUTTON", "INPUT", "SELECT", "TEXTAREA", "LABEL"].includes(tag)) return;
               if ((e.target as HTMLElement).closest("button, input, select, textarea, [role=button]")) return;
               setIsFullWidth((p) => !p);
             }}
-            title="Çift tık ile tabloyu genişlet/daralt · F ile kısayol"
+            title="Çift tık ile tabloyu genişlet/daralt · Shift+F kısayolu"
           >
-            <span className="hidden text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 sm:inline">
+            <span className="hidden h-8 items-center text-xs font-medium text-slate-500 dark:text-slate-400 sm:inline-flex">
               Görünüm
             </span>
             {canAutoSizeColumns && (
-              <Button
+              <button
                 type="button"
-                variant={fitToContent ? "default" : "outline"}
-                size="icon"
                 onClick={handleAutoSizeColumns}
                 aria-pressed={fitToContent}
-                className="h-8 w-8"
+                className={cn(
+                  LIVE_TABLE_TOOLBAR_ICON_BTN_CLASS,
+                  fitToContent &&
+                    "border-blue-400 bg-blue-50 text-blue-800 dark:border-blue-600 dark:bg-blue-900/30 dark:text-blue-200"
+                )}
                 aria-label={fitToContent ? "Varsayılan sütun genişliğine dön" : "Sütunları içeriğe göre genişlet"}
                 title={
                   fitToContent
@@ -787,8 +789,8 @@ export function TasksTableFiltersPanel(props: TasksTableFiltersPanelProps) {
                     : "Sütunları metin uzunluğuna açar (yatay scroll çıkabilir)"
                 }
               >
-                {fitToContent ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
-              </Button>
+                {fitToContent ? <Shrink className="h-3.5 w-3.5" /> : <Expand className="h-3.5 w-3.5" />}
+              </button>
             )}
             <label htmlFor="live-table-density" className="sr-only">
               Görünüm yoğunluğu
@@ -798,12 +800,7 @@ export function TasksTableFiltersPanel(props: TasksTableFiltersPanelProps) {
               value={tableDensity}
               onChange={(e) => updateSetting("liveTableDensity", e.target.value as LiveTableDensity)}
               title="Satır aralığı ve yazı boyutu"
-              className={cn(
-                "h-8 rounded-md border px-2 text-xs focus:outline-none",
-                isModernTemplate
-                  ? "border-slate-300 bg-slate-50 text-slate-700 focus:border-slate-400 focus:ring-2 focus:ring-slate-300/40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:focus:border-slate-500 dark:focus:ring-slate-600/40"
-                  : "border-slate-300 bg-white text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
-              )}
+              className={LIVE_TABLE_TOOLBAR_SELECT_CLASS}
             >
               <option value="compact">Yoğun</option>
               <option value="normal">Normal</option>
@@ -817,33 +814,25 @@ export function TasksTableFiltersPanel(props: TasksTableFiltersPanelProps) {
               value={tableTemplate}
               onChange={(e) => updateSetting("liveTableTemplate", e.target.value as LiveTableTemplate)}
               title="Tablo şablonu"
-              className={cn(
-                "h-8 rounded-md border px-2 text-xs focus:outline-none",
-                isModernTemplate
-                  ? "border-slate-300 bg-slate-50 text-slate-700 focus:border-slate-400 focus:ring-2 focus:ring-slate-300/40 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:focus:border-slate-500 dark:focus:ring-slate-600/40"
-                  : "border-slate-300 bg-white text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
-              )}
+              className={LIVE_TABLE_TOOLBAR_SELECT_CLASS}
             >
               <option value="classic">Klasik</option>
               <option value="modern">Modern</option>
             </select>
-            <Button
+            <button
               type="button"
-              variant="outline"
-              size="icon"
               onClick={() => setIsFullWidth((p) => !p)}
               className={cn(
-                "h-8 w-8",
-                isModernTemplate
-                  ? "border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-                  : "text-slate-700 dark:text-slate-300"
+                LIVE_TABLE_TOOLBAR_ICON_BTN_CLASS,
+                isFullWidth &&
+                  "border-blue-400 bg-blue-50 text-blue-800 dark:border-blue-600 dark:bg-blue-900/30 dark:text-blue-200"
               )}
               aria-label={isFullWidth ? "Daralt (Esc)" : "Tabloyu genişlet (Shift+F)"}
               title={isFullWidth ? "Daralt — Esc" : "Tabloyu genişlet — Shift+F · çift tık"}
               aria-pressed={isFullWidth}
             >
-              {isFullWidth ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-            </Button>
+              {isFullWidth ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+            </button>
           </div>
           <span
             className={cn(

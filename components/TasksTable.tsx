@@ -281,7 +281,6 @@ export function TasksTable({
     handleDragOver,
     handleDrop,
     handleDragEnd,
-    pinColumn,
     openColumnPicker,
     toggleColumnVisibilityInstant,
     setManyColumnVisibilityInstant,
@@ -977,7 +976,6 @@ export function TasksTable({
         clearColumnFilter={clearColumnFilter}
         toggleColumnFilterValue={toggleColumnFilterValue}
         getUniqueValuesForColumn={getUniqueValuesForColumn}
-        pinColumn={pinColumn}
         canEditProject={canEditProject}
         setRemoveExtraColumnKey={setRemoveExtraColumnKey}
         setRenameExtraColumnDraft={setRenameExtraColumnDraft}

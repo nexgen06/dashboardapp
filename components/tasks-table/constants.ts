@@ -1,7 +1,8 @@
-import type { ColumnOrderState, VisibilityState } from "@tanstack/react-table";
+import type { ColumnOrderState, ColumnSizingState, VisibilityState } from "@tanstack/react-table";
 import type { LiveTableDensity, LiveTableTemplate } from "@/contexts/settings-context";
 import type { ChipCatalog } from "@/lib/chipSystem";
 import type { ReportTemplateId } from "@/lib/liveTableExport";
+import { cn } from "@/lib/utils";
 
 export const STATUS_OPTIONS = ["Yapılacak", "Devam", "Tamamlandı"] as const;
 export const STATUS_FILTER_OPTIONS = ["Tümü", "Yapılacak", "Devam ediyor", "Devam", "Tamamlandı"] as const;
@@ -190,12 +191,6 @@ export const LIVE_TABLE_THEAD_HEIGHT_BY_DENSITY: Record<LiveTableDensity, number
 export const LIVE_TABLE_SORT_IDLE_ICON_CLASS =
   "shrink-0 text-slate-300 opacity-0 transition-opacity duration-150 group-hover/th:opacity-100 focus-visible:opacity-100 dark:text-slate-600";
 
-/** Sol/sağ pin gölgesi */
-export const LIVE_TABLE_PIN_SHADOW_LEFT =
-  "shadow-[4px_0_10px_-5px_rgba(15,23,42,0.18)] dark:shadow-[4px_0_12px_-6px_rgba(0,0,0,0.75)]";
-export const LIVE_TABLE_PIN_SHADOW_RIGHT =
-  "shadow-[-4px_0_10px_-5px_rgba(15,23,42,0.18)] dark:shadow-[-4px_0_12px_-6px_rgba(0,0,0,0.75)]";
-
 export const MODERN_DENSITY_UI: Record<LiveTableDensity, { th: string; td: string }> = {
   compact: { th: "px-3 py-2", td: "px-3 py-1.5" },
   normal: { th: "px-4 py-3", td: "px-4 py-2.5" },
@@ -203,17 +198,49 @@ export const MODERN_DENSITY_UI: Record<LiveTableDensity, { th: string; td: strin
 };
 
 export const COLUMN_SIZE_BOUNDS: Record<string, { min: number; max: number }> = {
-  select: { min: 36, max: 52 },
+  select: { min: 22, max: 28 },
   status: { min: 100, max: 220 },
   content: { min: 180, max: 480 },
   project: { min: 120, max: 280 },
-  actions: { min: 40, max: 52 },
+  actions: { min: 24, max: 24 },
 };
+
+/** select / actions genişliği kayıtlı prefs ile şişmesin */
+export function clampFixedRailColumnSizes(sizing: ColumnSizingState): ColumnSizingState {
+  return {
+    ...sizing,
+    select: LIVE_TABLE_SELECT_COLUMN_WIDTH,
+    actions: LIVE_TABLE_GHOST_ACTIONS_RAIL_WIDTH,
+  };
+}
 
 export const DEFAULT_EXTRA_BOUNDS = { min: 100, max: 400 };
 
 /** Canlı tablo seçim sütunu varsayılan genişliği (px). */
-export const LIVE_TABLE_SELECT_COLUMN_WIDTH = 44;
+/** Seçim sütunu — checkbox + sol aciliyet şeridi (3px). */
+export const LIVE_TABLE_SELECT_COLUMN_WIDTH = 24;
 
-/** Sağ hayalet aksiyon rayı (hover işlemler). */
-export const LIVE_TABLE_GHOST_ACTIONS_RAIL_WIDTH = 44;
+/** Sağ hayalet aksiyon rayı — tek göz ikonu (24px sabit). */
+export const LIVE_TABLE_GHOST_ACTIONS_RAIL_WIDTH = 24;
+
+/** Toolbar — sol filtreler ve sağ görünüm kontrolleri aynı h-8 standardı. */
+export const LIVE_TABLE_TOOLBAR_INPUT_CLASS =
+  "h-8 w-full rounded-md border border-slate-200 bg-white pl-8 pr-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500";
+
+export const LIVE_TABLE_TOOLBAR_SELECT_CLASS =
+  "h-8 shrink-0 rounded-md border border-slate-200 bg-white px-2 pr-7 text-xs text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200";
+
+export const LIVE_TABLE_TOOLBAR_BTN_CLASS =
+  "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20";
+
+export const LIVE_TABLE_TOOLBAR_ICON_BTN_CLASS =
+  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 transition-colors hover:bg-slate-50 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:pointer-events-none disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800";
+
+/** Üst action bar — Görünümler, Kolonlar, içe/dışa aktar (sol görünüm sekmeleri ile h-8). */
+export const LIVE_TABLE_ACTION_BAR_BTN_CLASS = cn(
+  LIVE_TABLE_TOOLBAR_BTN_CLASS,
+  "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+);
+
+export const LIVE_TABLE_ACTION_BAR_PRIMARY_BTN_CLASS =
+  "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-orange-500 bg-orange-500 px-2.5 text-xs font-medium text-white shadow-sm shadow-orange-500/20 transition-colors hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500/30 disabled:pointer-events-none disabled:opacity-50 dark:border-orange-500 dark:bg-orange-500 dark:hover:bg-orange-400 dark:focus:ring-orange-400/30";

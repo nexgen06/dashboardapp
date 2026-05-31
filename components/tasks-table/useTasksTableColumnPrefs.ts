@@ -23,7 +23,10 @@ import type { Task } from "@/types/tasks";
 import type { LiveTableDensity } from "@/contexts/settings-context";
 import {
   BASE_COLUMN_ORDER_STABLE,
+  clampFixedRailColumnSizes,
   DEFAULT_LIVE_TABLE_COLUMN_VISIBILITY,
+  LIVE_TABLE_GHOST_ACTIONS_RAIL_WIDTH,
+  LIVE_TABLE_SELECT_COLUMN_WIDTH,
 } from "@/components/tasks-table/constants";
 import { computeBalancedColumnSizing, measureIntrinsicColumnWidths } from "@/components/tasks-table/columnSizing";
 import type { TasksTableFiltersPersistedSlice } from "@/components/tasks-table/useTasksTableFilters";
@@ -66,12 +69,14 @@ export function useTasksTableColumnPrefs({
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(DEFAULT_LIVE_TABLE_COLUMN_VISIBILITY);
   const [columnOrder, setColumnOrder] = useState<ColumnOrderState>(BASE_COLUMN_ORDER_STABLE);
   const [columnPinning, setColumnPinning] = useState<ColumnPinningState>({ left: [], right: [] });
-  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({
-    select: 44,
-    status: 140,
-    content: 260,
-    actions: 44,
-  });
+  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>(() =>
+    clampFixedRailColumnSizes({
+      select: LIVE_TABLE_SELECT_COLUMN_WIDTH,
+      status: 140,
+      content: 260,
+      actions: LIVE_TABLE_GHOST_ACTIONS_RAIL_WIDTH,
+    })
+  );
   const [columnPickerOpen, setColumnPickerOpen] = useState(false);
   const [columnPickerSearch, setColumnPickerSearch] = useState("");
   const [draggedColumnId, setDraggedColumnId] = useState<string | null>(null);
@@ -107,9 +112,13 @@ export function useTasksTableColumnPrefs({
       setColumnPinning(saved?.columnPinning ?? { left: [], right: [] });
       if (saved?.columnSizing && Object.keys(saved.columnSizing).length > 0) {
         for (const id of Object.keys(saved.columnSizing)) {
-          userSizedColumnsRef.current.add(id);
+          if (id !== "select" && id !== "actions") {
+            userSizedColumnsRef.current.add(id);
+          }
         }
-        setColumnSizing((prev) => ({ ...prev, ...saved.columnSizing }));
+        setColumnSizing((prev) =>
+          clampFixedRailColumnSizes({ ...prev, ...saved.columnSizing })
+        );
       }
       if (saved?.sorting && saved.sorting.length > 0) {
         setSorting(saved.sorting);
@@ -201,7 +210,7 @@ export function useTasksTableColumnPrefs({
     if (!fitToContent) {
       const intrinsic = measureIntrinsicColumnWidths(filteredData, visibleIds, tableDensity);
       for (const id of visibleIds) userSizedColumnsRef.current.add(id);
-      setColumnSizing((prev) => ({ ...prev, ...intrinsic }));
+      setColumnSizing((prev) => clampFixedRailColumnSizes({ ...prev, ...intrinsic }));
       setFitToContent(true);
       return;
     }
@@ -216,7 +225,7 @@ export function useTasksTableColumnPrefs({
       Math.max(0, Math.floor(vw)),
       tableDensity
     );
-    setColumnSizing((prev) => ({ ...prev, ...next }));
+    setColumnSizing((prev) => clampFixedRailColumnSizes({ ...prev, ...next }));
     setFitToContent(false);
   }, [tableRef, filteredData, tableDensity, liveTableViewportWidth, fitToContent]);
 
@@ -243,7 +252,7 @@ export function useTasksTableColumnPrefs({
           changed = true;
         }
       }
-      return changed ? next : prev;
+      return changed ? clampFixedRailColumnSizes(next) : prev;
     });
   }, [tableRef, filteredData, liveTableVisibleKey, liveTableViewportWidth, tableDensity, isLoading, error]);
 
@@ -252,9 +261,11 @@ export function useTasksTableColumnPrefs({
       setColumnSizing((old) => {
         const next = typeof updater === "function" ? updater(old) : updater;
         for (const key of Object.keys(next)) {
-          if (next[key] !== old[key]) userSizedColumnsRef.current.add(key);
+          if (key !== "select" && key !== "actions" && next[key] !== old[key]) {
+            userSizedColumnsRef.current.add(key);
+          }
         }
-        return next;
+        return clampFixedRailColumnSizes(next);
       });
     },
     []

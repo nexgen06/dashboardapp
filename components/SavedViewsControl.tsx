@@ -16,6 +16,9 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
+  LIVE_TABLE_ACTION_BAR_BTN_CLASS,
+} from "@/components/tasks-table/constants";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -273,15 +276,13 @@ export function SavedViewsControl({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button
+          <button
             type="button"
-            variant="outline"
-            size="sm"
-            className="h-8 gap-1.5 text-slate-700 dark:text-slate-300"
+            className={cn(LIVE_TABLE_ACTION_BAR_BTN_CLASS, "max-w-[200px]")}
             aria-label="Görünümler"
           >
-            <Bookmark className="h-3.5 w-3.5" aria-hidden />
-            <span className="max-w-[140px] truncate">
+            <Bookmark className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span className="truncate">
               {activeView ? activeView.name : "Görünümler"}
             </span>
             {isDirty && (
@@ -290,7 +291,7 @@ export function SavedViewsControl({
               </span>
             )}
             <ChevronDown className="h-3 w-3 shrink-0 opacity-60" aria-hidden />
-          </Button>
+          </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-72">
           <DropdownMenuLabel className="text-xs text-slate-500 dark:text-slate-400">

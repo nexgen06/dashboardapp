@@ -235,8 +235,8 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
         );
       },
       size: LIVE_TABLE_SELECT_COLUMN_WIDTH,
-      minSize: 36,
-      maxSize: 52,
+      minSize: 22,
+      maxSize: 28,
       enableResizing: false,
       enableHiding: false,
     }),
@@ -849,7 +849,6 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
             canShowCopy={rowCanEdit && canCreateTask && canCopyRow(task)}
             canShowDelete={rowCanEdit && canDeleteTask}
             workflowActions={getWorkflowActionsForTask(task)}
-            iconClass="h-3.5 w-3.5"
             onDetail={() => setDetailTask(task)}
             onEdit={() => setEditTask(task)}
             onDuplicate={() => handleCopyTask(task)}
@@ -860,8 +859,8 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
         );
       },
       size: LIVE_TABLE_GHOST_ACTIONS_RAIL_WIDTH,
-      minSize: 40,
-      maxSize: 52,
+      minSize: 24,
+      maxSize: 24,
       enableResizing: false,
       enableHiding: false,
     }),

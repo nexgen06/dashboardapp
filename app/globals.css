@@ -532,27 +532,28 @@
   .breathe-today { animation: none; }
 }
 
-/* ── 2) Satır hover ile beliren aksiyon butonları ──
-   <td> içinde .row-actions opacity 0 → tr hover/focus-within'de 1.
-   `data-keep="true"` ile zorla görünür (mobile veya dropdown açıkken). */
+/* ── 2) İşlem hücresi hover ile beliren göz ikonu (satır değil, td[data-col=actions]) ──
+   `data-keep="true"` menü açıkken zorla görünür. */
 .row-actions {
   opacity: 0;
   transition: opacity 120ms ease;
 }
-tr:hover .row-actions,
-tr:focus-within .row-actions,
+td[data-col="actions"]:hover .row-actions,
+td[data-col="actions"]:focus-within .row-actions,
 .row-actions[data-keep="true"] { opacity: 1; }
 @media (hover: none) {
   /* Dokunmatikte her zaman görünür — hover yok */
   .row-actions { opacity: 1; }
 }
 
-/* ── 3) Seçili satır sol kenar şerit göstergesi — seçim rayında (Faz 1) ── */
+/* ── 3) Seçili satır sol şerit — select hücresinde ince border (box-shadow kare artefaktı yapmaz) ── */
 tr[data-selected="true"] td[data-col="select"] {
-  box-shadow: inset 3px 0 0 0 rgb(59 130 246);
+  box-shadow: none;
+  border-left: 3px solid rgb(59 130 246);
 }
 .dark tr[data-selected="true"] td[data-col="select"] {
-  box-shadow: inset 3px 0 0 0 rgb(96 165 250);
+  box-shadow: none;
+  border-left-color: rgb(96 165 250);
 }
 
 /* ── 4) Zebra (alternate row) — toggle ile aç/kapa ──
@@ -651,6 +652,48 @@ tr[data-selected="true"] td[data-col="select"] {
   border-bottom-color: rgb(51 65 85);
 }
 
+/* ── 8b) Tablo gövdesi — zemin hücrede; sticky pin scroll'da opak, seçimde tüm hücreler aynı ton ── */
+.live-table-simplified-grid tbody tr > td {
+  background-color: transparent;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+.live-table-simplified-grid tbody tr > td.live-table-pin-cell {
+  background-color: rgb(255 255 255);
+}
+.dark .live-table-simplified-grid tbody tr > td.live-table-pin-cell {
+  background-color: rgb(15 23 42);
+}
+.live-table-simplified-grid tbody tr:hover > td {
+  background-color: rgb(248 250 252 / 0.7);
+}
+.dark .live-table-simplified-grid tbody tr:hover > td {
+  background-color: rgb(30 41 59 / 0.38);
+}
+.table-modern-skin.live-table-simplified-grid tbody tr:hover > td {
+  background-color: rgb(249 250 251);
+}
+.dark .table-modern-skin.live-table-simplified-grid tbody tr:hover > td {
+  background-color: rgb(30 41 59 / 0.62);
+}
+.live-table-simplified-grid tbody tr[data-selected="true"] > td {
+  background-color: rgb(239 246 255 / 0.42);
+}
+.dark .live-table-simplified-grid tbody tr[data-selected="true"] > td {
+  background-color: rgb(23 37 84 / 0.16);
+}
+.table-modern-skin.live-table-simplified-grid tbody tr.live-table-modern-row[data-selected="true"] > td {
+  background-color: rgb(239 246 255 / 0.75);
+}
+.dark .table-modern-skin.live-table-simplified-grid tbody tr.live-table-modern-row[data-selected="true"] > td {
+  background-color: rgb(30 58 138 / 0.24);
+}
+.live-table-pin-cell--presence {
+  background-color: transparent;
+}
+.dark .live-table-simplified-grid tbody tr > td.live-table-pin-cell--presence {
+  background-color: transparent;
+}
+
 .table-modern-skin.live-table-simplified-grid tbody tr:hover {
   box-shadow: none;
 }
@@ -660,27 +703,27 @@ tr[data-selected="true"] td[data-col="select"] {
 }
 
 .table-modern-skin tbody tr {
-  transition: background-color 140ms ease, box-shadow 140ms ease;
+  transition: background-color 140ms ease;
 }
 
 .table-modern-skin tbody tr:hover {
-  background-color: rgb(249 250 251 / 1);
-  box-shadow: inset 0 0 0 1px rgb(234 236 240 / 0.75);
+  background-color: transparent;
+  box-shadow: none;
 }
 
 .table-modern-skin tbody tr.live-table-modern-row[data-selected="true"] {
-  background-color: rgb(239 246 255 / 0.75);
-  box-shadow: inset 0 0 0 1px rgb(191 219 254 / 0.95);
+  background-color: transparent;
+  box-shadow: none;
 }
 
 .dark .table-modern-skin tbody tr:hover {
-  background-color: rgb(30 41 59 / 0.62);
-  box-shadow: inset 0 0 0 1px rgb(71 85 105 / 0.6);
+  background-color: transparent;
+  box-shadow: none;
 }
 
 .dark .table-modern-skin tbody tr.live-table-modern-row[data-selected="true"] {
-  background-color: rgb(30 58 138 / 0.24);
-  box-shadow: inset 0 0 0 1px rgb(59 130 246 / 0.45);
+  background-color: transparent;
+  box-shadow: none;
 }
 
 .table-modern-skin tbody td {
@@ -759,13 +802,15 @@ tr[data-selected="true"] td[data-col="select"] {
     0 1px 2px rgb(16 24 40 / 0.04);
 }
 
-.live-table-modern-toolbar button.inline-flex.h-8 {
+.live-table-modern-toolbar button.inline-flex.h-8,
+.live-table-modern-toolbar button.inline-flex.h-8.w-8 {
   border-color: rgb(208 213 221 / 0.95);
   background-color: rgb(255 255 255 / 1);
   color: rgb(52 64 84);
 }
 
-.live-table-modern-toolbar button.inline-flex.h-8:hover {
+.live-table-modern-toolbar button.inline-flex.h-8:hover,
+.live-table-modern-toolbar button.inline-flex.h-8.w-8:hover {
   background-color: rgb(249 250 251 / 1);
 }
 
@@ -787,14 +832,16 @@ tr[data-selected="true"] td[data-col="select"] {
 
 .dark .live-table-modern-toolbar input[type="text"],
 .dark .live-table-modern-toolbar select,
-.dark .live-table-modern-toolbar button.inline-flex.h-8 {
+.dark .live-table-modern-toolbar button.inline-flex.h-8,
+.dark .live-table-modern-toolbar button.inline-flex.h-8.w-8 {
   border-color: rgb(71 85 105 / 0.9);
   background-color: rgb(15 23 42 / 0.88);
   color: rgb(226 232 240);
   box-shadow: none;
 }
 
-.dark .live-table-modern-toolbar button.inline-flex.h-8:hover {
+.dark .live-table-modern-toolbar button.inline-flex.h-8:hover,
+.dark .live-table-modern-toolbar button.inline-flex.h-8.w-8:hover {
   background-color: rgb(30 41 59 / 0.95);
 }
 

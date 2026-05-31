@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { COLUMN_VISIBILITY_LABELS } from "@/components/tasks-table/constants";
+import { COLUMN_VISIBILITY_LABELS, LIVE_TABLE_ACTION_BAR_BTN_CLASS } from "@/components/tasks-table/constants";
 import { cn } from "@/lib/utils";
 import { Check, Circle, Columns3, Search } from "lucide-react";
 
@@ -39,16 +39,10 @@ export function ColumnPickerDialog({
 }: ColumnPickerDialogProps) {
   return (
             <Dialog open={open} onOpenChange={onOpenChange}>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="text-slate-700 dark:text-slate-300"
-                onClick={onOpen}
-              >
-                <Columns3 className="mr-1.5 h-3.5 w-3.5" />
+              <button type="button" className={LIVE_TABLE_ACTION_BAR_BTN_CLASS} onClick={onOpen}>
+                <Columns3 className="h-3.5 w-3.5 shrink-0" aria-hidden />
                 Kolonlar
-              </Button>
+              </button>
               <DialogContent
                 className="flex max-h-[min(90dvh,36rem)] max-w-md flex-col gap-0 overflow-hidden rounded-xl border-slate-200/80 p-0 shadow-2xl shadow-slate-900/10 dark:border-slate-700/80 dark:bg-slate-800 dark:text-slate-100 dark:shadow-black/30 sm:max-w-md"
                 showClose
