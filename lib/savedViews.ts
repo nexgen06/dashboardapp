@@ -14,6 +14,25 @@ import { supabase } from "@/lib/supabaseClient";
 
 export type SavedViewScope = "private" | "shared";
 
+/** Kayıtlı görünümde desteklenen gruplama alanları (Canlı Tablo Grupla dropdown). */
+export const SAVED_VIEW_GROUPING_FIELDS = [
+  "status",
+  "assignee",
+  "priority",
+  "project",
+  "dueBucket",
+] as const;
+
+export type SavedViewGroupingField = (typeof SAVED_VIEW_GROUPING_FIELDS)[number];
+
+export function normalizeSavedViewGroupingField(value: unknown): SavedViewGroupingField | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "string" && (SAVED_VIEW_GROUPING_FIELDS as readonly string[]).includes(value)) {
+    return value as SavedViewGroupingField;
+  }
+  return null;
+}
+
 /** Görünüm yapılandırması — versionlu, ileride genişletilebilir. */
 export type SavedViewConfig = {
   version: 1;
@@ -34,6 +53,10 @@ export type SavedViewConfig = {
     visibility?: Record<string, boolean>;
     order?: string[];
     pinning?: { left?: string[]; right?: string[] };
+  };
+  /** Tablo gruplama (Grupla dropdown). null = gruplama kapalı. */
+  grouping?: {
+    field: SavedViewGroupingField | null;
   };
 };
 

@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { ColumnOrderState, ColumnPinningState, SortingState, VisibilityState } from "@tanstack/react-table";
 import type { AdvancedFilterRule } from "@/lib/liveTableAdvancedFilters";
-import { getProjectDefaultSavedView, type SavedViewConfig } from "@/lib/savedViews";
+import { getProjectDefaultSavedView, normalizeSavedViewGroupingField, type SavedViewConfig } from "@/lib/savedViews";
+import type { GroupingField } from "@/hooks/useTasksTableGrouping";
 
 type ToastApi = { info: (msg: string) => void };
 
@@ -36,6 +37,8 @@ export type UseTasksTableSavedViewsOptions = {
   setColumnOrder: Dispatch<SetStateAction<ColumnOrderState>>;
   columnPinning: ColumnPinningState;
   setColumnPinning: Dispatch<SetStateAction<ColumnPinningState>>;
+  groupingField: GroupingField;
+  setGroupingField: (field: GroupingField) => void;
   resolveProjectContextFromSavedFilters: (projectFilter: unknown) => string[];
   canCreateTask: boolean;
   setNewTaskOpen: Dispatch<SetStateAction<boolean>>;
@@ -73,6 +76,8 @@ export function useTasksTableSavedViews(options: UseTasksTableSavedViewsOptions)
     setColumnOrder,
     columnPinning,
     setColumnPinning,
+    groupingField,
+    setGroupingField,
     resolveProjectContextFromSavedFilters,
     canCreateTask,
     setNewTaskOpen,
@@ -104,6 +109,9 @@ export function useTasksTableSavedViews(options: UseTasksTableSavedViewsOptions)
           right: columnPinning.right ?? [],
         },
       },
+      grouping: {
+        field: groupingField,
+      },
     };
   }, [
     globalSearch,
@@ -120,6 +128,7 @@ export function useTasksTableSavedViews(options: UseTasksTableSavedViewsOptions)
     columnVisibility,
     columnOrder,
     columnPinning,
+    groupingField,
   ]);
 
   const applyViewConfig = useCallback((config: SavedViewConfig) => {
@@ -146,7 +155,8 @@ export function useTasksTableSavedViews(options: UseTasksTableSavedViewsOptions)
         right: c.pinning.right ?? [],
       });
     }
-  }, [resolveProjectContextFromSavedFilters, setProjectFilter]);
+    setGroupingField(normalizeSavedViewGroupingField(config.grouping?.field));
+  }, [resolveProjectContextFromSavedFilters, setProjectFilter, setGroupingField]);
 
   const lastAppliedProjectDefaultRef = useRef<string | null>(null);
   const [syncActiveViewId, setSyncActiveViewId] = useState<string | null>(null);
