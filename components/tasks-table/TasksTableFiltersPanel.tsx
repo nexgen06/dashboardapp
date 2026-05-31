@@ -7,6 +7,8 @@ import type { Project } from "@/types/project";
 import type { LiveTableDensity, LiveTableTemplate, Settings } from "@/contexts/settings-context";
 import type { AdvancedFilterRule } from "@/lib/liveTableAdvancedFilters";
 import { cn } from "@/lib/utils";
+import { formatDisplayDate } from "@/lib/calendarUtils";
+import { ModernDateRangePicker } from "@/components/ui/modern-date-range-picker";
 import {
   LIVE_TABLE_TOOLBAR_BTN_CLASS,
   LIVE_TABLE_TOOLBAR_ICON_BTN_CLASS,
@@ -669,69 +671,34 @@ export function TasksTableFiltersPanel(props: TasksTableFiltersPanelProps) {
               </DropdownMenu>
             );
 
-            // Custom range kapsülü — modern kompozit input
+            // Özel aralık — modern takvim seçici
             const customRangeCapsule = datePreset === "custom" ? (
-              <div
-                className={cn(
-                  "inline-flex h-8 items-center overflow-hidden rounded-md border bg-white text-xs shadow-sm transition-colors dark:bg-slate-900",
-                  isActive
-                    ? "border-indigo-300 ring-1 ring-indigo-200/60 dark:border-indigo-700 dark:ring-indigo-900/40"
-                    : "border-slate-200 dark:border-slate-700"
-                )}
-              >
-                <div className="flex items-center gap-1 border-r border-slate-200 px-2 dark:border-slate-700">
-                  <CalendarDays className="h-3.5 w-3.5 text-slate-400" aria-hidden />
-                  <input
-                    type="date"
-                    value={dateFrom}
-                    onChange={(e) => {
-                      setDateFrom(e.target.value);
-                      setDatePreset("custom");
-                    }}
-                    className="w-[120px] border-0 bg-transparent px-1 text-slate-700 outline-none focus:outline-none focus:ring-0 dark:text-slate-200 [color-scheme:light] dark:[color-scheme:dark]"
-                    aria-label="Başlangıç tarihi"
-                    placeholder="Başlangıç"
-                  />
-                </div>
-                <ArrowRight className="mx-1.5 h-3 w-3 shrink-0 text-slate-400" aria-hidden />
-                <div className="flex items-center gap-1 border-l border-slate-200 px-2 dark:border-slate-700">
-                  <CalendarDays className="h-3.5 w-3.5 text-slate-400" aria-hidden />
-                  <input
-                    type="date"
-                    value={dateTo}
-                    onChange={(e) => {
-                      setDateTo(e.target.value);
-                      setDatePreset("custom");
-                    }}
-                    className="w-[120px] border-0 bg-transparent px-1 text-slate-700 outline-none focus:outline-none focus:ring-0 dark:text-slate-200 [color-scheme:light] dark:[color-scheme:dark]"
-                    aria-label="Bitiş tarihi"
-                    placeholder="Bitiş"
-                  />
-                </div>
-                {isActive && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDateFrom("");
-                      setDateTo("");
-                    }}
-                    className="flex h-full items-center border-l border-slate-200 px-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:border-slate-700 dark:hover:bg-red-950/30"
-                    title="Tarih aralığını temizle"
-                    aria-label="Temizle"
-                  >
-                    <X className="h-3 w-3" aria-hidden />
-                  </button>
-                )}
-              </div>
+              <ModernDateRangePicker
+                dateFrom={dateFrom}
+                dateTo={dateTo}
+                active={isActive}
+                onDateFromChange={(value) => {
+                  setDateFrom(value);
+                  setDatePreset("custom");
+                }}
+                onDateToChange={(value) => {
+                  setDateTo(value);
+                  setDatePreset("custom");
+                }}
+                onClear={() => {
+                  setDateFrom("");
+                  setDateTo("");
+                }}
+              />
             ) : null;
 
             // Preset seçildi + aktif aralık — özet rozeti
             const activePresetBadge = datePreset !== "custom" && isActive ? (
               <span className="inline-flex h-8 items-center gap-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 text-xs font-medium text-indigo-800 dark:border-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-200">
                 <CalendarDays className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
-                <span>{dateFrom}</span>
+                <span>{formatDisplayDate(dateFrom)}</span>
                 <ArrowRight className="h-2.5 w-2.5 opacity-60" aria-hidden />
-                <span>{dateTo}</span>
+                <span>{formatDisplayDate(dateTo)}</span>
                 <button
                   type="button"
                   onClick={() => {
@@ -945,9 +912,9 @@ export function TasksTableFiltersPanel(props: TasksTableFiltersPanelProps) {
                 {datePreset === "nextMonth" && "Gelecek ay"}
                 {datePreset === "last7days" && "Son 7 gün"}
                 {datePreset === "last30days" && "Son 30 gün"}
-                {datePreset === "custom" && dateFrom && dateTo && `${dateFrom} → ${dateTo}`}
-                {datePreset === "custom" && dateFrom && !dateTo && `${dateFrom}'den itibaren`}
-                {datePreset === "custom" && !dateFrom && dateTo && `${dateTo}'e kadar`}
+                {datePreset === "custom" && dateFrom && dateTo && `${formatDisplayDate(dateFrom)} → ${formatDisplayDate(dateTo)}`}
+                {datePreset === "custom" && dateFrom && !dateTo && `${formatDisplayDate(dateFrom)}'den itibaren`}
+                {datePreset === "custom" && !dateFrom && dateTo && `${formatDisplayDate(dateTo)}'e kadar`}
                 <button
                   type="button"
                   onClick={() => {
