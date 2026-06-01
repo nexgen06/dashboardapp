@@ -62,6 +62,12 @@ export type Settings = {
    * "Panel" metni yerine gösterilir. Maksimum boyut UI'da 200KB ile sınırlı.
    */
   brandLogoDataUrl: string | null;
+  /**
+   * Canlı Tablo toolbar arayüz tarzı. "classic" = mevcut 5-katmanlı bar,
+   * "modern" = Linear/Notion-style tek-satır primary bar. Kullanıcı her
+   * iki tasarım arasında geçiş yapabilir. Varsayılan: classic (geri uyum).
+   */
+  toolbarStyle: "classic" | "modern";
   language: Language;
   dateFormat: DateFormat;
   sidebarCollapsedByDefault: boolean;
@@ -109,6 +115,7 @@ const DEFAULT_SETTINGS: Settings = {
   accentColor: "blue",
   brandColor: null,
   brandLogoDataUrl: null,
+  toolbarStyle: "classic",
   language: "tr",
   dateFormat: "DD.MM.YYYY",
   sidebarCollapsedByDefault: false,

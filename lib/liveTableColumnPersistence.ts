@@ -6,6 +6,7 @@ import type {
   VisibilityState,
 } from "@tanstack/react-table";
 import { isSensitiveExtraColumnKey } from "@/lib/extraColumnSensitiveDisplay";
+import { normalizeLiveTableColumnVisibility } from "@/lib/liveTableColumnVisibility";
 
 const STORAGE_KEY_PREFIX = "dashboardapp.liveTable.prefs.v1:";
 
@@ -70,7 +71,9 @@ export function loadLiveTablePrefs(userId: string): LiveTablePersistedPrefs | nu
     const right = p.columnPinning?.right;
 
     return {
-      columnVisibility: p.columnVisibility && typeof p.columnVisibility === "object" ? p.columnVisibility : {},
+      columnVisibility: normalizeLiveTableColumnVisibility(
+        p.columnVisibility && typeof p.columnVisibility === "object" ? p.columnVisibility : {}
+      ),
       columnOrder: Array.isArray(p.columnOrder) ? p.columnOrder : [],
       columnPinning: {
         left: Array.isArray(left) ? left : [],

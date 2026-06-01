@@ -597,6 +597,28 @@ tr[data-selected="true"] td[data-col="select"] {
   -webkit-overflow-scrolling: touch;
 }
 
+/* Sol seçim + sağ işlem rayı — CSS ile sticky garanti */
+.live-table-scroll-shell th[data-col="select"],
+.live-table-scroll-shell td[data-col="select"] {
+  position: sticky;
+  left: 0;
+}
+.live-table-scroll-shell th[data-col="actions"],
+.live-table-scroll-shell td[data-col="actions"] {
+  position: sticky;
+  right: 0;
+}
+.live-table-scroll-shell th[data-col="select"] {
+  z-index: 26;
+}
+.live-table-scroll-shell th[data-col="actions"] {
+  z-index: 26;
+}
+.live-table-scroll-shell td[data-col="select"],
+.live-table-scroll-shell td[data-col="actions"] {
+  z-index: 11;
+}
+
 .live-table-scroll-shell thead th {
   background-color: rgb(248 250 252 / 0.95);
   -webkit-backdrop-filter: blur(12px);
@@ -659,9 +681,17 @@ tr[data-selected="true"] td[data-col="select"] {
 }
 .live-table-simplified-grid tbody tr > td.live-table-pin-cell {
   background-color: rgb(255 255 255);
+  box-shadow: 1px 0 0 rgb(226 232 240 / 0.95);
 }
 .dark .live-table-simplified-grid tbody tr > td.live-table-pin-cell {
   background-color: rgb(15 23 42);
+  box-shadow: 1px 0 0 rgb(51 65 85 / 0.85);
+}
+.live-table-simplified-grid tbody tr > td[data-col="actions"].live-table-pin-cell {
+  box-shadow: -1px 0 0 rgb(226 232 240 / 0.95);
+}
+.dark .live-table-simplified-grid tbody tr > td[data-col="actions"].live-table-pin-cell {
+  box-shadow: -1px 0 0 rgb(51 65 85 / 0.85);
 }
 .live-table-simplified-grid tbody tr:hover > td {
   background-color: rgb(248 250 252 / 0.7);
@@ -736,9 +766,7 @@ tr[data-selected="true"] td[data-col="select"] {
   color: rgb(226 232 240);
 }
 
-.live-table-modern-shell {
-  overflow: hidden;
-}
+/* modern shell — yuvarlak köşe tableSkin.shell sınıfında; scroll kabuğunda overflow:hidden kullanılmaz */
 
 .live-table-modern-footer {
   border-top-style: solid;

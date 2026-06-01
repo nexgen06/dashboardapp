@@ -191,5 +191,8 @@ export function computeBalancedColumnSizing(
   const target = Math.max(280, Math.floor(viewportWidthPx) - 6);
   if (Math.abs(rawSum - target) <= 2) return intrinsic;
 
+  // İçe aktarılmış geniş tablolarda sütunları viewport'a sıkıştırma — yatay scroll + sticky pin çalışsın.
+  if (rawSum > target) return intrinsic;
+
   return balanceColumnWidthsToTarget(intrinsic, ordered, target);
 }

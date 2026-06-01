@@ -36,6 +36,11 @@ import {
   saveLiveTablePrefs,
   type LiveTablePersistedPrefs,
 } from "@/lib/liveTableColumnPersistence";
+import {
+  DEFAULT_LIVE_TABLE_COLUMN_PINNING,
+  normalizeLiveTableColumnPinning,
+} from "@/lib/liveTableColumnPinning";
+import { normalizeLiveTableColumnVisibility } from "@/lib/liveTableColumnVisibility";
 
 export type UseTasksTableColumnPrefsOptions = {
   userId: string | null;
@@ -68,7 +73,9 @@ export function useTasksTableColumnPrefs({
 }: UseTasksTableColumnPrefsOptions) {
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(DEFAULT_LIVE_TABLE_COLUMN_VISIBILITY);
   const [columnOrder, setColumnOrder] = useState<ColumnOrderState>(BASE_COLUMN_ORDER_STABLE);
-  const [columnPinning, setColumnPinning] = useState<ColumnPinningState>({ left: [], right: [] });
+  const [columnPinning, setColumnPinning] = useState<ColumnPinningState>(
+    DEFAULT_LIVE_TABLE_COLUMN_PINNING
+  );
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>(() =>
     clampFixedRailColumnSizes({
       select: LIVE_TABLE_SELECT_COLUMN_WIDTH,
@@ -107,9 +114,16 @@ export function useTasksTableColumnPrefs({
       const saved = loadLiveTablePrefs(userId);
       setColumnOrder(mergeColumnOrderWithDynamics(saved?.columnOrder, dynamicIds));
       setColumnVisibility(
-        saved != null ? (saved.columnVisibility ?? {}) : DEFAULT_LIVE_TABLE_COLUMN_VISIBILITY
+        normalizeLiveTableColumnVisibility(
+          saved != null ? (saved.columnVisibility ?? {}) : DEFAULT_LIVE_TABLE_COLUMN_VISIBILITY
+        )
       );
-      setColumnPinning(saved?.columnPinning ?? { left: [], right: [] });
+      setColumnPinning(
+        normalizeLiveTableColumnPinning(
+          saved?.columnPinning ?? DEFAULT_LIVE_TABLE_COLUMN_PINNING,
+          mergeColumnOrderWithDynamics(saved?.columnOrder, dynamicIds)
+        )
+      );
       if (saved?.columnSizing && Object.keys(saved.columnSizing).length > 0) {
         for (const id of Object.keys(saved.columnSizing)) {
           if (id !== "select" && id !== "actions") {
@@ -128,8 +142,18 @@ export function useTasksTableColumnPrefs({
       return;
     }
 
-    setColumnOrder((prev) => mergeColumnOrderWithDynamics(prev, dynamicIds));
+    setColumnOrder((prev) => {
+      const nextOrder = mergeColumnOrderWithDynamics(prev, dynamicIds);
+      setColumnPinning((pinPrev) => normalizeLiveTableColumnPinning(pinPrev, nextOrder));
+      return nextOrder;
+    });
   }, [userId, extraDataKeys, onHydrateFilters, setSorting]);
+
+  /** Eski kayıtlarda select/actions:false kalmış olabilir — rayları geri getir. */
+  useEffect(() => {
+    setColumnVisibility((prev) => normalizeLiveTableColumnVisibility(prev));
+    setColumnPinning((prev) => normalizeLiveTableColumnPinning(prev, columnOrder));
+  }, [columnOrder]);
 
   const buildCurrentPrefs = useCallback((): LiveTablePersistedPrefs => ({
     columnVisibility,
@@ -303,12 +327,15 @@ export function useTasksTableColumnPrefs({
   const handleDragEnd = useCallback(() => setDraggedColumnId(null), []);
 
   const pinColumn = useCallback((columnId: string, side: "left" | "right" | "unpin") => {
+    if (columnId === "select" || columnId === "actions") return;
     setColumnPinning((prev) => {
       const left = (prev.left ?? []).filter((id) => id !== columnId);
       const right = (prev.right ?? []).filter((id) => id !== columnId);
-      if (side === "left") return { left: [...left, columnId], right };
-      if (side === "right") return { left, right: [...right, columnId] };
-      return { left, right };
+      let next: ColumnPinningState;
+      if (side === "left") next = { left: [...left, columnId], right };
+      else if (side === "right") next = { left, right: [...right, columnId] };
+      else next = { left, right };
+      return normalizeLiveTableColumnPinning(next);
     });
   }, []);
 
@@ -318,8 +345,9 @@ export function useTasksTableColumnPrefs({
   }, []);
 
   const toggleColumnVisibilityInstant = useCallback((columnId: string, show: boolean) => {
+    if (columnId === "select" || columnId === "actions") return;
     setColumnVisibility((prev) => {
-      const next = { ...prev };
+      const next = normalizeLiveTableColumnVisibility(prev);
       if (show) delete next[columnId];
       else next[columnId] = false;
       return next;
@@ -328,8 +356,9 @@ export function useTasksTableColumnPrefs({
 
   const setManyColumnVisibilityInstant = useCallback((columnIds: string[], show: boolean) => {
     setColumnVisibility((prev) => {
-      const next = { ...prev };
+      const next = normalizeLiveTableColumnVisibility(prev);
       for (const id of columnIds) {
+        if (id === "select" || id === "actions") continue;
         if (show) delete next[id];
         else next[id] = false;
       }
@@ -340,7 +369,7 @@ export function useTasksTableColumnPrefs({
   const resetColumnOrderToDefault = useCallback(() => {
     const dynamicIds = extraDataKeys.map((k) => `extra:${k}`);
     setColumnOrder(mergeColumnOrderWithDynamics(undefined, dynamicIds));
-    setColumnPinning({ left: [], right: [] });
+    setColumnPinning(DEFAULT_LIVE_TABLE_COLUMN_PINNING);
   }, [extraDataKeys]);
 
   return {

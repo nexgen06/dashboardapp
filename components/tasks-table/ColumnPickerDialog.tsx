@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { COLUMN_VISIBILITY_LABELS, LIVE_TABLE_ACTION_BAR_BTN_CLASS } from "@/components/tasks-table/constants";
+import { isLiveTableRailColumn } from "@/lib/liveTableColumnVisibility";
 import { cn } from "@/lib/utils";
 import { Check, Circle, Columns3, Search } from "lucide-react";
 
@@ -127,8 +128,26 @@ export function ColumnPickerDialog({
                         (String(col.id).startsWith("extra:")
                           ? String(col.id).replace(/^extra:/, "")
                           : col.id);
+                      const isRail = isLiveTableRailColumn(col.id);
                       const canHide = col.getCanHide();
                       const visible = col.getIsVisible();
+
+                      if (isRail) {
+                        return (
+                          <span
+                            key={col.id}
+                            title="Bu sütun her zaman görünür — yatay kaydırmada sabit kalır"
+                            className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100"
+                          >
+                            <Check className="h-3 w-3 shrink-0" aria-hidden />
+                            <span className="truncate max-w-[160px]">{label}</span>
+                            <span className="ml-0.5 rounded-sm bg-emerald-200/80 px-1 text-[9px] uppercase tracking-wide text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-100">
+                              sabit ray
+                            </span>
+                          </span>
+                        );
+                      }
+
                       return (
                         <button
                           key={col.id}

@@ -37,6 +37,7 @@ import { TasksTableLoadingState } from "@/components/tasks-table/TasksTableLoadi
 import { TasksTableErrorState } from "@/components/tasks-table/TasksTableErrorState";
 import { AdvancedFilterDialog } from "@/components/tasks-table/AdvancedFilterDialog";
 import { TasksTableFiltersPanel } from "@/components/tasks-table/TasksTableFiltersPanel";
+import { PrimaryToolbarModernAdapter } from "@/components/tasks-table/PrimaryToolbarModernAdapter";
 import { TasksTableExportDialogs } from "@/components/tasks-table/TasksTableExportDialogs";
 import { TasksTableSelectionBar } from "@/components/tasks-table/TasksTableSelectionBar";
 import { TasksTableBulkDeleteDialog } from "@/components/tasks-table/TasksTableBulkDeleteDialog";
@@ -781,6 +782,69 @@ export function TasksTable({
         activeReferenceColumns={activeReferenceColumns}
         extraDataKeys={extraDataKeys}
       />
+      {settings.toolbarStyle === "modern" ? (
+        <PrimaryToolbarModernAdapter
+          table={table}
+          tasks={tasks}
+          globalSearch={globalSearch}
+          setGlobalSearch={setGlobalSearch}
+          projectLinkedFilter={projectLinkedFilter}
+          setProjectLinkedFilter={setProjectLinkedFilter}
+          statusFilter={statusFilter}
+          setStatusFilter={setStatusFilter}
+          statusOptions={statusOptions}
+          assigneeFilter={assigneeFilter}
+          setAssigneeFilter={setAssigneeFilter}
+          assigneeFilterOptions={assigneeFilterOptions}
+          projectFilter={projectFilter}
+          setProjectFilter={setProjectFilter}
+          projectFilterOptions={projectFilterOptions}
+          dateFrom={dateFrom}
+          setDateFrom={setDateFrom}
+          dateTo={dateTo}
+          setDateTo={setDateTo}
+          activeFilterCount={activeFilterCount}
+          clearFilters={clearFilters}
+          activeSmartFilter={activeSmartFilter as string | null}
+          applySmartFilter={(id: string | null) => {
+            if (id === null) {
+              // Modern: clear via toggling to same active
+              if (activeSmartFilter) applySmartFilter(activeSmartFilter);
+            } else {
+              applySmartFilter(id as Parameters<typeof applySmartFilter>[0]);
+            }
+          }}
+          smartFilterCounts={smartFilterCounts}
+          groupingField={grouping.groupingField}
+          setGroupingField={grouping.setGroupingField}
+          cfRules={conditionalFormatting.rules}
+          cfEnabledCount={conditionalFormatting.enabledCount}
+          onEditCf={() => { /* CF dialog DataPanel'de — ileride hub'a taşınacak */ }}
+          updateSetting={updateSetting}
+          savedViewsProps={{
+            // SavedViews mevcut yapıda ayrı component (SavedViewsControl) — modern v1'de
+            // basit no-op; ileride hook'tan liste alıp wire edilecek.
+            views: [],
+            activeViewId: syncActiveViewId,
+            isModified: false,
+            onSelect: setSyncActiveViewId,
+            onSaveAs: () => { /* TODO: integrate */ },
+            onUpdate: () => { /* TODO: integrate */ },
+          }}
+          onAddRow={() => setNewTaskOpen(true)}
+          onImport={() => setImportOpen(true)}
+          onExportCsv={() => handleExportCSV("current")}
+          onExportXlsx={() => handleExportExcel("current")}
+          onPrint={() => openPdfDialog("current")}
+          fullscreen={isFullWidth}
+          onFullscreen={() => setIsFullWidth((f) => !f)}
+          onReset={resetColumnOrderToDefault}
+          onOpenTask={(id) => {
+            const t = tasks.find((x) => x.id === id);
+            if (t) setDetailTask(t);
+          }}
+        />
+      ) : (
       <TasksTableFiltersPanel
         isModernTemplate={isModernTemplate}
         quickFiltersOpen={quickFiltersOpen}
@@ -834,6 +898,7 @@ export function TasksTable({
         columnFilters={columnFilters}
         clearColumnFilter={clearColumnFilter}
       />
+      )}
       <TasksTableActionBar
         viewTabs={viewTabs}
         getCurrentViewConfig={getCurrentViewConfig}
@@ -976,6 +1041,7 @@ export function TasksTable({
         dui={dui}
         requiresSingleProjectSelection={requiresSingleProjectSelection}
         liveTableSumPx={liveTableSumPx}
+        liveTableViewportWidth={liveTableViewportWidth}
         liveTableNeedsHorizontalScroll={liveTableNeedsHorizontalScroll}
         tasks={tasks}
         handleDragOver={handleDragOver}
