@@ -16,6 +16,7 @@ import {
   PrimaryToolbarModern,
   ActiveFilterBar,
   AddFab,
+  SummaryStrip,
   type FilterOption,
   type SortCol,
   type ActiveFilterChip as ActiveFilterChipType,
@@ -247,9 +248,24 @@ export function PrimaryToolbarModernAdapter(p: Props) {
   // View type — şu an sadece "table" implementli, diğerleri rezerv
   const [view, setView] = [("table" as ViewType), (_v: ViewType) => { /* TODO: page navigation */ }];
 
-  // Ozet (özet strip) — local state, settings'e bağlamadık
-  const ozet = false;
-  const onToggleOzet = useCallback(() => { /* future: settings.toolbarOzet toggle */ }, []);
+  // Özet strip — settings.liveTableSummaryStrip ile bağlı
+  const ozet = settings.liveTableSummaryStrip;
+  const onToggleOzet = useCallback(() => {
+    p.updateSetting("liveTableSummaryStrip", !settings.liveTableSummaryStrip);
+  }, [p, settings.liveTableSummaryStrip]);
+
+  // Özet için status sayımı (tasks'tan hesapla)
+  const summaryStats = useMemo(() => {
+    if (!ozet) return null;
+    let done = 0, inProgress = 0, todo = 0;
+    for (const t of p.tasks) {
+      const s = (t.status ?? "").toLocaleLowerCase("tr");
+      if (/tamam|done|completed/.test(s)) done++;
+      else if (/devam|progress|sürüyor/.test(s)) inProgress++;
+      else todo++;
+    }
+    return { total: p.tasks.length, done, inProgress, todo };
+  }, [ozet, p.tasks]);
 
   // Klasik dönüş
   const onSwitchToClassic = useCallback(() => {
@@ -302,6 +318,7 @@ export function PrimaryToolbarModernAdapter(p: Props) {
         // SavedViewsControl slot
         savedViewsSlot={p.savedViewsSlot}
       />
+      {summaryStats && <SummaryStrip stats={summaryStats} />}
       <ActiveFilterBar chips={chips} onClearAll={p.clearFilters} />
       <AddFab
         onAddRow={p.onAddRow} onImport={p.onImport}

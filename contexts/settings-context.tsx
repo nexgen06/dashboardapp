@@ -68,6 +68,11 @@ export type Settings = {
    * iki tasarım arasında geçiş yapabilir. Varsayılan: classic (geri uyum).
    */
   toolbarStyle: "classic" | "modern";
+  /**
+   * Modern toolbar altında özet şeridi (ilerleme bar + durum sayımları).
+   * MoreMenu içindeki "Özet göster" toggle bu değeri günceller.
+   */
+  liveTableSummaryStrip: boolean;
   language: Language;
   dateFormat: DateFormat;
   sidebarCollapsedByDefault: boolean;
@@ -116,6 +121,7 @@ const DEFAULT_SETTINGS: Settings = {
   brandColor: null,
   brandLogoDataUrl: null,
   toolbarStyle: "classic",
+  liveTableSummaryStrip: false,
   language: "tr",
   dateFormat: "DD.MM.YYYY",
   sidebarCollapsedByDefault: false,
