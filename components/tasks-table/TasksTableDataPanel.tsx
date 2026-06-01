@@ -1231,14 +1231,16 @@ function SortableHeaderCell({
   const sortable = useSortable({ id: columnId, disabled: !isSortable });
   const { setNodeRef, attributes, listeners, transform, transition, isDragging, isOver, active } = sortable;
   const isOverFromOther = isOver && active?.id !== columnId;
-  const combinedStyle: React.CSSProperties = isSortable
-    ? {
-        ...style,
-        transform: CSS.Transform.toString(transform),
-        transition,
-        opacity: isDragging ? 0.4 : 1,
-      }
-    : (style || {});
+  // KRİTİK: dnd-kit transform sadece gerçek drag/animate sırasında uygulanır.
+  // `transform === null` iken set etmek (boş translate3d) sticky positioning'i
+  // tarayıcılarda kırar — thead "yapışkan" özelliğini kaybeder. Bu yüzden
+  // transform/transition yalnız truthy iken inline style'a girer.
+  const combinedStyle: React.CSSProperties = {
+    ...(style || {}),
+    ...(isSortable && transform ? { transform: CSS.Transform.toString(transform) } : {}),
+    ...(isSortable && transition ? { transition } : {}),
+    ...(isSortable && isDragging ? { opacity: 0.4 } : {}),
+  };
   // Sortable kolonlarda küçük grip butonu — listeners SADECE grip'e bağlı
   // (sort/filter butonları tıklanabilir kalsın). Activation distance 6px ile
   // accidental drag engellenir.
