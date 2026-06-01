@@ -505,20 +505,20 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                       }
                       className={cn(
                         LIVE_TABLE_THEAD_CELL_CLASS,
-                        "relative text-left",
+                        // DİKKAT: "relative" YAZMA — twMerge sticky'yi siler!
+                        // LIVE_TABLE_THEAD_CELL_CLASS zaten "sticky top-0" içeriyor,
+                        // sticky position context kendisi oluşturur (relative gerekmez).
+                        "text-left",
                         tableSkin.headCell,
                         dui.th,
                         isModernTemplate && MODERN_DENSITY_UI[tableDensity].th,
-                        isSelectCol &&
-                          cn("sticky z-[20] px-0 py-0 text-center"),
-                        isActionsCol &&
-                          cn("sticky z-[20] px-0 text-right"),
-                        stickyLeft &&
-                          !isSelectCol &&
-                          cn("sticky z-[25]"),
-                        stickyRight &&
-                          !isActionsCol &&
-                          cn("sticky z-[25]"),
+                        // Pin'li hücreler için z-index'i artır + yatay sticky offset
+                        // (top zaten LIVE_TABLE_THEAD_CELL_CLASS'tan gelir, sticky burada
+                        // override edilmemeli)
+                        isSelectCol && "z-[25] px-0 py-0 text-center",
+                        isActionsCol && "z-[25] px-0 text-right",
+                        stickyLeft && !isSelectCol && "z-[30]",
+                        stickyRight && !isActionsCol && "z-[30]",
                       )}
                       style={{
                         width: wPx,
