@@ -397,8 +397,11 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
             </span>
           )}
         </button>
-        {/* Sıralama göstergesi + temizle */}
-        {table.getState().sorting.length > 0 && (
+        {/* Sıralama göstergesi + temizle — yalnızca klasik toolbar'da.
+            Modern toolbar ViewMenu (Görünüm) → Sıralama bölümünde aynı bilgiyi
+            (count badge + "Temizle") zaten gösteriyor; modern modda burayı
+            render edersek duplicate olur. */}
+        {settings.toolbarStyle !== "modern" && table.getState().sorting.length > 0 && (
           <div className="ml-auto flex items-center gap-2">
             <span className="text-[11px] text-slate-500 dark:text-slate-400">
               Sıralama: <strong className="text-slate-700 dark:text-slate-200">{table.getState().sorting.length} kolon</strong>
