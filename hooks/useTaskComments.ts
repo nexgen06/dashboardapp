@@ -10,7 +10,9 @@ import {
 } from "@/lib/realtimeFallback";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
+  listCellCommentCounts,
   listTaskComments,
+  type CommentScope,
   type TaskComment,
 } from "@/lib/taskComments";
 
@@ -25,13 +27,39 @@ type PostgresChangePayload = {
 /**
  * Bir görevin yorumlarını canlı dinler.
  * taskId değiştiğinde yeniden bağlanır; null/empty olursa boş döner.
+ *
+ * @param taskId Hedef görev
+ * @param scope Hangi tip yorumlar (varsayılan "task" = görev seviyesi).
+ *              - "task" → field_key IS NULL (eski davranış, geriye dönük)
+ *              - "all"  → görev + tüm hücre yorumları
+ *              - { fieldKey: "extra:Sicil No" } → sadece o hücre
  */
-export function useTaskComments(taskId: string | null | undefined) {
+export function useTaskComments(
+  taskId: string | null | undefined,
+  scope: CommentScope = "task"
+) {
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [realtimeConnected, setRealtimeConnected] = useState(false);
   const channelRef = useRef<RealtimeChannel | null>(null);
+
+  // Scope objesi her render'da yeni referans olabilir — stable key türet
+  const scopeKey =
+    scope === "task" || scope === "all" ? scope : `field:${scope.fieldKey}`;
+
+  // Client-side filter: realtime payload tüm task yorumlarını getirir;
+  // bizim scope'umuza uymayanları eliyoruz.
+  const matchesScope = useCallback(
+    (row: { field_key: string | null }) => {
+      if (scope === "all") return true;
+      if (scope === "task") return row.field_key === null;
+      return row.field_key === scope.fieldKey;
+    },
+    // scope obje ise stable key üzerinden bağla
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scopeKey]
+  );
 
   const refresh = useCallback(async () => {
     if (!taskId) {
@@ -40,7 +68,7 @@ export function useTaskComments(taskId: string | null | undefined) {
       return;
     }
     try {
-      const rows = await listTaskComments(taskId);
+      const rows = await listTaskComments(taskId, scope);
       setComments(rows);
       setError(null);
     } catch (e) {
@@ -49,7 +77,8 @@ export function useTaskComments(taskId: string | null | undefined) {
     } finally {
       setIsLoading(false);
     }
-  }, [taskId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskId, scopeKey]);
 
   useEffect(() => {
     setIsLoading(true);
@@ -82,15 +111,22 @@ export function useTaskComments(taskId: string | null | undefined) {
         },
         (payload: PostgresChangePayload) => {
           if (payload.eventType === "INSERT") {
-            const row = payload.new as unknown as TaskComment;
+            const mapped = mapPayloadRow(payload.new as TaskComment);
+            // Realtime tüm task yorumlarını getirir; scope dışı olanları atla.
+            if (!matchesScope(mapped)) return;
             setComments((prev) => {
-              if (prev.find((c) => c.id === String(row.id))) return prev;
-              return [...prev, mapPayloadRow(row)];
+              if (prev.find((c) => c.id === mapped.id)) return prev;
+              return [...prev, mapped];
             });
           } else if (payload.eventType === "UPDATE") {
-            const row = payload.new as unknown as TaskComment;
+            const mapped = mapPayloadRow(payload.new as TaskComment);
+            if (!matchesScope(mapped)) {
+              // Scope dışına çıktıysa listeden düş
+              setComments((prev) => prev.filter((c) => c.id !== mapped.id));
+              return;
+            }
             setComments((prev) =>
-              prev.map((c) => (c.id === String(row.id) ? mapPayloadRow(row) : c))
+              prev.map((c) => (c.id === mapped.id ? mapped : c))
             );
           } else if (payload.eventType === "DELETE") {
             const oldRow = payload.old as { id?: string };
@@ -138,17 +174,111 @@ export function useTaskComments(taskId: string | null | undefined) {
 }
 
 function mapPayloadRow(row: TaskComment | Record<string, unknown>): TaskComment {
+  const r = row as Record<string, unknown>;
+  const rawField = r.field_key;
   return {
-    id: String((row as Record<string, unknown>).id ?? ""),
-    task_id: String((row as Record<string, unknown>).task_id ?? ""),
-    user_id: String((row as Record<string, unknown>).user_id ?? ""),
-    user_email: String((row as Record<string, unknown>).user_email ?? ""),
+    id: String(r.id ?? ""),
+    task_id: String(r.task_id ?? ""),
+    user_id: String(r.user_id ?? ""),
+    user_email: String(r.user_email ?? ""),
     user_display_name:
-      (row as Record<string, unknown>).user_display_name != null
-        ? String((row as Record<string, unknown>).user_display_name)
+      r.user_display_name != null
+        ? String(r.user_display_name)
         : null,
-    body: String((row as Record<string, unknown>).body ?? ""),
-    created_at: String((row as Record<string, unknown>).created_at ?? ""),
-    updated_at: String((row as Record<string, unknown>).updated_at ?? ""),
+    body: String(r.body ?? ""),
+    field_key:
+      rawField != null && String(rawField).trim() !== ""
+        ? String(rawField)
+        : null,
+    created_at: String(r.created_at ?? ""),
+    updated_at: String(r.updated_at ?? ""),
   };
+}
+
+/**
+ * Bir görevin hücre-bazlı yorum sayımlarını canlı dinler.
+ *
+ * Tabloda her hücrenin sağ üstündeki "💬 N" rozetini beslemek için kullanılır.
+ * Realtime: bu task'taki yorumlardan biri eklendiğinde/silinince map yeniden hesaplanır.
+ *
+ * @returns counts: { [fieldKey]: number } — sadece hücre yorumları (field_key IS NOT NULL)
+ */
+export function useCellCommentCounts(taskId: string | null | undefined) {
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [isLoading, setIsLoading] = useState(true);
+  const [realtimeConnected, setRealtimeConnected] = useState(false);
+  const channelRef = useRef<RealtimeChannel | null>(null);
+
+  const refresh = useCallback(async () => {
+    if (!taskId) {
+      setCounts({});
+      setIsLoading(false);
+      return;
+    }
+    try {
+      const m = await listCellCommentCounts(taskId);
+      setCounts(m);
+    } catch {
+      setCounts({});
+    } finally {
+      setIsLoading(false);
+    }
+  }, [taskId]);
+
+  useEffect(() => {
+    setIsLoading(true);
+    void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    if (!taskId) return;
+    if (isRealtimeDisabledForClient()) {
+      setRealtimeConnected(false);
+      return;
+    }
+    channelSeq += 1;
+    let cancelled = false;
+    setRealtimeConnected(false);
+    const ch = supabase
+      .channel(`cell_counts_${taskId}_${channelSeq}`)
+      .on(
+        "postgres_changes" as never,
+        {
+          event: "*",
+          schema: "public",
+          table: "task_comments",
+          filter: `task_id=eq.${taskId}`,
+        },
+        // Sayım için en pratik yol: değişiklik gelince tam refresh.
+        // Per-row delta yönetmek yerine küçük yeniden sorgu; volume düşük.
+        () => {
+          if (!cancelled) void refresh();
+        }
+      )
+      .subscribe((status, err) => {
+        if (cancelled) return;
+        const s = String(status ?? "").toUpperCase();
+        if (s === "SUBSCRIBED") setRealtimeConnected(true);
+        else if (err || s === "CHANNEL_ERROR" || s === "TIMED_OUT" || s === "CLOSED") {
+          setRealtimeConnected(false);
+        }
+      });
+    channelRef.current = ch;
+    return () => {
+      cancelled = true;
+      setRealtimeConnected(false);
+      void supabase.removeChannel(ch);
+      channelRef.current = null;
+    };
+  }, [taskId, refresh]);
+
+  useEffect(() => {
+    if (!taskId || realtimeConnected) return;
+    const interval = window.setInterval(() => {
+      if (shouldPollInBrowser()) void refresh();
+    }, COMMENTS_FALLBACK_POLL_MS);
+    return () => window.clearInterval(interval);
+  }, [taskId, realtimeConnected, refresh]);
+
+  return { counts, isLoading };
 }
