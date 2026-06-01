@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ClipboardList, FileUp, Upload } from "lucide-react";
+import { AlertTriangle, ClipboardList, FileUp, Upload } from "lucide-react";
 import type { ProjectColumn } from "@/lib/projectColumns";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,7 +15,36 @@ import { parseCSV } from "@/lib/csvParser";
 import { parseJSON } from "@/lib/jsonParser";
 import { getExtraColumnFormatKind, normalizeExtraDataBySmartRules } from "@/lib/extraColumnFormatRules";
 import { enrichExtraDataFromReferenceRecords } from "@/lib/referenceExtraDataEnrichment";
+import { isSensitiveExtraColumnKey } from "@/lib/extraColumnSensitiveDisplay";
 import { cn } from "@/lib/utils";
+
+/**
+ * Hassas sütunlarda (TCKN/Sicil/Personel No/Kimlik No) "•" veya "·" gibi mask
+ * karakterleri tespit eder. Daha önce yaşanan veri bozulması: kullanıcı
+ * `unmaskSensitive: false` ile CSV export edip aynı CSV'yi re-import edince
+ * DB'ye masked değerler kalıcı olarak yazılmıştı. Bu detector import preview'da
+ * uyarı + onay isteyerek aynı senaryoyu engeller.
+ */
+const MASK_CHAR_RE = /[•·]/;
+function detectMaskedSensitiveInTasks(
+  tasks: Array<{ extra_data?: Record<string, string> | null }>
+): { count: number; columns: string[] } {
+  const columns = new Set<string>();
+  let count = 0;
+  for (const task of tasks) {
+    const ed = task.extra_data;
+    if (!ed) continue;
+    for (const [key, val] of Object.entries(ed)) {
+      if (!isSensitiveExtraColumnKey(key)) continue;
+      if (typeof val !== "string" || val.length === 0) continue;
+      if (MASK_CHAR_RE.test(val)) {
+        count++;
+        columns.add(key);
+      }
+    }
+  }
+  return { count, columns: Array.from(columns) };
+}
 
 type ColumnMapKey = "content" | "status" | "assignee" | "priority";
 const COLUMN_MAP_LABELS: Record<ColumnMapKey, string> = {
@@ -61,6 +90,11 @@ export function CSVImportDialog({
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  /**
+   * "Hassas sütunda maskeli karakter saptandı" uyarısını kullanıcının
+   * bilerek görmezden geldiğini gösterir. False kalırsa import butonu kilitli.
+   */
+  const [acknowledgedMasked, setAcknowledgedMasked] = useState(false);
 
   const reset = useCallback(() => {
     setHeaders([]);
@@ -71,6 +105,7 @@ export function CSVImportDialog({
     setReplaceConfirmText("");
     setError(null);
     setPasteText("");
+    setAcknowledgedMasked(false);
   }, []);
 
   useEffect(() => {
@@ -308,6 +343,18 @@ export function CSVImportDialog({
   const canImport = importMode === "paste" ? pasteLines.length > 0 : rows.length > 0;
   const replaceConfirmationOk =
     !replaceExisting || (!!replaceTargetProjectName && replaceConfirmText.trim() === replaceTargetProjectName);
+
+  // KVKK savunma: import preview'da hassas kolon değerleri "•" karakteri içeriyorsa
+  // muhtemelen `unmaskSensitive: false` CSV export'unun re-import'u — onay iste.
+  // Paste modunda extra_data sadece `Görev` anahtarı içerir, sensitive değil; yine de
+  // tek tek kontrol et (ileride paste kaynaklı sensitive kolon eklenirse korumalı).
+  const maskedSensitiveFinding = useMemo(() => {
+    if (!canImport) return { count: 0, columns: [] as string[] };
+    const previewTasks = importMode === "paste" ? buildTasksFromPaste() : buildTasks();
+    return detectMaskedSensitiveInTasks(previewTasks);
+  }, [canImport, importMode, buildTasks, buildTasksFromPaste]);
+  const requiresMaskedAck = maskedSensitiveFinding.count > 0;
+  const maskedAckOk = !requiresMaskedAck || acknowledgedMasked;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -555,6 +602,34 @@ export function CSVImportDialog({
           )}
             </>
           )}
+          {requiresMaskedAck && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950/30">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+                <div className="flex-1 space-y-2">
+                  <p className="font-medium text-amber-900 dark:text-amber-100">
+                    Hassas sütunda maskeli değer saptandı
+                  </p>
+                  <p className="text-amber-800 dark:text-amber-200">
+                    {maskedSensitiveFinding.count} satırda hassas sütunlar
+                    (<span className="font-mono">{maskedSensitiveFinding.columns.join(", ")}</span>)
+                    {" "}<span className="font-mono">•</span> karakteri içeriyor. Bu, &quot;Maskeli olarak dışa aktar&quot; ile
+                    indirilmiş bir CSV&apos;yi tekrar yüklediğinizi gösterebilir. İçe aktarırsanız
+                    DB&apos;ye maskeli (geri alınamaz) değerler kalıcı olarak yazılır ve raw veri kaybolur.
+                  </p>
+                  <label className="flex items-center gap-2 text-amber-900 dark:text-amber-100">
+                    <input
+                      type="checkbox"
+                      checked={acknowledgedMasked}
+                      onChange={(e) => setAcknowledgedMasked(e.target.checked)}
+                      className="h-4 w-4 cursor-pointer rounded border-amber-300 text-amber-600 focus:ring-amber-500 dark:border-amber-600"
+                    />
+                    <span>Bilerek devam etmek istiyorum (veri kaybı riski farkındayım)</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
           {error && <p className="whitespace-pre-line text-sm text-red-600 dark:text-red-400">{error}</p>}
         </div>
         <DialogFooter>
@@ -565,7 +640,7 @@ export function CSVImportDialog({
             type="button"
             variant={replaceExisting ? "destructive" : "default"}
             onClick={handleImport}
-            disabled={!canImport || importing || !replaceConfirmationOk}
+            disabled={!canImport || importing || !replaceConfirmationOk || !maskedAckOk}
           >
             {importing
               ? "Aktarılıyor…"
