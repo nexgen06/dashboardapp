@@ -38,6 +38,7 @@ import { TasksTableErrorState } from "@/components/tasks-table/TasksTableErrorSt
 import { AdvancedFilterDialog } from "@/components/tasks-table/AdvancedFilterDialog";
 import { TasksTableFiltersPanel } from "@/components/tasks-table/TasksTableFiltersPanel";
 import { PrimaryToolbarModernAdapter } from "@/components/tasks-table/PrimaryToolbarModernAdapter";
+import { SavedViewsControl } from "@/components/SavedViewsControl";
 import { TasksTableExportDialogs } from "@/components/tasks-table/TasksTableExportDialogs";
 import { TasksTableSelectionBar } from "@/components/tasks-table/TasksTableSelectionBar";
 import { TasksTableBulkDeleteDialog } from "@/components/tasks-table/TasksTableBulkDeleteDialog";
@@ -843,6 +844,16 @@ export function TasksTable({
             const t = tasks.find((x) => x.id === id);
             if (t) setDetailTask(t);
           }}
+          savedViewsSlot={
+            <SavedViewsControl
+              getCurrentConfig={getCurrentViewConfig}
+              onApplyConfig={applyViewConfig}
+              isAdmin={isAdmin}
+              userId={user?.id ?? null}
+              projectId={projectFilter.length === 1 ? projectFilter[0] : null}
+              syncActiveViewId={syncActiveViewId}
+            />
+          }
         />
       ) : (
       <TasksTableFiltersPanel

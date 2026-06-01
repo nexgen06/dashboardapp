@@ -8,7 +8,7 @@
  * sadece görsel sunum değişir. Bu sayede klasik <-> modern arası tek tık geçiş.
  * ========================================================================== */
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, type ReactNode } from "react";
 import type { Table } from "@tanstack/react-table";
 import type { Task } from "@/types/tasks";
 import type { SortingState } from "@tanstack/react-table";
@@ -88,6 +88,9 @@ type Props = {
   // Detail open (search match)
   onOpenTask: (id: string) => void;
   tasks: Task[];
+
+  /** SavedViewsControl gibi mevcut component slot (Görünüm'den önce render) */
+  savedViewsSlot?: ReactNode;
 };
 
 export function PrimaryToolbarModernAdapter(p: Props) {
@@ -296,6 +299,8 @@ export function PrimaryToolbarModernAdapter(p: Props) {
         onReset={p.onReset}
         // Klasik dönüş
         onSwitchToClassic={onSwitchToClassic}
+        // SavedViewsControl slot
+        savedViewsSlot={p.savedViewsSlot}
       />
       <ActiveFilterBar chips={chips} onClearAll={p.clearFilters} />
       <AddFab
