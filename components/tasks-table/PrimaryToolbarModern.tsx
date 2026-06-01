@@ -187,6 +187,12 @@ export type PrimaryToolbarModernProps = {
 
   // Klasik tasarıma dönüş (toolbarStyle switch)
   onSwitchToClassic?: () => void;
+
+  /**
+   * SavedViewsControl gibi mevcut component'leri toolbar'da göstermek için slot.
+   * Görünüm dropdown'undan önce render edilir.
+   */
+  savedViewsSlot?: ReactNode;
 };
 
 /* ─── UTILITIES ───────────────────────────────────────────────────── */
@@ -821,12 +827,16 @@ function ViewMenuBody(props: ViewMenuBodyProps) {
           options={STYLE_OPTIONS.map((s) => ({ value: s.value, label: s.label }))} />
       </div>
 
+      {/* Kayıtlı görünümler — boş savedViews ve onSaveViewAs no-op iken render etme
+          (modern toolbar'da slot olarak SavedViewsControl gösteriliyor) */}
+      {props.savedViews.length > 0 && (
       <SectionLabel right={
         <button onClick={() => { props.onClose(); props.onSaveViewAs(); }}
           className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium text-blue-700 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/40">
           <Plus className="h-2.5 w-2.5" /> Yeni
         </button>
-      }>Kayıtlı görünümler</SectionLabel>
+      }>Kayıtlı görünümler</SectionLabel>)}
+      {props.savedViews.length > 0 && (<>
       {props.viewIsModified && active && (
         <button onClick={() => { props.onClose(); props.onUpdateView(active.id); }}
           className="mx-1 mb-1 flex w-[calc(100%-8px)] items-center gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-900/40">
@@ -847,8 +857,8 @@ function ViewMenuBody(props: ViewMenuBodyProps) {
             </button>
           </li>
         ))}
-        {props.savedViews.length === 0 && <li className="px-3 py-2 text-center text-xs text-slate-500">Henüz görünüm yok</li>}
       </ul>
+      </>)}
 
       <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
       <MenuRow
@@ -1134,6 +1144,7 @@ export function PrimaryToolbarModern(props: PrimaryToolbarModernProps) {
         <ViewTypeTabs value={props.view} onChange={props.setView} />
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        {props.savedViewsSlot}
         {viewMenu}
         <AddSplitButton
           onAddRow={props.onAddRow} onImport={props.onImport}
