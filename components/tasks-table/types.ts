@@ -16,6 +16,17 @@ export type TasksTableProps = {
    */
   viewMode?: LiveTableViewMode;
   onViewModeChange?: (mode: LiveTableViewMode) => void;
+  /**
+   * Yan "Görev özeti" panelinin gizli olup olmadığı — page state.
+   * Modern toolbar MoreMenu'sundaki "Yan görev özeti paneli" toggle bu state'i kontrol eder.
+   */
+  summaryCollapsed?: boolean;
+  onSummaryCollapsedChange?: (value: boolean) => void;
+  /**
+   * Tabloyu Genişlet (full-width) açıldığında page'e bildirilir.
+   * Page bunu kullanarak yan paneli otomatik kapatır → dikey alan kazanılır.
+   */
+  onFullWidthChange?: (value: boolean) => void;
 };
 
 export type ActiveEditableCell = {

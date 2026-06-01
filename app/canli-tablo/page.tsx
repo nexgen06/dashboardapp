@@ -288,6 +288,12 @@ export default function CanliTabloPage() {
                 }
                 viewMode={activeView as "table" | "kanban" | "gantt" | "calendar" | "risk"}
                 onViewModeChange={(m) => setActiveView(m)}
+                summaryCollapsed={summaryCollapsed}
+                onSummaryCollapsedChange={setSummaryCollapsed}
+                // KATMAN 2: "Tabloyu genişlet" açılınca yan panel otomatik kapanır.
+                // Asıl amaç: dikey alan kazanmak — daha fazla satır görmek. Kullanıcı
+                // genişleti kapatınca panel kendi state'inde kalır (auto-açılma yok).
+                onFullWidthChange={(v) => { if (v) setSummaryCollapsed(true); }}
               />
             </TabsContent>
             <TabsContent

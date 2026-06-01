@@ -73,6 +73,9 @@ export function TasksTable({
   initialOpenTaskId,
   viewMode,
   onViewModeChange,
+  summaryCollapsed,
+  onSummaryCollapsedChange,
+  onFullWidthChange,
 }: TasksTableProps = {}) {
   const {
     tasks,
@@ -138,6 +141,12 @@ export function TasksTable({
   /** J/K gezinmesi için son odak görev (sheet kapalıyken satır seçimi). */
   const navAnchorTaskIdRef = useRef<string | null>(null);
   const [isFullWidth, setIsFullWidth] = useState(false);
+
+  // KATMAN 2: "Tabloyu genişlet" (full-width) açıldığında page'e bildir.
+  // Page bunu kullanarak yan paneli otomatik kapatır → asıl amaç: daha çok satır.
+  useEffect(() => {
+    onFullWidthChange?.(isFullWidth);
+  }, [isFullWidth, onFullWidthChange]);
 
   useEffect(() => {
     if (!initialOpenTaskId || isLoading) return;
@@ -849,6 +858,12 @@ export function TasksTable({
           onManageColumns={openColumnPicker}
           viewMode={viewMode}
           onViewModeChange={onViewModeChange}
+          summaryPanelCollapsed={summaryCollapsed}
+          onToggleSummaryPanel={
+            onSummaryCollapsedChange
+              ? () => onSummaryCollapsedChange(!(summaryCollapsed ?? false))
+              : undefined
+          }
           savedViewsSlot={
             <SavedViewsControl
               getCurrentConfig={getCurrentViewConfig}
@@ -915,31 +930,37 @@ export function TasksTable({
         clearColumnFilter={clearColumnFilter}
       />
       )}
-      <TasksTableActionBar
-        viewTabs={viewTabs}
-        getCurrentViewConfig={getCurrentViewConfig}
-        onApplyViewConfig={applyViewConfig}
-        isAdmin={isAdmin}
-        userId={user?.id ?? null}
-        projectFilter={projectFilter}
-        syncActiveViewId={syncActiveViewId}
-        canManageColumns={canManageColumns}
-        columnPickerOpen={columnPickerOpen}
-        setColumnPickerOpen={setColumnPickerOpen}
-        openColumnPicker={openColumnPicker}
-        table={table}
-        columnPickerSearch={columnPickerSearch}
-        setColumnPickerSearch={setColumnPickerSearch}
-        setManyColumnVisibilityInstant={setManyColumnVisibilityInstant}
-        toggleColumnVisibilityInstant={toggleColumnVisibilityInstant}
-        resetColumnOrderToDefault={resetColumnOrderToDefault}
-        canImportCsv={canImportCsv}
-        canCreateTask={canCreateTask}
-        canExportCsv={canExportCsv}
-        onOpenImport={() => setImportOpen(true)}
-        onOpenExport={() => setExportDialogOpen(true)}
-        onOpenNewTask={() => setNewTaskOpen(true)}
-      />
+      {/* TasksTableActionBar — klasik toolbar'a özel.
+          Modern toolbar tüm aksiyonları (saved views, kolon yönetimi, import/export,
+          yeni görev, view tabs, fullscreen) zaten içeriyor; modern modda bu bar
+          render edilirse duplicate buton/fonksiyon çıkar. */}
+      {settings.toolbarStyle !== "modern" && (
+        <TasksTableActionBar
+          viewTabs={viewTabs}
+          getCurrentViewConfig={getCurrentViewConfig}
+          onApplyViewConfig={applyViewConfig}
+          isAdmin={isAdmin}
+          userId={user?.id ?? null}
+          projectFilter={projectFilter}
+          syncActiveViewId={syncActiveViewId}
+          canManageColumns={canManageColumns}
+          columnPickerOpen={columnPickerOpen}
+          setColumnPickerOpen={setColumnPickerOpen}
+          openColumnPicker={openColumnPicker}
+          table={table}
+          columnPickerSearch={columnPickerSearch}
+          setColumnPickerSearch={setColumnPickerSearch}
+          setManyColumnVisibilityInstant={setManyColumnVisibilityInstant}
+          toggleColumnVisibilityInstant={toggleColumnVisibilityInstant}
+          resetColumnOrderToDefault={resetColumnOrderToDefault}
+          canImportCsv={canImportCsv}
+          canCreateTask={canCreateTask}
+          canExportCsv={canExportCsv}
+          onOpenImport={() => setImportOpen(true)}
+          onOpenExport={() => setExportDialogOpen(true)}
+          onOpenNewTask={() => setNewTaskOpen(true)}
+        />
+      )}
       {/* ─── SelectionBar — fixed slide-up panel ───
           Önceden satır arası inline'dı; artık alt orta noktada sabit kart olarak çıkar.
           Mobil için MobileBottomNav (≈4rem) üzerinde, safe-area uyumlu.
