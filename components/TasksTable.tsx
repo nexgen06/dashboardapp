@@ -844,6 +844,7 @@ export function TasksTable({
             const t = tasks.find((x) => x.id === id);
             if (t) setDetailTask(t);
           }}
+          onManageColumns={openColumnPicker}
           savedViewsSlot={
             <SavedViewsControl
               getCurrentConfig={getCurrentViewConfig}
