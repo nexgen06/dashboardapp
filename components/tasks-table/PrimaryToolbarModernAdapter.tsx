@@ -99,6 +99,13 @@ type Props = {
   /** ViewTypeTabs (Tablo/Kanban/Gantt/Takvim/Risk) aktif görünüm */
   viewMode?: ViewType;
   onViewModeChange?: (m: ViewType) => void;
+
+  /**
+   * Yan "Görev özeti" panel durumu (page state'inden).
+   * Undefined ise MoreMenu'da bu toggle gösterilmez.
+   */
+  summaryPanelCollapsed?: boolean;
+  onToggleSummaryPanel?: () => void;
 };
 
 export function PrimaryToolbarModernAdapter(p: Props) {
@@ -267,8 +274,10 @@ export function PrimaryToolbarModernAdapter(p: Props) {
   }, [p, settings.liveTableSummaryStrip]);
 
   // Özet için status sayımı (tasks'tan hesapla)
+  // KATMAN 2: Fullscreen iken kullanıcı "daha çok satır görmek" istediği için
+  // SummaryStrip'i otomatik gizleriz. Settings dokunulmaz — fullscreen kapatınca geri gelir.
   const summaryStats = useMemo(() => {
-    if (!ozet) return null;
+    if (!ozet || p.fullscreen) return null;
     let done = 0, inProgress = 0, todo = 0;
     for (const t of p.tasks) {
       const s = (t.status ?? "").toLocaleLowerCase("tr");
@@ -277,7 +286,7 @@ export function PrimaryToolbarModernAdapter(p: Props) {
       else todo++;
     }
     return { total: p.tasks.length, done, inProgress, todo };
-  }, [ozet, p.tasks]);
+  }, [ozet, p.fullscreen, p.tasks]);
 
   // Klasik dönüş
   const onSwitchToClassic = useCallback(() => {
@@ -322,6 +331,8 @@ export function PrimaryToolbarModernAdapter(p: Props) {
         fullscreen={p.fullscreen} onFullscreen={p.onFullscreen}
         // Daha fazla
         ozet={ozet} onToggleOzet={onToggleOzet}
+        summaryPanelCollapsed={p.summaryPanelCollapsed}
+        onToggleSummaryPanel={p.onToggleSummaryPanel}
         pageSize={pageSize} setPageSize={setPageSize}
         onExportSettings={p.onExportCsv}
         onReset={p.onReset}

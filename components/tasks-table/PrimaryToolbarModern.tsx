@@ -22,7 +22,8 @@ import {
   AlertCircle, ArrowDown, ArrowUp, BarChart3, Bookmark, Calendar, CalendarDays,
   CalendarRange, Check, ChevronDown, ChevronLeft, ChevronRight, CircleDot, Columns,
   Download, FileDown, FileSpreadsheet, FileText, Flag, Flame, Folder, GanttChartSquare,
-  Layers, ListFilter, Mail, MapPin, Maximize2, MoreHorizontal, Paintbrush, Plus,
+  Layers, ListFilter, Mail, MapPin, Maximize2, MoreHorizontal, Paintbrush,
+  PanelLeftClose, PanelLeftOpen, Plus,
   Printer, RotateCcw, Search, SlidersHorizontal, Table as TableIcon, Upload, User,
   UserX, X,
 } from "lucide-react";
@@ -180,6 +181,13 @@ export type PrimaryToolbarModernProps = {
   // Daha fazla
   ozet: boolean;
   onToggleOzet: () => void;
+  /**
+   * Yan "Görev özeti" panelinin gizli olup olmadığı (page state'i).
+   * undefined ise bu toggle MoreMenu'da render edilmez (page bağlamadıysa).
+   */
+  summaryPanelCollapsed?: boolean;
+  /** Yan görev özeti panelini aç/kapa (page state'ine bağlı). */
+  onToggleSummaryPanel?: () => void;
   pageSize: number;
   setPageSize: (n: number) => void;
   onExportSettings: () => void;
@@ -1004,18 +1012,27 @@ export function AddFab(p: Omit<AddListProps, "onClose">) {
    ═══════════════════════════════════════════════════════════════════ */
 
 function MoreMenu({
-  onReset, ozet, onToggleOzet, pageSize, setPageSize, onExportSettings,
-}: Pick<PrimaryToolbarModernProps, "onReset" | "ozet" | "onToggleOzet" | "pageSize" | "setPageSize" | "onExportSettings">) {
+  onReset, ozet, onToggleOzet,
+  summaryPanelCollapsed, onToggleSummaryPanel,
+  pageSize, setPageSize, onExportSettings,
+}: Pick<PrimaryToolbarModernProps,
+  "onReset" | "ozet" | "onToggleOzet"
+  | "summaryPanelCollapsed" | "onToggleSummaryPanel"
+  | "pageSize" | "setPageSize" | "onExportSettings"
+>) {
   const mobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const ref = useDismiss(open && !mobile, () => setOpen(false));
+  // Yan panel toggle yalnızca page bağladıysa (callback varsa) gösterilir.
+  const showPanelToggle = typeof onToggleSummaryPanel === "function";
+  const panelActive = !summaryPanelCollapsed; // panel açıksa "active"
   const body = (
     <div className="py-1">
       <MenuRow icon={RotateCcw} label="Varsayılan sıraya dön" onClick={() => { setOpen(false); onReset(); }} />
       <MenuRow
         icon={BarChart3}
         active={ozet}
-        label="Özeti göster"
+        label="Üst bar (özet stripi)"
         onClick={() => { setOpen(false); onToggleOzet(); }}
         right={
           <span className={cn(
@@ -1029,6 +1046,25 @@ function MoreMenu({
           </span>
         }
       />
+      {showPanelToggle && (
+        <MenuRow
+          icon={panelActive ? PanelLeftClose : PanelLeftOpen}
+          active={panelActive}
+          label="Yan görev özeti paneli"
+          onClick={() => { setOpen(false); onToggleSummaryPanel?.(); }}
+          right={
+            <span className={cn(
+              "relative h-4 w-7 rounded-full transition-colors",
+              panelActive ? "bg-indigo-500" : "bg-slate-300 dark:bg-slate-600"
+            )}>
+              <span className={cn(
+                "absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all",
+                panelActive ? "left-[14px]" : "left-0.5"
+              )} />
+            </span>
+          }
+        />
+      )}
       <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
       <div className="flex items-center gap-2 px-2.5 py-1.5 text-sm text-slate-700 dark:text-slate-200">
         <TableIcon className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />
@@ -1121,6 +1157,8 @@ export function PrimaryToolbarModern(props: PrimaryToolbarModernProps) {
   const more = (
     <MoreMenu
       onReset={props.onReset} ozet={props.ozet} onToggleOzet={props.onToggleOzet}
+      summaryPanelCollapsed={props.summaryPanelCollapsed}
+      onToggleSummaryPanel={props.onToggleSummaryPanel}
       pageSize={props.pageSize} setPageSize={props.setPageSize}
       onExportSettings={props.onExportSettings}
     />
