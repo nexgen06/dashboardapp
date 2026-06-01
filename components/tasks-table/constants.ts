@@ -170,9 +170,12 @@ export const LIVE_TABLE_TEMPLATE_UI: Record<
   },
 };
 
-/** Sticky thead — scroll'da buzlu cam + net alt çizgi (Faz 2). */
+/** Sticky thead — scroll'da yapışkan kalır + net alt çizgi.
+ *  Opak bg (slate-100/slate-900) — backdrop-blur destekli tarayıcılarda
+ *  hafif şeffaflık, desteklenmeyen tarayıcılarda opak fallback. z-[20]
+ *  pinned cell shadow'larından üstte. */
 export const LIVE_TABLE_THEAD_CELL_CLASS =
-  "sticky top-0 z-[15] select-none bg-slate-50/95 backdrop-blur-md dark:bg-slate-900/95 supports-[backdrop-filter]:bg-slate-50/90 dark:supports-[backdrop-filter]:bg-slate-900/90";
+  "sticky top-0 z-[20] select-none bg-slate-100 dark:bg-slate-900 supports-[backdrop-filter]:bg-slate-50/85 dark:supports-[backdrop-filter]:bg-slate-900/85 supports-[backdrop-filter]:backdrop-blur-md shadow-[0_1px_0_0_rgba(15,23,42,0.08)] dark:shadow-[0_1px_0_0_rgba(255,255,255,0.06)]";
 
 /** Tablo gövdesi scroll kabuğu — scrollbar-themed ile birlikte kullanılır. */
 export const LIVE_TABLE_SCROLL_SHELL_CLASS = "live-table-scroll-shell scrollbar-themed";
