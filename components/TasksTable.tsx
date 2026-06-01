@@ -819,7 +819,7 @@ export function TasksTable({
           setGroupingField={grouping.setGroupingField}
           cfRules={conditionalFormatting.rules}
           cfEnabledCount={conditionalFormatting.enabledCount}
-          onEditCf={() => { /* CF dialog DataPanel'de — ileride hub'a taşınacak */ }}
+          onEditCf={() => window.dispatchEvent(new Event("tasksTable:openCf"))}
           updateSetting={updateSetting}
           savedViewsProps={{
             // SavedViews mevcut yapıda ayrı component (SavedViewsControl) — modern v1'de
