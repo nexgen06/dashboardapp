@@ -9,9 +9,26 @@ export type TaskComment = {
   user_email: string;
   user_display_name: string | null;
   body: string;
+  /**
+   * Hücre-bazlı yorum hedefi.
+   * - null  → görev seviyesi yorum (TaskDetailSheet Yorumlar sekmesi)
+   * - string → belirli hücre, örn. "status", "due_date", "extra:Sicil No"
+   *
+   * Konvansiyon: tablo column id'leri (TanStack column.id) ile birebir aynı.
+   * Extra alanlar `extra:` prefix'i ile (useTasksTableColumns kullanır).
+   */
+  field_key: string | null;
   created_at: string;
   updated_at: string;
 };
+
+/**
+ * Listeleme/filtre seçenekleri.
+ *  - "task"  → sadece görev seviyesi (field_key IS NULL) — eski davranış
+ *  - "all"   → tümü (görev + hücre)
+ *  - string  → belirli hücre (field_key = X)
+ */
+export type CommentScope = "task" | "all" | { fieldKey: string };
 
 function rowToComment(row: Record<string, unknown>): TaskComment {
   return {
@@ -24,20 +41,65 @@ function rowToComment(row: Record<string, unknown>): TaskComment {
         ? String(row.user_display_name)
         : null,
     body: String(row.body ?? ""),
+    field_key:
+      row.field_key != null && String(row.field_key).trim() !== ""
+        ? String(row.field_key)
+        : null,
     created_at: String(row.created_at ?? ""),
     updated_at: String(row.updated_at ?? ""),
   };
 }
 
-/** Bir görevin yorumlarını eskiden yeniye sıralı listeler. */
-export async function listTaskComments(taskId: string): Promise<TaskComment[]> {
-  const { data, error } = await supabase
+/**
+ * Bir görevin yorumlarını eskiden yeniye sıralı listeler.
+ *
+ * @param taskId Hedef görev
+ * @param scope Hangi tip yorumlar — varsayılan "task" (görev seviyesi, geriye dönük uyum)
+ */
+export async function listTaskComments(
+  taskId: string,
+  scope: CommentScope = "task"
+): Promise<TaskComment[]> {
+  let q = supabase
     .from("task_comments")
     .select("*")
     .eq("task_id", taskId)
     .order("created_at", { ascending: true });
+
+  if (scope === "task") {
+    q = q.is("field_key", null);
+  } else if (typeof scope === "object" && scope.fieldKey) {
+    q = q.eq("field_key", scope.fieldKey);
+  }
+  // scope === "all" → filtre yok
+
+  const { data, error } = await q;
   if (error) throw error;
   return (data ?? []).map(rowToComment);
+}
+
+/**
+ * Bir görevin tüm hücre yorumlarını field_key bazlı sayar.
+ * Tablodaki hücre rozetleri için kullanılır (örn. "extra:Sicil No" üzerinde 💬 2).
+ *
+ * @returns Record<fieldKey, count> — sadece field_key IS NOT NULL satırlar dahil
+ */
+export async function listCellCommentCounts(
+  taskId: string
+): Promise<Record<string, number>> {
+  const { data, error } = await supabase
+    .from("task_comments")
+    .select("field_key")
+    .eq("task_id", taskId)
+    .not("field_key", "is", null);
+  if (error) throw error;
+  const counts: Record<string, number> = {};
+  for (const row of data ?? []) {
+    const k = row.field_key != null ? String(row.field_key) : null;
+    if (!k) continue;
+    counts[k] = (counts[k] ?? 0) + 1;
+  }
+  return counts;
 }
 
 export async function createTaskComment(input: {
@@ -45,9 +107,12 @@ export async function createTaskComment(input: {
   body: string;
   userEmail: string;
   userDisplayName?: string | null;
+  /** Hücre yorumu için doldurulur; görev seviyesi yorumda omit/undefined/null */
+  fieldKey?: string | null;
 }): Promise<TaskComment> {
   const body = input.body.trim();
   if (!body) throw new Error("Yorum boş olamaz.");
+  const fieldKey = input.fieldKey?.trim() || null;
   const { data: authUser } = await supabase.auth.getUser();
   const uid = authUser?.user?.id;
   if (!uid) throw new Error("Oturum açık değil.");
@@ -59,6 +124,7 @@ export async function createTaskComment(input: {
       user_email: input.userEmail.trim().toLowerCase(),
       user_display_name: input.userDisplayName ?? null,
       body,
+      field_key: fieldKey,
     })
     .select("*")
     .single();
