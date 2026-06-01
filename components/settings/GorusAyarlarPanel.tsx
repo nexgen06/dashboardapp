@@ -311,6 +311,19 @@ export function GorusAyarlarPanel({ searchQuery, resetSection, canResetSettings 
         </select>
       </SettingRow>
       )}
+      <SettingRow
+        label="Toolbar arayüz tarzı"
+        description="Canlı Tablo üst toolbar görünümü. Klasik: çoklu bar (mevcut, tüm seçenekler görünür). Modern: Linear/Notion-style tek-satır primary bar (sade, dropdown drill). Her iki tasarım arasında anlık geçiş yapabilirsiniz."
+      >
+        <select
+          value={settings.toolbarStyle}
+          onChange={(e) => updateSetting("toolbarStyle", e.target.value as "classic" | "modern")}
+          className="w-full max-w-xs rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+        >
+          <option value="classic">Klasik (çoklu bar)</option>
+          <option value="modern">Modern (tek satır)</option>
+        </select>
+      </SettingRow>
       {noneMatch && <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Arama kriterine uyan ayar yok.</p>}
       {canResetSettings && (
       <div className="pt-4">

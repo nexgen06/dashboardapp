@@ -1230,7 +1230,7 @@ function SortableHeaderCell({
         transition,
         opacity: isDragging ? 0.4 : 1,
       }
-    : style;
+    : (style || {});
   // Sortable kolonlarda küçük grip butonu — listeners SADECE grip'e bağlı
   // (sort/filter butonları tıklanabilir kalsın). Activation distance 6px ile
   // accidental drag engellenir.
