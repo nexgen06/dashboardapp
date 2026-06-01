@@ -14,7 +14,6 @@ import type { Task } from "@/types/tasks";
 import type { SortingState } from "@tanstack/react-table";
 import {
   PrimaryToolbarModern,
-  ActiveFilterBar,
   AddFab,
   SummaryStrip,
   type FilterOption,
@@ -340,9 +339,12 @@ export function PrimaryToolbarModernAdapter(p: Props) {
         onSwitchToClassic={onSwitchToClassic}
         // SavedViewsControl slot
         savedViewsSlot={p.savedViewsSlot}
+        // Aktif filtreler — toolbar içine inline (ActiveFilterBar yerine).
+        // Dikey alan kazanımı: ~36-40px → tablo +1-2 satır gösterir.
+        activeChips={chips}
+        onClearAllChips={p.clearFilters}
       />
       {summaryStats && <SummaryStrip stats={summaryStats} />}
-      <ActiveFilterBar chips={chips} onClearAll={p.clearFilters} />
       <AddFab
         onAddRow={p.onAddRow} onImport={p.onImport}
         onExportCsv={p.onExportCsv} onExportXlsx={p.onExportXlsx}

@@ -201,6 +201,17 @@ export type PrimaryToolbarModernProps = {
    * Görünüm dropdown'undan önce render edilir.
    */
   savedViewsSlot?: ReactNode;
+
+  /**
+   * Aktif filtre chip'leri — toolbar içine inline render edilir (ActiveFilterBar
+   * yerine). 0 chip ise hiçbir şey gösterilmez; 1-3 chip görünür; 4+ chip'te
+   * ilk 2 chip + "+N" overflow rozeti.
+   *
+   * Tipi: ActiveFilterChip[] (mevcut export — adapter aynı şekli üretir).
+   */
+  activeChips?: ActiveFilterChip[];
+  /** Overflow popover'daki "Tümünü temizle" için */
+  onClearAllChips?: () => void;
 };
 
 /* ─── UTILITIES ───────────────────────────────────────────────────── */
@@ -1178,6 +1189,9 @@ export function PrimaryToolbarModern(props: PrimaryToolbarModernProps) {
   return (
     <div className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200/80 bg-white px-4 dark:border-slate-800 dark:bg-slate-900/60">
       {combo}
+      {/* Aktif filtreler — inline kompakt chip dizisi (md+ ekranlarda).
+          ActiveFilterBar yerini aldı; tablo dikey alanı kazanıldı. */}
+      <InlineActiveChips chips={props.activeChips ?? []} onClearAll={props.onClearAllChips} />
       <div className="hidden flex-1 justify-center md:flex">
         <ViewTypeTabs value={props.view} onChange={props.setView} />
       </div>
@@ -1208,6 +1222,107 @@ export type ActiveFilterChip = {
   icon?: LucideIcon;
   onClear: () => void;
 };
+
+/**
+ * Toolbar içine inline yerleşen kompakt chip dizisi. ActiveFilterBar'ın
+ * minimalist alternatifi — ayrı satır açmaz, toolbar'ın h-12 yüksekliğinde
+ * combo'nun sağına oturur.
+ *
+ * Davranış:
+ *  - 0 chip: hiçbir şey render etmez
+ *  - 1-2 chip: tümü inline görünür
+ *  - 3+ chip: ilk 2 inline + "+N" overflow rozeti (popover'da tümü + "Tümünü temizle")
+ *  - Mobile (md altı): toolbar'da hiç gösterilmez (FilterCombobox'taki appliedCount badge yeterli)
+ */
+function InlineActiveChips({
+  chips,
+  onClearAll,
+}: {
+  chips: ActiveFilterChip[];
+  onClearAll?: () => void;
+}) {
+  const mobile = useIsMobile();
+  const [open, setOpen] = useState(false);
+  const ref = useDismiss(open && !mobile, () => setOpen(false));
+  if (!chips || chips.length === 0) return null;
+  const VISIBLE = 2;
+  const shown = chips.slice(0, VISIBLE);
+  const overflow = Math.max(0, chips.length - VISIBLE);
+
+  const renderChip = (c: ActiveFilterChip, compact?: boolean) => {
+    const Ic = c.icon;
+    return (
+      <span
+        key={c.key}
+        className={cn(
+          "inline-flex h-6 max-w-[160px] items-center gap-1 rounded-md px-1.5 text-[11px] font-medium ring-1 ring-inset",
+          CHIP_TONE[c.tone || "slate"]
+        )}
+        title={c.value ? `${c.label}: ${c.value}` : c.label}
+      >
+        {Ic && <Ic className="h-3 w-3 shrink-0" strokeWidth={1.9} />}
+        <span className="truncate">
+          {c.label}
+          {c.value ? `: ${c.value}` : ""}
+        </span>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            c.onClear();
+          }}
+          aria-label={`${c.label} filtresini kaldır`}
+          className="-mr-0.5 rounded-full p-0.5 transition-colors hover:bg-black/10 dark:hover:bg-white/15"
+        >
+          <X className="h-2.5 w-2.5" strokeWidth={2.4} />
+        </button>
+        {compact && null}
+      </span>
+    );
+  };
+
+  return (
+    <div className="hidden min-w-0 items-center gap-1 md:flex">
+      {shown.map((c) => renderChip(c))}
+      {overflow > 0 && (
+        <div className="relative" ref={ref}>
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            aria-expanded={open}
+            className="inline-flex h-6 items-center gap-1 rounded-md border border-slate-200 bg-white px-1.5 text-[11px] font-medium text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+            title={`${overflow} filtre daha`}
+          >
+            +{overflow}
+            <ChevronDown className="h-2.5 w-2.5 opacity-50" />
+          </button>
+          {open && (
+            <div className={cn("absolute left-0 top-[calc(100%+6px)] w-[280px] p-2", POP)}>
+              <div className="mb-1.5 flex items-center justify-between px-1">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Aktif filtreler ({chips.length})
+                </span>
+                {onClearAll && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      onClearAll();
+                    }}
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/30"
+                  >
+                    <X className="h-2.5 w-2.5" /> Tümünü temizle
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1">{chips.map((c) => renderChip(c, true))}</div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function ActiveFilterBar({ chips, onClearAll }: { chips: ActiveFilterChip[]; onClearAll: () => void }) {
   if (!chips || chips.length === 0) return null;
