@@ -12,6 +12,7 @@ import {
   Plus,
   Flame,
   GitMerge,
+  MoreHorizontal,
 } from "lucide-react";
 import {
   normalizeWorkflowStatus,
@@ -342,6 +343,17 @@ export function TasksKanban({ projectFilter = [] }: Props) {
                     {wipLimit != null ? `${list.length}/${wipLimit}` : list.length}
                   </span>
                 </div>
+                {/* Claude Design "KanbanColumn" sağ üst: sütun menüsü placeholder.
+                    Şimdilik görsel/placeholder — ileride sütun ayarları (WIP düzenle, sırala, gizle) açabilir. */}
+                <button
+                  type="button"
+                  className="rounded p-1 text-slate-400 transition-colors hover:bg-white/60 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                  title="Sütun seçenekleri (yakında)"
+                  aria-label="Sütun seçenekleri"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <MoreHorizontal className="h-3 w-3" aria-hidden />
+                </button>
               </header>
               {wipState === "over" && wipLimit != null && (
                 <div className="border-b border-rose-100 bg-rose-50/60 px-3 py-1 text-[10px] font-medium text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
@@ -349,22 +361,23 @@ export function TasksKanban({ projectFilter = [] }: Props) {
                 </div>
               )}
               <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
-                {list.length === 0 ? (
-                  <p className="px-2 py-4 text-center text-xs text-slate-400 dark:text-slate-500">
-                    Boş — sürükle bırak
-                  </p>
-                ) : (
-                  list.map((t) => {
-                    const card = getTaskDisplayCard(t, {
-                      projectTitleColumn: t.project_id
-                        ? projectTitleColumnById.get(String(t.project_id))
-                        : null,
-                      subtitleColumns: t.project_id
-                        ? projectSubtitleColumnsById.get(String(t.project_id))
-                        : null,
-                      preferredExtraKeys: preferredLabelKeys,
-                    });
-                    return (
+                {list.length === 0 && (
+                  /* Claude Design "Henüz görev yok" — dashed border kutu */
+                  <div className="flex h-24 items-center justify-center rounded-lg border-2 border-dashed border-slate-200 text-xs text-slate-400 dark:border-slate-800 dark:text-slate-600">
+                    Henüz görev yok
+                  </div>
+                )}
+                {list.map((t) => {
+                  const card = getTaskDisplayCard(t, {
+                    projectTitleColumn: t.project_id
+                      ? projectTitleColumnById.get(String(t.project_id))
+                      : null,
+                    subtitleColumns: t.project_id
+                      ? projectSubtitleColumnsById.get(String(t.project_id))
+                      : null,
+                    preferredExtraKeys: preferredLabelKeys,
+                  });
+                  return (
                     <KanbanCard
                       key={t.id}
                       task={t}
@@ -378,9 +391,18 @@ export function TasksKanban({ projectFilter = [] }: Props) {
                       onDragEnd={handleDragEnd}
                       onClick={() => setDetailTask(t)}
                     />
-                    );
-                  })
-                )}
+                  );
+                })}
+                {/* Claude Design "+ Yeni kart" — sütun altında dashed buton (placeholder).
+                    Şimdilik görsel; ileride bu sütunun targetStatus'üyle yeni görev dialog'u açabilir. */}
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-slate-200 py-1.5 text-xs text-slate-500 transition-colors hover:border-slate-300 hover:bg-white hover:text-slate-700 dark:border-slate-700 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:bg-slate-800/60 dark:hover:text-slate-200"
+                  title={`"${col.label}" sütununa yeni kart (yakında)`}
+                  aria-label={`${col.label} sütununa yeni kart ekle`}
+                >
+                  <Plus className="h-3 w-3" aria-hidden /> Yeni kart
+                </button>
               </div>
             </section>
           );
