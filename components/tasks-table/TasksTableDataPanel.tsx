@@ -2,7 +2,7 @@
 
 import type { Dispatch, ReactNode, RefObject, SetStateAction } from "react";
 import type { RenameExtraColumnDraft } from "@/components/tasks-table/useTasksTableRenameExtraColumn";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { flexRender, type Table } from "@tanstack/react-table";
 import type { Task } from "@/types/tasks";
 import type { Project } from "@/types/project";
@@ -258,6 +258,14 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
     onColumnReorder,
   } = props;
   const [cfDialogOpen, setCfDialogOpen] = useState(false);
+
+  // Modern toolbar'dan CF dialog açma — window event ile cross-component trigger
+  // (PrimaryToolbarModernAdapter "cf:open" dispatch eder, burası listener)
+  useEffect(() => {
+    const onOpen = () => setCfDialogOpen(true);
+    window.addEventListener("tasksTable:openCf", onOpen);
+    return () => window.removeEventListener("tasksTable:openCf", onOpen);
+  }, []);
   const [dragActiveColumnId, setDragActiveColumnId] = useState<string | null>(null);
 
   // dnd-kit sensors — pointer (mouse+touch) + klavye (a11y)
