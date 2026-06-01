@@ -71,6 +71,8 @@ export function TasksTable({
   onProjectFilterChange,
   viewTabs,
   initialOpenTaskId,
+  viewMode,
+  onViewModeChange,
 }: TasksTableProps = {}) {
   const {
     tasks,
@@ -845,6 +847,8 @@ export function TasksTable({
             if (t) setDetailTask(t);
           }}
           onManageColumns={openColumnPicker}
+          viewMode={viewMode}
+          onViewModeChange={onViewModeChange}
           savedViewsSlot={
             <SavedViewsControl
               getCurrentConfig={getCurrentViewConfig}

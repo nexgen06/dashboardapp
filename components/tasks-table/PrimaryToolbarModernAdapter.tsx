@@ -95,6 +95,10 @@ type Props = {
 
   /** SavedViewsControl gibi mevcut component slot (Görünüm'den önce render) */
   savedViewsSlot?: ReactNode;
+
+  /** ViewTypeTabs (Tablo/Kanban/Gantt/Takvim/Risk) aktif görünüm */
+  viewMode?: ViewType;
+  onViewModeChange?: (m: ViewType) => void;
 };
 
 export function PrimaryToolbarModernAdapter(p: Props) {
@@ -249,7 +253,12 @@ export function PrimaryToolbarModernAdapter(p: Props) {
     p.updateSetting("liveTableTemplate", s as LiveTableTemplate), [p]);
 
   // View type — şu an sadece "table" implementli, diğerleri rezerv
-  const [view, setView] = [("table" as ViewType), (_v: ViewType) => { /* TODO: page navigation */ }];
+  // View tabs — parent (canli-tablo sayfası) viewMode + onViewModeChange geçerse
+  // segmented control işlevsel olur. Yoksa "table" sabit + no-op.
+  const view: ViewType = p.viewMode ?? "table";
+  const setView = useCallback((v: ViewType) => {
+    p.onViewModeChange?.(v);
+  }, [p]);
 
   // Özet strip — settings.liveTableSummaryStrip ile bağlı
   const ozet = settings.liveTableSummaryStrip;
