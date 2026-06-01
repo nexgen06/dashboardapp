@@ -90,6 +90,9 @@ type Props = {
   onOpenTask: (id: string) => void;
   tasks: Task[];
 
+  /** Görünüm dropdown'dan "Kolonlar" tıklayınca tetiklenir (ColumnPickerDialog açar) */
+  onManageColumns?: () => void;
+
   /** SavedViewsControl gibi mevcut component slot (Görünüm'den önce render) */
   savedViewsSlot?: ReactNode;
 };
@@ -295,7 +298,7 @@ export function PrimaryToolbarModernAdapter(p: Props) {
         density={density} setDensity={setDensity}
         stylePreset={stylePreset} setStylePreset={setStylePreset}
         visibleCount={visibleCount} columnTotal={allCols.length}
-        onManageColumns={() => { /* TODO: columns drawer */ }}
+        onManageColumns={p.onManageColumns ?? (() => { /* parent vermezse no-op */ })}
         savedViews={p.savedViewsProps.views}
         activeViewId={p.savedViewsProps.activeViewId}
         setActiveViewId={p.savedViewsProps.onSelect}
