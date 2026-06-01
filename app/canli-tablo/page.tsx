@@ -286,6 +286,8 @@ export default function CanliTabloPage() {
                     {renderSummaryToggle()}
                   </div>
                 }
+                viewMode={activeView as "table" | "kanban" | "gantt" | "calendar" | "risk"}
+                onViewModeChange={(m) => setActiveView(m)}
               />
             </TabsContent>
             <TabsContent
