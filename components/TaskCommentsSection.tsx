@@ -36,6 +36,12 @@ type Props = {
   projectId?: string | null;
   canComment?: boolean;
   className?: string;
+  /**
+   * Hücre-bazlı yorum: doldurulursa sadece bu field'a ait yorumlar listelenir
+   * ve yeni yorum bu fieldKey ile kaydedilir. Undefined → görev seviyesi (eski).
+   * Format: "status", "due_date", "extra:Sicil No" (tablo column.id ile birebir).
+   */
+  fieldKey?: string;
 };
 
 /** Mention edilen kullanıcılara bildirim gönder — API route üzerinden. */
@@ -65,12 +71,16 @@ async function sendMentionNotifications(input: {
 }
 
 /** Görev detay panelinde "Yorumlar" bölümü — liste + ekleme + sahibi için düzenle/sil + @mention. */
-export function TaskCommentsSection({ taskId, projectId = null, canComment = true, className }: Props) {
+export function TaskCommentsSection({ taskId, projectId = null, canComment = true, className, fieldKey }: Props) {
   const { user } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
   const profileLookup = useProfileLookup();
-  const { comments, isLoading, error } = useTaskComments(taskId);
+  // fieldKey varsa cell scope, yoksa task scope (geriye dönük)
+  const { comments, isLoading, error } = useTaskComments(
+    taskId,
+    fieldKey ? { fieldKey } : "task"
+  );
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -152,6 +162,8 @@ export function TaskCommentsSection({ taskId, projectId = null, canComment = tru
         body,
         userEmail: user.email,
         userDisplayName: user.displayName ?? null,
+        // fieldKey doluysa hücre yorumu, yoksa görev seviyesi
+        fieldKey: fieldKey ?? null,
       });
       // @mention bildirimi gönder — yorum sahibinin kendi mention'ı hariç
       const prefixes = extractMentionPrefixes(body);
