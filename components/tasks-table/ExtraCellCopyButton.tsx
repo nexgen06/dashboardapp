@@ -47,24 +47,6 @@ export function ExtraCellCopyButton({
       e.preventDefault();
       const t = text.trim();
       if (!t || typeof navigator === "undefined" || !navigator.clipboard?.writeText) return;
-      // DEBUG (geçici): "maskeli kopyalanıyor" bug teşhisi için.
-      // KVKK güvenliği: gerçek değer loglanmaz — sadece "maskeli karakter var mı?",
-      // uzunluk ve ilk/son karakter önizlemesi. Sebep belli olunca bu log silinecek.
-      if (typeof window !== "undefined") {
-        const hasMaskChars = /[*•·•]/.test(t);
-        const isAllDigits = /^\d+$/.test(t);
-        const preview =
-          t.length > 4 ? `${t.slice(0, 2)}…${t.slice(-2)}` : "(short)";
-        // eslint-disable-next-line no-console
-        console.log("[pii-copy-debug]", {
-          fieldName: fieldName ?? "(none)",
-          isSensitive: isSensitive ?? false,
-          textLength: t.length,
-          hasMaskChars,
-          isAllDigits,
-          preview,
-        });
-      }
       const shouldHandleSensitiveCopy = Boolean(isSensitive && user?.email && fieldName);
       const effectivePolicyMode: "shadow" | "enforce" = settings.piiPolicyMode;
       let shouldLogSensitiveCopy = false;

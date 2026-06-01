@@ -29,27 +29,6 @@ function mapRowToTask(row: Record<string, unknown>): Task {
       if (typeof v === "string") extraData[k] = v;
       else if (v != null) extraData[k] = String(v);
     }
-    // DEBUG (geçici): Supabase response'unda "Sicil No"/TCKN değeri masked mi?
-    // KVKK güvenliği: gerçek değer loglanmaz; sadece "maskeli karakter içeriyor mu" + length.
-    // Sebep belli olunca silinecek.
-    if (typeof window !== "undefined") {
-      for (const k of Object.keys(extraData)) {
-        const v = extraData[k];
-        if (!v) continue;
-        const looksSensitive = /sicil|tckn|tc.?kimlik|personel/i.test(k);
-        if (looksSensitive) {
-          // eslint-disable-next-line no-console
-          console.log("[pii-debug-source]", {
-            taskId: String(row.id ?? "?").slice(0, 8),
-            key: k,
-            length: v.length,
-            hasMaskChars: /[•·*]/.test(v),
-            firstChar: v[0] ?? "",
-            isDigit: /^\d+$/.test(v),
-          });
-        }
-      }
-    }
   }
   return {
     id: String(row.id),
