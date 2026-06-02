@@ -120,6 +120,16 @@ export default function CanliTabloPage() {
     [userId]
   );
 
+  // TasksTable callback prop'larını stabil tut — inline arrow function her
+  // render'da yeni instance üretir, child useEffect dep array'lerinde sorun
+  // çıkarır (max update depth loop).
+  const handleViewModeChange = useCallback((m: "table" | "kanban" | "gantt" | "calendar" | "risk") => {
+    setActiveView(m);
+  }, []);
+  const handleFullWidthChange = useCallback((v: boolean) => {
+    if (v) setSummaryCollapsed(true);
+  }, [setSummaryCollapsed]);
+
   const renderViewTabs = () => (
     <div className="flex min-w-0 items-center gap-2">
       <span className="hidden text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-500 sm:inline">
@@ -287,13 +297,13 @@ export default function CanliTabloPage() {
                   </div>
                 }
                 viewMode={activeView as "table" | "kanban" | "gantt" | "calendar" | "risk"}
-                onViewModeChange={(m) => setActiveView(m)}
+                onViewModeChange={handleViewModeChange}
                 summaryCollapsed={summaryCollapsed}
                 onSummaryCollapsedChange={setSummaryCollapsed}
                 // KATMAN 2: "Tabloyu genişlet" açılınca yan panel otomatik kapanır.
                 // Asıl amaç: dikey alan kazanmak — daha fazla satır görmek. Kullanıcı
                 // genişleti kapatınca panel kendi state'inde kalır (auto-açılma yok).
-                onFullWidthChange={(v) => { if (v) setSummaryCollapsed(true); }}
+                onFullWidthChange={handleFullWidthChange}
               />
             </TabsContent>
             <TabsContent
