@@ -28,8 +28,7 @@ import {
 import { ConditionalFormattingDialog } from "@/components/tasks-table/ConditionalFormattingDialog";
 import { CellContextMenu } from "@/components/tasks-table/CellContextMenu";
 import { CellCommentPopover } from "@/components/tasks-table/CellCommentPopover";
-import { CellCommentBadge } from "@/components/tasks-table/CellCommentBadge";
-import { useAllCellCommentCounts, useCellCommentCounts } from "@/hooks/useTaskComments";
+import { useCellCommentCounts } from "@/hooks/useTaskComments";
 import { CF_STYLES } from "@/hooks/useConditionalFormatting";
 import {
   DndContext,
@@ -297,16 +296,17 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
   } | null>(null);
   // Açık menü/popover hangi task'a aitse o task'ın hücre yorum sayımları
   // (menü etiketi "Yorum ekle" vs "Yorumlar (N)" için).
+  // Bu hook YALNIZCA bir hücre aktif olduğunda çalışır (sağ tık veya popover) —
+  // sayfa boyunca sürekli subscribe yok.
   const activeMenuTaskId = cellMenu?.taskId ?? cellPopover?.taskId ?? null;
   const { counts: activeCellCounts } = useCellCommentCounts(activeMenuTaskId);
 
-  // Faz 3 — Tablodaki görünür satırların TÜM hücre yorum sayımları (badge için).
-  // Aggregate hook tek realtime subscribe; scaling için kritik.
-  const visibleTaskIds = useMemo(
-    () => table.getRowModel().rows.map((r) => r.original.id),
-    [table]
-  );
-  const { countsMap: allCellCounts } = useAllCellCommentCounts(visibleTaskIds);
+  // Cell badge (her hücrenin sağ üstünde 💬 N rozeti) GEÇİCİ DEVRE DIŞI.
+  // useAllCellCommentCounts realtime subscribe → her event'te setState → parent
+  // re-render → EditableCell input local state'i sıfırlanıyordu (kullanıcı
+  // hücreye yazarken sürekli siliyordu). Doğru çözüm: badge'i memoized
+  // wrapper'a sarmak veya subscribe'ı görev seviyesinden ayırmak. Şimdilik
+  // badge yok; sağ tık + popover akışı çalışıyor.
 
   const [dragActiveColumnId, setDragActiveColumnId] = useState<string | null>(null);
 
@@ -977,27 +977,22 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                       });
                     }
                   : undefined;
-                // Bu hücre için yorum sayımı (badge)
-                const cellCommentCount = canCommentOnCell
-                  ? allCellCounts[row.original.id]?.[cell.column.id] ?? 0
-                  : 0;
                 return (
                   <td
                     key={cell.id}
                     onContextMenu={onContextMenu}
                     data-col={isSelectCol ? "select" : isActionsCol ? "actions" : undefined}
                     className={cn(
-                      // relative — CellCommentBadge absolute konumlanabilsin diye her zaman
-                      "relative align-middle transition-colors",
+                      "align-middle transition-colors",
                       tableSkin.bodyCell,
                       dui.td,
                       isModernTemplate && MODERN_DENSITY_UI[tableDensity].td,
                       !rowCanEdit && "select-none",
                       isEditedByOthers && rowLockedByOthersBg,
                       isSelectCol &&
-                        cn("sticky z-[10] px-0 py-0", pinBg),
+                        cn("relative sticky z-[10] px-0 py-0", pinBg),
                       isActionsCol &&
-                        cn("sticky z-[10] px-0 py-0 text-right", pinBg),
+                        cn("relative sticky z-[10] px-0 py-0 text-right", pinBg),
                       stickyLeft &&
                         !isSelectCol &&
                         cn("sticky z-10", pinBg),
@@ -1019,34 +1014,6 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </div>
-                    {/* Faz 3 — hücre yorum rozeti (yorum varsa görünür).
-                        Tıklayınca aynı sağ-tık akışını başlatır. */}
-                    {cellCommentCount > 0 && (
-                      <CellCommentBadge
-                        count={cellCommentCount}
-                        onClick={(e) => {
-                          const headerDef = cell.column.columnDef.header;
-                          const fieldLabel =
-                            typeof headerDef === "string" ? headerDef : cell.column.id;
-                          const rect = (e.currentTarget as HTMLElement)
-                            .closest("td")
-                            ?.getBoundingClientRect();
-                          if (!rect) return;
-                          setCellMenu(null);
-                          setCellPopover({
-                            taskId: row.original.id,
-                            fieldKey: cell.column.id,
-                            fieldLabel,
-                            taskContent: row.original.content ?? "",
-                            projectId: row.original.project_id
-                              ? String(row.original.project_id)
-                              : null,
-                            canComment: true,
-                            anchorRect: rect,
-                          });
-                        }}
-                      />
-                    )}
                   </td>
                 );
               });
