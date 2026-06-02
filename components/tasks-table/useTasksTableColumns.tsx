@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, type Dispatch, type SetStateAction } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
 import Link from "next/link";
 import {
@@ -197,6 +197,20 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
     isRowLockedByApproval,
   } = params;
 
+  // SIK DEĞİŞEN map'leri ref'le geç — useMemo dep'inde olmasınlar.
+  // Sebep: presence heartbeat her birkaç saniyede setEditorsByRowId(new Map())
+  // çağırır → useMemo invalidate → tüm columns regenerate → TanStack tablo
+  // re-init → cell'ler unmount/remount → EditableCell localValue sıfırlanır
+  // (kullanıcı hücreye yazarken metin kaybolur).
+  //
+  // Ref ile: presence değişimi columns'u invalidate etmez. Presence göstergesi
+  // bir sonraki gerçek re-render'da güncellenir (hafif gecikme kabul edilebilir,
+  // input akışı korunur).
+  const editorsByRowIdRef = useRef(editorsByRowId);
+  useEffect(() => { editorsByRowIdRef.current = editorsByRowId; }, [editorsByRowId]);
+  const rowChipValuesRef = useRef(rowChipValues);
+  useEffect(() => { rowChipValuesRef.current = rowChipValues; }, [rowChipValues]);
+
   return useMemo(
     () => [
     columnHelper.display({
@@ -212,7 +226,7 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
         </span>
       ),
       cell: ({ row }) => {
-        const editors = editorsByRowId.get(row.original.id) ?? [];
+        const editors = editorsByRowIdRef.current.get(row.original.id) ?? [];
         const editorsTooltip =
           editors.length === 0
             ? ""
@@ -643,7 +657,7 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
           );
           if (resolvedChip) {
             const { template: chipTemplate, options: chipOptions } = resolvedChip;
-            const chipRow = rowChipValues.find(
+            const chipRow = rowChipValuesRef.current.find(
               (item) => item.taskId === taskId && item.templateId === chipTemplate.id
             );
             const selectedOptionId = matchChipOptionIdFromCellValue(value, chipOptions, chipRow);
@@ -880,7 +894,7 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
       handleQuickAddRow,
       quickAddFocusId,
       deletingIds,
-      editorsByRowId,
+      // editorsByRowId KASTEN ÇIKARILDI — ref ile geçiyor (bkz: editorsByRowIdRef)
       canEditRow,
       getWorkflowActionsForTask,
       handleWorkflowAction,
@@ -899,7 +913,7 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
       projectColumnsByProjectId,
       projectFilter,
       chipCatalog,
-      rowChipValues,
+      // rowChipValues KASTEN ÇIKARILDI — ref ile geçiyor (bkz: rowChipValuesRef)
       setRowChipValues,
       canManageSensitiveChips,
       canViewSensitiveCells,
