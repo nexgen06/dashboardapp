@@ -26,9 +26,10 @@ import {
   FilteredEmpty,
 } from "@/components/tasks-table/SmartTasksEmptyState";
 import { ConditionalFormattingDialog } from "@/components/tasks-table/ConditionalFormattingDialog";
-import { CellContextMenu } from "@/components/tasks-table/CellContextMenu";
-import { CellCommentPopover } from "@/components/tasks-table/CellCommentPopover";
-import { useCellCommentCounts } from "@/hooks/useTaskComments";
+// NOT: Cell-level yorum UI (sağ tık + popover + badge) geçici devre dışı —
+// realtime subscribe parent re-render → EditableCell input focus kaybı →
+// onBlur autosave → yazılan metin DB değerine sıfırlanıyordu (tüm sütunlar).
+// Faz 1 (DB + lib + hook) korunuyor; UI fresh tasarımla yeniden gelecek.
 import { CF_STYLES } from "@/hooks/useConditionalFormatting";
 import {
   DndContext,
@@ -270,44 +271,6 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
     return () => window.removeEventListener("tasksTable:openCf", onOpen);
   }, []);
 
-  /* ─── Hücre yorumu (Faz 2): sağ tık context menu + floating popover ────────
-   * Sağ tık: <td> onContextMenu → cellMenu state set, küçük menü açılır.
-   * "Yorum ekle" tıklanınca cellPopover'a geçilir, TaskCommentsSection
-   * fieldKey scope'uyla popover içinde render edilir. */
-  const [cellMenu, setCellMenu] = useState<{
-    taskId: string;
-    fieldKey: string;
-    fieldLabel: string;
-    taskContent: string;
-    projectId: string | null;
-    canComment: boolean;
-    x: number;
-    y: number;
-    anchorRect: DOMRect;
-  } | null>(null);
-  const [cellPopover, setCellPopover] = useState<{
-    taskId: string;
-    fieldKey: string;
-    fieldLabel: string;
-    taskContent: string;
-    projectId: string | null;
-    canComment: boolean;
-    anchorRect: DOMRect;
-  } | null>(null);
-  // Açık menü/popover hangi task'a aitse o task'ın hücre yorum sayımları
-  // (menü etiketi "Yorum ekle" vs "Yorumlar (N)" için).
-  // Bu hook YALNIZCA bir hücre aktif olduğunda çalışır (sağ tık veya popover) —
-  // sayfa boyunca sürekli subscribe yok.
-  const activeMenuTaskId = cellMenu?.taskId ?? cellPopover?.taskId ?? null;
-  const { counts: activeCellCounts } = useCellCommentCounts(activeMenuTaskId);
-
-  // Cell badge (her hücrenin sağ üstünde 💬 N rozeti) GEÇİCİ DEVRE DIŞI.
-  // useAllCellCommentCounts realtime subscribe → her event'te setState → parent
-  // re-render → EditableCell input local state'i sıfırlanıyordu (kullanıcı
-  // hücreye yazarken sürekli siliyordu). Doğru çözüm: badge'i memoized
-  // wrapper'a sarmak veya subscribe'ı görev seviyesinden ayırmak. Şimdilik
-  // badge yok; sağ tık + popover akışı çalışıyor.
-
   const [dragActiveColumnId, setDragActiveColumnId] = useState<string | null>(null);
 
   // dnd-kit sensors — pointer (mouse+touch) + klavye (a11y)
@@ -471,41 +434,7 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
         onReset={cfResetToPresets}
       />
 
-      {/* Hücre yorumu — sağ tık context menu + floating popover (Faz 2) */}
-      {cellMenu && (
-        <CellContextMenu
-          open
-          x={cellMenu.x}
-          y={cellMenu.y}
-          commentCount={activeCellCounts[cellMenu.fieldKey] ?? 0}
-          onAddComment={() => {
-            setCellPopover({
-              taskId: cellMenu.taskId,
-              fieldKey: cellMenu.fieldKey,
-              fieldLabel: cellMenu.fieldLabel,
-              taskContent: cellMenu.taskContent,
-              projectId: cellMenu.projectId,
-              canComment: cellMenu.canComment,
-              anchorRect: cellMenu.anchorRect,
-            });
-            setCellMenu(null);
-          }}
-          onClose={() => setCellMenu(null)}
-        />
-      )}
-      {cellPopover && (
-        <CellCommentPopover
-          open
-          taskId={cellPopover.taskId}
-          fieldKey={cellPopover.fieldKey}
-          fieldLabel={cellPopover.fieldLabel}
-          taskContent={cellPopover.taskContent}
-          projectId={cellPopover.projectId}
-          anchorRect={cellPopover.anchorRect}
-          canComment={cellPopover.canComment}
-          onClose={() => setCellPopover(null)}
-        />
-      )}
+      {/* Cell-level yorum UI geçici devre dışı (yukarıdaki not'a bak) */}
 
       {/* MASAÜSTÜ — tablo (md ve üstü) */}
       <div
@@ -948,39 +877,9 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                     ? LIVE_TABLE_GHOST_ACTIONS_RAIL_WIDTH
                     : Math.max(cell.column.getSize(), 40);
                 const pinBg = liveTablePinCellBg(isSelected, isEditedByOthers);
-                // Hücre sağ tık → context menu (select/actions hariç).
-                // fieldLabel için columnDef.header (string olanı) kullan; fallback column.id.
-                const canCommentOnCell = !isSelectCol && !isActionsCol;
-                const onContextMenu = canCommentOnCell
-                  ? (e: React.MouseEvent<HTMLTableCellElement>) => {
-                      e.preventDefault();
-                      const headerDef = cell.column.columnDef.header;
-                      const fieldLabel =
-                        typeof headerDef === "string" ? headerDef : cell.column.id;
-                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                      setCellPopover(null);
-                      setCellMenu({
-                        taskId: row.original.id,
-                        fieldKey: cell.column.id,
-                        fieldLabel,
-                        taskContent: row.original.content ?? "",
-                        projectId: row.original.project_id
-                          ? String(row.original.project_id)
-                          : null,
-                        // İzin kontrolü: DataPanel'de doğrudan permission prop'u yok;
-                        // RLS server-side ret eder (Supabase). UI hep açık göster — şüpheli
-                        // bir kullanıcı INSERT denerse Postgres reddi toast'a düşer.
-                        canComment: true,
-                        x: e.clientX,
-                        y: e.clientY,
-                        anchorRect: rect,
-                      });
-                    }
-                  : undefined;
                 return (
                   <td
                     key={cell.id}
-                    onContextMenu={onContextMenu}
                     data-col={isSelectCol ? "select" : isActionsCol ? "actions" : undefined}
                     className={cn(
                       "align-middle transition-colors",
