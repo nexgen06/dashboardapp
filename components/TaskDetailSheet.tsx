@@ -41,6 +41,7 @@ import { getStatusKind } from "@/lib/statusKind";
 import { formatDate } from "@/lib/formatDate";
 import { getRelativeTime } from "@/lib/relativeTime";
 import { TaskCommentsSection } from "@/components/TaskCommentsSection";
+import { useCellCommentCounts } from "@/hooks/useTaskComments";
 import { supabase } from "@/lib/supabaseClient";
 import {
   ACTIVITY_FALLBACK_POLL_MS,
@@ -563,13 +564,11 @@ export function TaskDetailSheet({
 
           {hasPermission("automation.logs.view") && <AutomationLogPanel taskId={task.id} />}
 
-          {/* Yorumlar — task_comments üzerinden, realtime senkron */}
+          {/* Yorumlar — 2 sekme: Görev seviyesi (eski) + Hücre yorumları (Faz 3) */}
           {task && (
-            <TaskCommentsSection
-              taskId={task.id}
-              projectId={task.project_id ? String(task.project_id) : null}
+            <TaskCommentsTabs
+              task={task}
               canComment={canComment}
-              className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 dark:border-slate-700 dark:bg-slate-800/40"
             />
           )}
 
@@ -829,5 +828,105 @@ function AuditEntryLine({ entry }: { entry: AuditLogEntry }) {
         )}
       </div>
     </li>
+  );
+}
+
+/**
+ * Faz 3 — Görev / Hücre yorumları segmented control.
+ *
+ * "Görev" sekmesi: mevcut TaskCommentsSection (field_key IS NULL).
+ * "Hücre yorumları" sekmesi: useCellCommentCounts ile field bazlı liste;
+ *   her field için collapsible <details> içinde scoped TaskCommentsSection.
+ *
+ * Hücre yorumu yoksa sekme "(0)" göstermez, sade "Hücre yorumları" başlık —
+ * sekme açıldığında empty state ile yönlendirme yapar.
+ */
+function TaskCommentsTabs({ task, canComment }: { task: Task; canComment: boolean }) {
+  const [tab, setTab] = useState<"task" | "cells">("task");
+  const { counts: cellCounts } = useCellCommentCounts(task.id);
+  const fieldEntries = Object.entries(cellCounts).sort((a, b) => b[1] - a[1]);
+  const totalCellComments = fieldEntries.reduce((s, [, n]) => s + n, 0);
+  const projectId = task.project_id ? String(task.project_id) : null;
+  return (
+    <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 dark:border-slate-700 dark:bg-slate-800/40">
+      {/* Segmented tab control */}
+      <div className="mb-3 inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs dark:border-slate-700 dark:bg-slate-900">
+        <button
+          type="button"
+          onClick={() => setTab("task")}
+          className={cn(
+            "rounded-md px-2.5 py-1 font-medium transition-colors",
+            tab === "task"
+              ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+          )}
+        >
+          Görev yorumları
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("cells")}
+          className={cn(
+            "rounded-md px-2.5 py-1 font-medium transition-colors",
+            tab === "cells"
+              ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+          )}
+        >
+          Hücre yorumları{totalCellComments > 0 ? ` (${totalCellComments})` : ""}
+        </button>
+      </div>
+
+      {tab === "task" && (
+        <TaskCommentsSection
+          taskId={task.id}
+          projectId={projectId}
+          canComment={canComment}
+          className="border-0 p-0"
+        />
+      )}
+
+      {tab === "cells" && (
+        <div className="space-y-2">
+          {fieldEntries.length === 0 ? (
+            <p className="rounded-md border border-dashed border-slate-300 bg-white px-3 py-4 text-center text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+              Henüz hücre yorumu yok. Tabloda bir hücreye sağ tıklayıp
+              &ldquo;Yorum ekle&rdquo; ile başlayabilirsin.
+            </p>
+          ) : (
+            fieldEntries.map(([fieldKey, count]) => {
+              const prettyLabel = fieldKey.startsWith("extra:")
+                ? fieldKey.slice("extra:".length)
+                : fieldKey;
+              return (
+                <details
+                  key={fieldKey}
+                  className="group/cellgroup rounded-md border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
+                >
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800">
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate" title={prettyLabel}>{prettyLabel}</span>
+                      <span className="inline-flex h-4 min-w-[18px] items-center justify-center rounded-full bg-amber-100 px-1 text-[10px] font-semibold text-amber-800 ring-1 ring-inset ring-amber-200 dark:bg-amber-900/60 dark:text-amber-100 dark:ring-amber-800">
+                        {count}
+                      </span>
+                    </span>
+                    <span className="text-slate-400 group-open/cellgroup:rotate-180 transition-transform">▾</span>
+                  </summary>
+                  <div className="border-t border-slate-200 p-3 dark:border-slate-700">
+                    <TaskCommentsSection
+                      taskId={task.id}
+                      fieldKey={fieldKey}
+                      projectId={projectId}
+                      canComment={canComment}
+                      className="border-0 p-0"
+                    />
+                  </div>
+                </details>
+              );
+            })
+          )}
+        </div>
+      )}
+    </section>
   );
 }

@@ -23,6 +23,11 @@ type Body = {
   taskContent?: string;
   projectId?: string | null;
   mentionedEmails?: string[];
+  /**
+   * Hücre yorumu ise field label (örn. "Sicil No"). Bildirim başlığına eklenir:
+   * "Bir yorumda etiketlendiniz" → "'Sicil No' hücresindeki yoruma etiketlendiniz"
+   */
+  fieldLabel?: string | null;
 };
 
 export async function POST(request: Request) {
@@ -65,6 +70,8 @@ export async function POST(request: Request) {
   const taskContent = (body.taskContent ?? "").trim().slice(0, 200) || "(içeriksiz görev)";
   const projectId = body.projectId ? String(body.projectId).trim() : null;
   const mentionedEmailsRaw = Array.isArray(body.mentionedEmails) ? body.mentionedEmails : [];
+  // Hücre yorumu ise field label (örn. "Sicil No") — bildirim başlığına ek bağlam
+  const fieldLabel = body.fieldLabel ? String(body.fieldLabel).trim().slice(0, 80) : null;
 
   if (!taskId) {
     return NextResponse.json({ error: "taskId zorunlu." }, { status: 400 });
@@ -108,17 +115,22 @@ export async function POST(request: Request) {
   // 6) Notifications insert — recipient başına bir row
   const href = projectId ? `/projeler/${projectId}?openTask=${taskId}` : `/canli-tablo?openTask=${taskId}`;
   const now = new Date().toISOString();
+  // Hücre yorumu ise başlığa field bağlamı ekle: "'Sicil No' hücresinde etiketlendiniz"
+  const title = fieldLabel
+    ? `'${fieldLabel}' hücresinde etiketlendiniz`
+    : "Bir yorumda etiketlendiniz";
+
   const rows = recipients.map((r) => ({
     recipient_id: r.id,
     type: "task_assigned" as const, // mevcut tip — UI'da ListTodo ikonu ile gösterilir
-    title: "Bir yorumda etiketlendiniz",
+    title,
     body: taskContent.length > 120 ? `${taskContent.slice(0, 117)}…` : taskContent,
     href,
     count: 1,
     source_table: "task_comments",
     source_id: taskId,
     source_key: `mention:${taskId}:${r.id}:${now}`,
-    payload: { kind: "mention", taskId, projectId, by: callerEmail },
+    payload: { kind: "mention", taskId, projectId, by: callerEmail, fieldLabel },
     created_at: now,
     updated_at: now,
   }));
