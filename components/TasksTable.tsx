@@ -144,9 +144,19 @@ export function TasksTable({
 
   // KATMAN 2: "Tabloyu genişlet" (full-width) açıldığında page'e bildir.
   // Page bunu kullanarak yan paneli otomatik kapatır → asıl amaç: daha çok satır.
+  //
+  // FIX: Callback ref pattern — page'den inline arrow function geldiği için
+  // her render'da yeni instance. Dep array'e koyarsak useEffect sürekli tetik
+  // → page state set → page re-render → yeni callback instance → infinite
+  // loop ("Maximum update depth exceeded"). Sadece isFullWidth değişiminde
+  // tetikle; callback ref ile stale-closure'dan da koruma.
+  const onFullWidthChangeRef = useRef(onFullWidthChange);
   useEffect(() => {
-    onFullWidthChange?.(isFullWidth);
-  }, [isFullWidth, onFullWidthChange]);
+    onFullWidthChangeRef.current = onFullWidthChange;
+  }, [onFullWidthChange]);
+  useEffect(() => {
+    onFullWidthChangeRef.current?.(isFullWidth);
+  }, [isFullWidth]);
 
   useEffect(() => {
     if (!initialOpenTaskId || isLoading) return;
