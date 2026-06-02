@@ -73,18 +73,6 @@ export function EditableCell({
       setIsEditing(true);
       onFocus();
     }
-    // DEBUG (geçici)
-    if (typeof window !== "undefined") {
-      // eslint-disable-next-line no-console
-      console.log("[ec-active-effect]", {
-        task: taskId.slice(0, 8),
-        field,
-        activeEdit,
-        autoEdit,
-        disabled,
-        isEditing,
-      });
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeEdit, autoEdit, disabled]);
   const cellText =
@@ -117,19 +105,6 @@ export function EditableCell({
 
   useEffect(() => {
     if (!isEditing) setLocalValue(value);
-    // DEBUG (geçici): value/isEditing değişimleri — sebep teşhisi sonrası silinecek
-    if (typeof window !== "undefined") {
-      // eslint-disable-next-line no-console
-      console.log("[ec-value-effect]", {
-        task: taskId.slice(0, 8),
-        field,
-        isEditing,
-        valuePrev: localValue.slice(0, 20),
-        valueNext: value.slice(0, 20),
-        sameVal: value === localValue,
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditing, value]);
 
   useEffect(() => {
@@ -157,18 +132,6 @@ export function EditableCell({
     (attemptValue?: string) => {
       const raw = attemptValue !== undefined ? attemptValue : localValue;
       const trimmed = raw.trim();
-      // DEBUG (geçici)
-      if (typeof window !== "undefined") {
-        // eslint-disable-next-line no-console
-        console.log("[ec-save]", {
-          task: taskId.slice(0, 8),
-          field,
-          trimmed: trimmed.slice(0, 20),
-          value: value.slice(0, 20),
-          sameAsValue: trimmed === value,
-          stack: new Error().stack?.split("\n").slice(1, 4).join(" | "),
-        });
-      }
       if (trimmed === value) {
         setIsEditing(false);
         onBlur();
@@ -284,18 +247,6 @@ export function EditableCell({
             if (saveState === "error") setSaveState("idle");
           }}
           onBlur={() => {
-            // DEBUG (geçici)
-            if (typeof window !== "undefined") {
-              // eslint-disable-next-line no-console
-              console.log("[ec-blur]", {
-                task: taskId.slice(0, 8),
-                field,
-                localValue: localValue.slice(0, 20),
-                propValue: value.slice(0, 20),
-                saveState,
-                activeEl: document.activeElement?.tagName,
-              });
-            }
             // Hata varken blur'da otomatik kapanma — kullanıcı retry seçebilsin
             if (saveState !== "error") handleSave();
           }}
