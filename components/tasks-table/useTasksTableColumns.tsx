@@ -211,6 +211,50 @@ export function useTasksTableColumns(params: UseTasksTableColumnsParams) {
   const rowChipValuesRef = useRef(rowChipValues);
   useEffect(() => { rowChipValuesRef.current = rowChipValues; }, [rowChipValues]);
 
+  // DEBUG (geçici): useMemo dep'lerinden hangisi değişti her render'da logla
+  const __depNames = [
+    "handleSave","statusOptions","tableDensity","dui","extraDataKeys",
+    "handleDynamicCellSave","handleReferenceCellSave","activateEditableCell",
+    "isActiveEditableCell","scheduleEditableCellBlur","focusNextEditableCell",
+    "handleQuickAddRow","quickAddFocusId","deletingIds","canEditRow",
+    "getWorkflowActionsForTask","handleWorkflowAction","isProjectWorkflowEnabled",
+    "canCopyRow","canCreateTask","canEditTask","canDeleteTask","handleCopyTask",
+    "handleDeleteTask","setEditingRow","setEditTask","setDetailTask","settings",
+    "projectById","projectColumnsByProjectId","projectFilter","chipCatalog",
+    "setRowChipValues","canManageSensitiveChips","canViewSensitiveCells","toast",
+    "tableTemplate","user","spotlightMatchByTaskId","spotlightActive",
+    "spotlightTaskIds","trackSensitiveViewShadow","referenceSources",
+    "isRowLockedByApproval",
+  ];
+  const __currentDeps = [
+    handleSave,statusOptions,tableDensity,dui,extraDataKeys,
+    handleDynamicCellSave,handleReferenceCellSave,activateEditableCell,
+    isActiveEditableCell,scheduleEditableCellBlur,focusNextEditableCell,
+    handleQuickAddRow,quickAddFocusId,deletingIds,canEditRow,
+    getWorkflowActionsForTask,handleWorkflowAction,isProjectWorkflowEnabled,
+    canCopyRow,canCreateTask,canEditTask,canDeleteTask,handleCopyTask,
+    handleDeleteTask,setEditingRow,setEditTask,setDetailTask,settings,
+    projectById,projectColumnsByProjectId,projectFilter,chipCatalog,
+    setRowChipValues,canManageSensitiveChips,canViewSensitiveCells,toast,
+    tableTemplate,user,spotlightMatchByTaskId,spotlightActive,
+    spotlightTaskIds,trackSensitiveViewShadow,referenceSources,
+    isRowLockedByApproval,
+  ];
+  const __prevDepsRef = useRef<unknown[] | null>(null);
+  if (typeof window !== "undefined") {
+    if (__prevDepsRef.current) {
+      const changed: string[] = [];
+      __currentDeps.forEach((d, i) => {
+        if (__prevDepsRef.current![i] !== d) changed.push(__depNames[i] ?? `idx${i}`);
+      });
+      if (changed.length > 0) {
+        // eslint-disable-next-line no-console
+        console.log("[col-deps-changed]", changed);
+      }
+    }
+    __prevDepsRef.current = __currentDeps;
+  }
+
   return useMemo(
     () => [
     columnHelper.display({
