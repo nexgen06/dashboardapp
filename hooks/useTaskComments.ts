@@ -10,6 +10,7 @@ import {
 } from "@/lib/realtimeFallback";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
+  listAllCellCommentCounts,
   listCellCommentCounts,
   listTaskComments,
   type CommentScope,
@@ -281,4 +282,110 @@ export function useCellCommentCounts(taskId: string | null | undefined) {
   }, [taskId, realtimeConnected, refresh]);
 
   return { counts, isLoading };
+}
+
+/**
+ * Çoklu görev için hücre yorum sayımlarını tek seferde dinler.
+ *
+ * TasksTable'da visible satırların hepsine ait rozet sayımlarını besler.
+ * Per-task hook açmak yerine TEK realtime kanal kullanılır — yüzlerce
+ * satır için scaling kırılmasın diye.
+ *
+ * Yaklaşım: task_comments tablosunun tümünü dinler (filter yok), event
+ * geldiğinde sadece taskIds set içindeyse full refresh tetikler. Volume
+ * düşük (yorumlar nadiren değişir), refresh ucuz tek SELECT.
+ *
+ * @param taskIds Şu an görünen görev id'leri (memoized olmalı)
+ * @returns countsMap[taskId]?.[fieldKey] = N
+ */
+export function useAllCellCommentCounts(taskIds: string[]) {
+  const [countsMap, setCountsMap] = useState<Record<string, Record<string, number>>>({});
+  const [isLoading, setIsLoading] = useState(true);
+  const [realtimeConnected, setRealtimeConnected] = useState(false);
+  const channelRef = useRef<RealtimeChannel | null>(null);
+
+  // taskIds dizisi her render'da yeni referans olabilir — stable key türet
+  const idsKey = taskIds.length === 0 ? "" : taskIds.slice().sort().join(",");
+
+  const refresh = useCallback(async () => {
+    if (!taskIds || taskIds.length === 0) {
+      setCountsMap({});
+      setIsLoading(false);
+      return;
+    }
+    try {
+      const m = await listAllCellCommentCounts(taskIds);
+      setCountsMap(m);
+    } catch {
+      setCountsMap({});
+    } finally {
+      setIsLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsKey]);
+
+  useEffect(() => {
+    setIsLoading(true);
+    void refresh();
+  }, [refresh]);
+
+  // Set ile O(1) lookup — payload.task_id visible mi?
+  const visibleIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    visibleIdsRef.current = new Set(taskIds);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsKey]);
+
+  useEffect(() => {
+    if (isRealtimeDisabledForClient()) {
+      setRealtimeConnected(false);
+      return;
+    }
+    channelSeq += 1;
+    let cancelled = false;
+    setRealtimeConnected(false);
+    const ch = supabase
+      .channel(`cell_counts_agg_${channelSeq}`)
+      .on(
+        "postgres_changes" as never,
+        // Filter yok — tüm task_comments. Volume düşük; client'ta filter.
+        { event: "*", schema: "public", table: "task_comments" },
+        (payload: PostgresChangePayload) => {
+          if (cancelled) return;
+          const newId = String((payload.new as { task_id?: string })?.task_id ?? "");
+          const oldId = String((payload.old as { task_id?: string })?.task_id ?? "");
+          // Bizi ilgilendiren task'tan biriyse refresh
+          if (visibleIdsRef.current.has(newId) || visibleIdsRef.current.has(oldId)) {
+            void refresh();
+          }
+        }
+      )
+      .subscribe((status, err) => {
+        if (cancelled) return;
+        const s = String(status ?? "").toUpperCase();
+        if (s === "SUBSCRIBED") setRealtimeConnected(true);
+        else if (err || s === "CHANNEL_ERROR" || s === "TIMED_OUT" || s === "CLOSED") {
+          setRealtimeConnected(false);
+        }
+      });
+    channelRef.current = ch;
+    return () => {
+      cancelled = true;
+      setRealtimeConnected(false);
+      void supabase.removeChannel(ch);
+      channelRef.current = null;
+    };
+  }, [refresh]);
+
+  // Realtime kapalıysa fallback polling
+  useEffect(() => {
+    if (realtimeConnected || taskIds.length === 0) return;
+    const interval = window.setInterval(() => {
+      if (shouldPollInBrowser()) void refresh();
+    }, COMMENTS_FALLBACK_POLL_MS);
+    return () => window.clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [realtimeConnected, idsKey, refresh]);
+
+  return { countsMap, isLoading };
 }

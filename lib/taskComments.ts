@@ -79,6 +79,33 @@ export async function listTaskComments(
 }
 
 /**
+ * BİR çoklu görev için hücre yorumlarını agg eder — tek sorguda.
+ * Tablodaki visible satırların hepsi için badge sayımları toplu çekmek için.
+ *
+ * @returns Record<taskId, Record<fieldKey, count>>
+ */
+export async function listAllCellCommentCounts(
+  taskIds: string[]
+): Promise<Record<string, Record<string, number>>> {
+  if (!taskIds || taskIds.length === 0) return {};
+  const { data, error } = await supabase
+    .from("task_comments")
+    .select("task_id, field_key")
+    .in("task_id", taskIds)
+    .not("field_key", "is", null);
+  if (error) throw error;
+  const out: Record<string, Record<string, number>> = {};
+  for (const row of data ?? []) {
+    const t = row.task_id != null ? String(row.task_id) : null;
+    const k = row.field_key != null ? String(row.field_key) : null;
+    if (!t || !k) continue;
+    if (!out[t]) out[t] = {};
+    out[t][k] = (out[t][k] ?? 0) + 1;
+  }
+  return out;
+}
+
+/**
  * Bir görevin tüm hücre yorumlarını field_key bazlı sayar.
  * Tablodaki hücre rozetleri için kullanılır (örn. "extra:Sicil No" üzerinde 💬 2).
  *

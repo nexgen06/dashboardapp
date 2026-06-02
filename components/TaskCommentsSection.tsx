@@ -50,6 +50,8 @@ async function sendMentionNotifications(input: {
   taskContent: string;
   projectId: string | null;
   mentionedEmails: string[];
+  /** Hücre yorumu ise field label (örn. "Sicil No") — bildirim metnine eklenir */
+  fieldLabel?: string | null;
 }): Promise<void> {
   if (input.mentionedEmails.length === 0) return;
   try {
@@ -173,11 +175,16 @@ export function TaskCommentsSection({ taskId, projectId = null, canComment = tru
           .map((p) => (p.email ?? "").trim().toLowerCase())
           .filter((e) => e && e !== (user.email ?? "").trim().toLowerCase());
         if (emails.length > 0) {
+          // Hücre yorumu ise field label türet — "extra:Sicil No" → "Sicil No"
+          const fieldLabel = fieldKey
+            ? (fieldKey.startsWith("extra:") ? fieldKey.slice("extra:".length) : fieldKey)
+            : null;
           void sendMentionNotifications({
             taskId,
             taskContent: body,
             projectId: projectId ?? null,
             mentionedEmails: emails,
+            fieldLabel,
           });
         }
       }
