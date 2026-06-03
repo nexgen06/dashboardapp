@@ -263,7 +263,10 @@ export function EditableCell({
     return (
       <span
         className={cn(
-          "flex w-full min-w-0 items-center gap-1.5 rounded text-left text-slate-500 dark:text-slate-400",
+          // border border-transparent: edit mode <input>'unda gerçek border var (2px).
+          // Read mode'a da transparent border eklenir ki hücre boyutu mod değişiminde
+          // kaymasın — kullanıcı diğer hücreye tıklayınca hedefi şaşırtmaz.
+          "flex w-full min-w-0 items-center gap-1.5 rounded border border-transparent text-left text-slate-500 dark:text-slate-400",
           cellText,
           cellPad
         )}
@@ -377,7 +380,10 @@ export function EditableCell({
       data-col-id={editableColumnId}
       data-disabled={disabled ? "true" : undefined}
       className={cn(
-        "flex w-full min-w-0 items-center gap-1.5 rounded text-left text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700",
+        // border border-transparent: edit mode <input>'unda gerçek border (2px) var.
+        // Read mode'da transparent border yer kaplar → hücre boyutu mod değişiminde
+        // sabit kalır. Diğer hücreye tıklayınca kayma yok, ilk tık seçer.
+        "flex w-full min-w-0 items-center gap-1.5 rounded border border-transparent text-left text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700",
         cellText,
         cellPad
       )}
