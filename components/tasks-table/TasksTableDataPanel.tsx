@@ -923,46 +923,24 @@ export function TasksTableDataPanel(props: TasksTableDataPanelProps) {
                 title: lastEditorTitle,
               };
 
-              // SABIT DOM ağacı: Tooltip wrapper her zaman render edilir.
-              // Önceki kod conditional render ile (Tooltip yes/no) ağaç tipini
-              // değiştiriyordu → presence titremesinde tüm <tr> ve içindeki
-              // EditableCell'ler UNMOUNT/REMOUNT → kullanıcının yazdığı kayboluyordu.
-              // Şimdi: open + content görünürlüğü koşullu, ağaç sabit.
-              const showRowTooltip = rowTooltipBody != null && isEditedByOthers;
+              // Radix Tooltip wrapper KALDIRILDI — TooltipTrigger asChild ile
+              // <tr> sarmak Radix'in pointer-down handler'larını <tr>'ye bağlıyor,
+              // bu da hücre EditableCell button'una giden ilk click'i intercept
+              // ediyor (kullanıcı tek tıkla edit moduna giremiyor).
+              //
+              // Presence/lock bilgisi hala native `title` (lastEditorTitle) ile
+              // hover'da görünür — UX zenginliği azaldı ama input akışı ve
+              // tek-tık seçim öncelikli.
               return (
-                <Tooltip
+                <tr
                   key={row.id}
-                  delayDuration={80}
-                  disableHoverableContent
-                  open={showRowTooltip && presenceHoverRowId === row.id}
-                  onOpenChange={(open) => {
-                    if (!open) setPresenceHoverRowId((cur) => (cur === row.id ? null : cur));
-                  }}
+                  className={rowClassName}
+                  data-selected={isSelected ? "true" : undefined}
+                  data-spotlight-row={isSpotlightHit ? "true" : undefined}
+                  {...rowPointerHandlers}
                 >
-                  <TooltipTrigger asChild>
-                    <tr
-                      className={rowClassName}
-                      data-selected={isSelected ? "true" : undefined}
-                      data-spotlight-row={isSpotlightHit ? "true" : undefined}
-                      {...rowPointerHandlers}
-                      onPointerEnter={
-                        showRowTooltip ? () => setPresenceHoverRowId(row.id) : undefined
-                      }
-                      onPointerLeave={
-                        showRowTooltip
-                          ? () => setPresenceHoverRowId((cur) => (cur === row.id ? null : cur))
-                          : undefined
-                      }
-                    >
-                      {rowCells}
-                    </tr>
-                  </TooltipTrigger>
-                  {showRowTooltip && (
-                    <TooltipContent side="top" sideOffset={10} className={rowTooltipClass}>
-                      {rowTooltipBody}
-                    </TooltipContent>
-                  )}
-                </Tooltip>
+                  {rowCells}
+                </tr>
               );
             }}
             footerRow={canCreateTask && !requiresSingleProjectSelection ? (
