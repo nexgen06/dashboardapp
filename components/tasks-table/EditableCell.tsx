@@ -90,12 +90,6 @@ export function EditableCell({
   const [isEditing, setIsEditing] = useState(
     autoEdit || activeEdit || editableDraftStore.has(draftKey)
   );
-  // Initial localValue: draft store'da bir taslak varsa onu kullan (remount
-  // sonrası kullanıcının yazdığını koru). Yoksa prop value.
-  const [localValue, setLocalValue] = useState<string>(() => {
-    const draft = editableDraftStore.get(draftKey);
-    return draft !== undefined ? draft : value;
-  });
   /** "saving" — Promise dönen onSave için spinner; "error" — kaydedilemedi */
   const [saveState, setSaveState] = useState<"idle" | "saving" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -136,16 +130,6 @@ export function EditableCell({
   }, [highlightBadgeTone]);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (isEditing) return;
-    // Edit modu kapalı VE draft yoksa → DB değerini yansıt.
-    // Draft varsa (kullanıcı yazıyordu, remount oldu) → draft korunur,
-    // sonraki edit moduna geçişte input draft'tan açılır.
-    if (!editableDraftStore.has(draftKey)) {
-      setLocalValue(value);
-    }
-  }, [isEditing, value, draftKey]);
-
   // DB değeri draft ile eşitse cleanup (örn. realtime echo başarılı save'i
   // tekrar getirdiğinde draft gereksiz).
   useEffect(() => {
@@ -177,7 +161,10 @@ export function EditableCell({
    */
   const handleSave = useCallback(
     (attemptValue?: string) => {
-      const raw = attemptValue !== undefined ? attemptValue : localValue;
+      const raw =
+        attemptValue !== undefined
+          ? attemptValue
+          : inputRef.current?.value ?? editableDraftStore.get(draftKey) ?? value;
       const trimmed = raw.trim();
       if (trimmed === value) {
         // Değer değişmemiş — draft varsa temizle, edit modunu kapat.
@@ -220,7 +207,7 @@ export function EditableCell({
         setSaveError(null);
       }
     },
-    [localValue, value, taskId, field, onSave, onBlur, draftKey]
+    [value, taskId, field, onSave, onBlur, draftKey]
   );
 
   const handleRetry = useCallback(() => {
@@ -234,7 +221,7 @@ export function EditableCell({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      const nextValue = localValue.trim();
+      const nextValue = (inputRef.current?.value ?? "").trim();
       handleSave();
       if (onChainEnter && nextValue === "") {
         onChainEnter(nextValue);
@@ -249,9 +236,9 @@ export function EditableCell({
       onNavigateNext?.(taskId, editableColumnId);
     }
     if (e.key === "Escape") {
-      // İptal — draft temizle, DB değerine geri dön
+      // İptal — draft temizle, DOM input'una DB değerini yaz, edit'ten çık
       editableDraftStore.delete(draftKey);
-      setLocalValue(value);
+      if (inputRef.current) inputRef.current.value = value;
       setIsEditing(false);
       setSaveState("idle");
       setSaveError(null);
@@ -293,17 +280,23 @@ export function EditableCell({
     // yoksa diğer satırlar kayar, kullanıcı tıklamak istediği hücreyi
     // ıskalar. Yardım metni / saving text / error kartı ARTIK akışta değil,
     // hepsi absolute overlay olarak satırın üstüne float eder.
+    // UNCONTROLLED input — React state ile bağlı DEĞİL.
+    // Sebep: controlled input (value={state}) bazı re-render senaryolarında
+    // input içeriğini başka değere sıçratıyordu (presence/realtime kaynaklı
+    // hayaletsi state sync). Uncontrolled input → DOM kendi state'ini tutar,
+    // re-render input'a hiç dokunmaz. defaultValue sadece mount'ta okunur.
+    //
+    // Mount'ta initial: draft (kullanıcı yazıyordu, remount oldu) veya value.
+    const initialInputValue = editableDraftStore.get(draftKey) ?? value;
     return (
       <div className="relative">
         <input
           ref={inputRef}
           type="text"
-          value={localValue}
+          defaultValue={initialInputValue}
           onChange={(e) => {
-            const next = e.target.value;
-            setLocalValue(next);
             // Draft store'a kaydet — remount olursa içerik korunur
-            editableDraftStore.set(draftKey, next);
+            editableDraftStore.set(draftKey, e.target.value);
             // Kullanıcı yazmaya başladıysa eski hatayı temizle
             if (saveState === "error") setSaveState("idle");
           }}
