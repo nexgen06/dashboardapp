@@ -6,6 +6,29 @@ import type { LiveTableDensity } from "@/contexts/settings-context";
 import { cn } from "@/lib/utils";
 
 /**
+ * MODULE-SCOPE DRAFT STORE — kullanıcının hücreye yazdığı taslak metni
+ * component lifecycle'ından bağımsız tutar.
+ *
+ * Sebep: TasksTableDataPanel'de presence/realtime sebepli render thrash
+ * EditableCell'i bazen unmount/remount edebiliyor. Component remount → React
+ * state sıfırlanır → input'a yazılan kaybolur. Bu Map remount'a karşı
+ * draft'ı korur — yazılan metin garanti yaşar.
+ *
+ * Yaşam döngüsü:
+ *   - onChange: set(key, value) → her keystroke
+ *   - Initial mount: get(key) varsa kullan, yoksa prop value
+ *   - Save başarılı: delete(key)
+ *   - Esc / iptal: delete(key)
+ *   - DB value === draft: useEffect ile cleanup (sync sağlandı)
+ *
+ * Excel/Sheets parity: kullanıcı yazınca metin kaybolmaz, rahat yazılır.
+ */
+const editableDraftStore = new Map<string, string>();
+function draftKeyOf(taskId: string, columnId: string): string {
+  return `${taskId}::${columnId}`;
+}
+
+/**
  * onSave artık `void | Promise<{ok, message?}>` döndürebilir. Promise
  * dönerse hücre "saving" göstergesi sürer; başarısız olursa inline
  * "Tekrar dene" butonu çıkar. Eski (void) çağırıcılar bozulmaz.
@@ -60,14 +83,24 @@ export function EditableCell({
   onNavigateNext,
   disabled = false,
 }: EditableCellProps) {
-  const [isEditing, setIsEditing] = useState(autoEdit || activeEdit);
-  const [localValue, setLocalValue] = useState(value);
+  const editableColumnId = navigationColumnId ?? field;
+  const draftKey = draftKeyOf(taskId, editableColumnId);
+  // Mount'ta draft varsa kullanıcı yazıyordu (remount yaşandı) → edit moduna
+  // otomatik dön ki kullanıcı kaldığı yerden devam etsin.
+  const [isEditing, setIsEditing] = useState(
+    autoEdit || activeEdit || editableDraftStore.has(draftKey)
+  );
+  // Initial localValue: draft store'da bir taslak varsa onu kullan (remount
+  // sonrası kullanıcının yazdığını koru). Yoksa prop value.
+  const [localValue, setLocalValue] = useState<string>(() => {
+    const draft = editableDraftStore.get(draftKey);
+    return draft !== undefined ? draft : value;
+  });
   /** "saving" — Promise dönen onSave için spinner; "error" — kaydedilemedi */
   const [saveState, setSaveState] = useState<"idle" | "saving" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
   /** Hata sonrası inline "Tekrar dene" için son denenen değer */
   const lastAttemptRef = useRef<string | null>(null);
-  const editableColumnId = navigationColumnId ?? field;
   useEffect(() => {
     if ((autoEdit || activeEdit) && !disabled) {
       setIsEditing(true);
@@ -104,8 +137,22 @@ export function EditableCell({
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!isEditing) setLocalValue(value);
-  }, [isEditing, value]);
+    if (isEditing) return;
+    // Edit modu kapalı VE draft yoksa → DB değerini yansıt.
+    // Draft varsa (kullanıcı yazıyordu, remount oldu) → draft korunur,
+    // sonraki edit moduna geçişte input draft'tan açılır.
+    if (!editableDraftStore.has(draftKey)) {
+      setLocalValue(value);
+    }
+  }, [isEditing, value, draftKey]);
+
+  // DB değeri draft ile eşitse cleanup (örn. realtime echo başarılı save'i
+  // tekrar getirdiğinde draft gereksiz).
+  useEffect(() => {
+    if (editableDraftStore.get(draftKey) === value) {
+      editableDraftStore.delete(draftKey);
+    }
+  }, [value, draftKey]);
 
   useEffect(() => {
     if (isEditing) {
@@ -133,6 +180,8 @@ export function EditableCell({
       const raw = attemptValue !== undefined ? attemptValue : localValue;
       const trimmed = raw.trim();
       if (trimmed === value) {
+        // Değer değişmemiş — draft varsa temizle, edit modunu kapat.
+        editableDraftStore.delete(draftKey);
         setIsEditing(false);
         onBlur();
         setSaveState("idle");
@@ -147,11 +196,14 @@ export function EditableCell({
         // Edit modu açık kalır — kullanıcı hata sonrası retry edebilsin
         void (result as Promise<SaveResult>).then((r) => {
           if (r && r.ok) {
+            // Başarılı save — draft cleanup (DB ile sync'lendi)
+            editableDraftStore.delete(draftKey);
             setSaveState("idle");
             setSaveError(null);
             setIsEditing(false);
             onBlur();
           } else {
+            // Hata — draft korunsun, kullanıcı retry edebilsin
             setSaveState("error");
             setSaveError(r?.message ?? "Kaydedilemedi");
           }
@@ -160,14 +212,15 @@ export function EditableCell({
           setSaveError(err instanceof Error ? err.message : "Kaydedilemedi");
         });
       } else {
-        // Geriye uyumlu: void caller'lar için optimistic kapatma
+        // Geriye uyumlu: void caller'lar için optimistic kapatma + cleanup
+        editableDraftStore.delete(draftKey);
         setIsEditing(false);
         onBlur();
         setSaveState("idle");
         setSaveError(null);
       }
     },
-    [localValue, value, taskId, field, onSave, onBlur]
+    [localValue, value, taskId, field, onSave, onBlur, draftKey]
   );
 
   const handleRetry = useCallback(() => {
@@ -196,6 +249,8 @@ export function EditableCell({
       onNavigateNext?.(taskId, editableColumnId);
     }
     if (e.key === "Escape") {
+      // İptal — draft temizle, DB değerine geri dön
+      editableDraftStore.delete(draftKey);
       setLocalValue(value);
       setIsEditing(false);
       setSaveState("idle");
@@ -242,7 +297,10 @@ export function EditableCell({
           type="text"
           value={localValue}
           onChange={(e) => {
-            setLocalValue(e.target.value);
+            const next = e.target.value;
+            setLocalValue(next);
+            // Draft store'a kaydet — remount olursa içerik korunur
+            editableDraftStore.set(draftKey, next);
             // Kullanıcı yazmaya başladıysa eski hatayı temizle
             if (saveState === "error") setSaveState("idle");
           }}
